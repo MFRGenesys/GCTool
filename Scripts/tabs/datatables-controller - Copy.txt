@@ -1,0 +1,1060 @@
+/**
+ * datatables-config.js
+ * Gestion des DataTables et de leur configuration
+ * Auteur: PS Genesys - Matthieu FRYS
+ * Date: 05/2025
+ */
+
+// Fonction d'initialisation du contrôleur DataTables
+function initializeDataTablesController() {
+    console.log('🔧 Initialisation du contrôleur DataTables');
+    
+    // Populer les sélecteurs
+    populateDataTableSelectors();
+    
+    // Afficher la liste des DataTables
+    displayDataTables();
+
+    // Initialiser les informations de configuration
+    updateCurrentConfigInfo();
+
+    // Initialiser la visualisation du schéma
+    if (typeof initializeSchemaVisualization === 'function') {
+        initializeSchemaVisualization();
+    }
+}
+
+/**
+ * Rendre la liste des DataTables rétractable
+ */
+function toggleDataTablesList() {
+    const content = document.getElementById('dataTablesListContent');
+    const icon = document.getElementById('dataTablesListIcon');
+    
+    if (content.style.display === 'none') {
+        content.style.display = 'block';
+        icon.className = 'fa fa-list';
+    } else {
+        content.style.display = 'none';
+        icon.className = 'fa fa-list-alt';
+    }
+}
+
+// Variables de configuration
+let dataTableConfigurations = {};
+
+// Gestion de la sélection de DataTable
+function setupDataTableSelector() {
+    if (typeof $ !== 'undefined' && $.fn.select2) {
+        $('#datatableSelector').on('change', function() {
+            const selectedId = $(this).val();
+            if (selectedId) {
+                loadDataTableColumns(selectedId);
+            } else {
+                document.getElementById('columnsConfig').style.display = 'none';
+                removeDataTablePreview();
+            }
+        });
+    }
+}
+
+// Population des sélecteurs de DataTables
+function populateDataTableSelectors() {
+    const selectors = ['datatableSelector', 'newMappingDataTable'];
+    
+    selectors.forEach(selectorId => {
+        const selector = document.getElementById(selectorId);
+        if (!selector) return;
+        
+        selector.innerHTML = '<option value="">Choisissez une DataTable...</option>';
+        
+        dataTablesCache.forEach(dataTable => {
+            const option = document.createElement('option');
+            option.value = dataTable.id;
+            option.textContent = dataTable.name;
+            selector.appendChild(option);
+        });
+    });
+    
+    // Initialiser Select2 si disponible
+    if (typeof $ !== 'undefined' && $.fn.select2) {
+        $('#datatableSelector').select2();
+    }
+    
+    // Setup des événements
+    setupDataTableSelector();
+}
+
+// Affichage de la configuration des colonnes
+function displayColumnsConfiguration(datatableId, properties) {
+    const columnsDiv = document.getElementById('columnsList');
+    const configDiv = document.getElementById('columnsConfig');
+    
+    columnsDiv.innerHTML = '';
+    
+    // Récupérer la liste des colonnes pour les sélecteurs
+    const columnNames = getOrderedColumns(properties);
+
+    columnNames.forEach(columnName => {
+        const columnDiv = document.createElement('div');
+        columnDiv.className = 'column-config';
+        
+        columnDiv.innerHTML = `
+            <div class="row">
+                <div class="col-md-3">
+                    <strong>Colonne: ${columnName}</strong>
+                    <small class="text-muted">(${properties[columnName].type})</small>
+                </div>
+                <div class="col-md-3">
+                    <select class="form-control column-type" data-column="${columnName}">
+                        <option value="">Sélectionner un type...</option>
+                        <option value="queue">Queue</option>
+                        <option value="skill">Skill</option>
+                        <option value="schedulegroup">Schedule Group</option>
+                        <option value="prompt">Prompt</option>
+                        <option value="liste">Liste de valeurs</option>
+                        <option value="regex">Expression Régulière</option>
+                        <option value="liaison">Liaison</option>
+                        <option value="liaison_auto">Liaison Automatique</option>
+                    </select>
+                </div>
+                <div class="col-md-6">
+                    <!-- Sélecteur de datatable pour liaison normale -->
+                    <select class="form-control liaison-target" data-column="${columnName}" style="display: none;">
+                        <option value="">Sélectionner une DataTable...</option>
+                        ${dataTablesCache.map(dt => `<option value="${dt.id}">${dt.name}</option>`).join('')}
+                    </select>
+                    <!-- Sélecteur de colonne pour liaison automatique -->
+                    <select class="form-control liaison-auto-column" data-column="${columnName}" style="display: none;">
+                        <option value="">Sélectionner une colonne de référence...</option>
+                        ${columnNames.filter(col => col !== columnName).map(col => `<option value="${col}">${col}</option>`).join('')}
+                    </select>
+                    <div class="liste-values-container" data-column="${columnName}" style="display: none;">
+                        <textarea class="form-control liste-values" data-column="${columnName}" 
+                                  placeholder="Saisissez les valeurs possibles séparées par des point-virgules (;)&#10;Exemple: ACTIF;INACTIF;EN_ATTENTE;SUSPENDU" 
+                                  rows="3"></textarea>
+                        <!-- Case à cocher pour autoriser les valeurs null -->
+                        <div class="checkbox" style="margin-top: 10px;">
+                            <label>
+                                <input type="checkbox" class="liste-allow-null" data-column="${columnName}">
+                                <i class="fa fa-check-square-o"></i> Autoriser les valeurs vides/null
+                            </label>
+                        </div>
+                        <!-- Case à cocher pour ignorer la case -->
+                        <div class="checkbox" style="margin-top: 10px;">
+                            <label>
+                                <input type="checkbox" class="liste-ignore-case" data-column="${columnName}">
+                                <i class="fa fa-check-square-o"></i> Ignorer la casse
+                            </label>
+                        </div>
+                        <small class="text-muted">
+                            <i class="fa fa-info-circle"></i> 
+                            Séparez chaque valeur par un point-virgule (;). Les espaces en début/fin seront supprimés automatiquement.
+                        </small>
+                    </div>
+                    
+                    <!-- Configuration pour expression régulière -->
+                    <div class="regex-container" data-column="${columnName}" style="display: none;">
+                        <div class="form-group">
+                            <label>Expression régulière :</label>
+                            <input type="text" class="form-control regex-pattern" data-column="${columnName}" 
+                                   placeholder="Exemple: ^[A-Z][0-9]{4}$ ou ^\\d{4,10}$">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Description du pattern :</label>
+                            <input type="text" class="form-control regex-description" data-column="${columnName}" 
+                                   placeholder="Exemple: Code postal français (5 chiffres)">
+                        </div>
+                        
+                        <div class="checkbox">
+                            <label>
+                                <input type="checkbox" class="regex-allow-null" data-column="${columnName}">
+                                <i class="fa fa-check-square-o"></i> Autoriser les valeurs vides/null
+                            </label>
+                        </div>
+                        
+                        <small class="text-muted">
+                            <i class="fa fa-info-circle"></i> 
+                            Utilisez les expressions régulières JavaScript standard. Exemples :<br>
+                            • <code>^\\d+$</code> : Nombres entiers uniquement<br>
+                            • <code>^\d{1,3}$</code> : Nombre entre 0 et 999<br>
+                            • <code>^(\+33)[0-9]{9}$</code> : numéro de tel en +33
+                        </small>
+                    </div>
+                </div>
+                <div class="col-md-12">
+                    <!-- Affichage du mapping pour liaison automatique -->
+                    <div class="liaison-auto-info" data-column="${columnName}" style="display: none;">
+                        <small class="text-muted">
+                            <strong>Mapping disponible:</strong><br>
+                            ${Object.keys(LIAISON_MAPPING).map(key => `${key} → ${getDataTableNameById(LIAISON_MAPPING[key])}`).join('<br>')}
+                        </small>
+                    </div>
+                    <!-- Aperçu des valeurs pour liste -->
+                    <div class="liste-preview" data-column="${columnName}" style="display: none;">
+                        <small class="text-muted">
+                            <strong>Valeurs configurées:</strong> <span class="preview-values"></span><br>
+                            <strong>Valeurs vides:</strong> <span class="preview-null-policy"></span>
+                            <strong>Gestion de la casse:</strong> <span class="preview-case-policy"></span>
+                        </small>
+                    </div>
+                    <!-- Testeur d'expression régulière -->
+                    <div class="regex-tester" data-column="${columnName}" style="display: none;">
+                        <div class="well well-sm">
+                            <strong>🧪 Testeur d'expression régulière :</strong>
+                            <div class="input-group" style="margin-top: 10px;">
+                                <input type="text" class="form-control regex-test-input" data-column="${columnName}" 
+                                       placeholder="Saisissez une valeur de test...">
+                                <span class="input-group-btn">
+                                    <button class="btn btn-primary" type="button" onclick="testRegexPattern('${columnName}')">
+                                        <i class="fa fa-play"></i> Tester
+                                    </button>
+                                </span>
+                            </div>
+                            <div class="regex-test-result" data-column="${columnName}" style="margin-top: 10px;"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        columnsDiv.appendChild(columnDiv);
+    });
+    
+    // Setup des événements pour les types de colonnes
+    setupColumnTypeEvents();
+
+    // Charger la configuration existante si elle existe
+    loadExistingConfiguration(datatableId);
+    
+    configDiv.style.display = 'block';
+}
+
+
+// Configuration des événements pour les types de colonnes
+function setupColumnTypeEvents() {
+    if (typeof $ === 'undefined') {
+        // Version vanilla JavaScript
+        document.querySelectorAll('.column-type').forEach(select => {
+            select.addEventListener('change', handleColumnTypeChange);
+        });
+    } else {
+        // Version jQuery
+        $('.column-type').off('change').on('change', handleColumnTypeChange);
+    }
+}
+
+// Gestion du changement de type de colonne - Version mise à jour
+function handleColumnTypeChange(event) {
+    const select = event.target;
+    const columnName = select.getAttribute('data-column');
+    const selectedType = select.value;
+    
+    const liaisonSelect = document.querySelector(`.liaison-target[data-column="${columnName}"]`);
+    const liaisonAutoColumn = document.querySelector(`.liaison-auto-column[data-column="${columnName}"]`);
+    const liaisonAutoInfo = document.querySelector(`.liaison-auto-info[data-column="${columnName}"]`);
+    const listeContainer = document.querySelector(`.liste-values-container[data-column="${columnName}"]`);
+    const listePreview = document.querySelector(`.liste-preview[data-column="${columnName}"]`);
+    const regexContainer = document.querySelector(`.regex-container[data-column="${columnName}"]`);
+    const regexTester = document.querySelector(`.regex-tester[data-column="${columnName}"]`);
+    
+    // Masquer tous les sélecteurs
+    if (liaisonSelect) liaisonSelect.style.display = 'none';
+    if (liaisonAutoColumn) liaisonAutoColumn.style.display = 'none';
+    if (liaisonAutoInfo) liaisonAutoInfo.style.display = 'none';
+    if (listeContainer) listeContainer.style.display = 'none';
+    if (listePreview) listePreview.style.display = 'none';
+    if (regexContainer) regexContainer.style.display = 'none';
+    if (regexTester) regexTester.style.display = 'none';
+    
+    // Afficher le bon sélecteur selon le type
+    if (selectedType === 'liaison' && liaisonSelect) {
+        liaisonSelect.style.display = 'block';
+    } else if (selectedType === 'liaison_auto') {
+        if (liaisonAutoColumn) liaisonAutoColumn.style.display = 'block';
+        if (liaisonAutoInfo) liaisonAutoInfo.style.display = 'block';
+    } else if (selectedType === 'liste') {
+        if (listeContainer) listeContainer.style.display = 'block';
+        if (listePreview) listePreview.style.display = 'block';
+        setupListePreview(columnName);
+    } else if (selectedType === 'regex') {
+        if (regexContainer) regexContainer.style.display = 'block';
+        if (regexTester) regexTester.style.display = 'block';
+        setupRegexEvents(columnName);
+    }
+}
+
+// Configuration des événements pour les expressions régulières
+function setupRegexEvents(columnName) {
+    const regexInput = document.querySelector(`.regex-pattern[data-column="${columnName}"]`);
+    const testInput = document.querySelector(`.regex-test-input[data-column="${columnName}"]`);
+    
+    if (regexInput) {
+        regexInput.addEventListener('input', function() {
+            // Auto-test si il y a une valeur de test
+            if (testInput && testInput.value) {
+                testRegexPattern(columnName);
+            }
+        });
+    }
+    
+    if (testInput) {
+        testInput.addEventListener('input', function() {
+            // Auto-test si il y a un pattern
+            if (regexInput && regexInput.value) {
+                testRegexPattern(columnName);
+            }
+        });
+        
+        testInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                testRegexPattern(columnName);
+            }
+        });
+    }
+}
+
+// Configuration de l'aperçu en temps réel pour les listes
+function setupListePreview(columnName) {
+    const listeTextarea = document.querySelector(`.liste-values[data-column="${columnName}"]`);
+    const allowNullCheckbox = document.querySelector(`.liste-allow-null[data-column="${columnName}"]`);
+    const ignoreCaseCheckbox = document.querySelector(`.liste-ignore-case[data-column="${columnName}"]`);
+    const previewValuesSpan = document.querySelector(`.liste-preview[data-column="${columnName}"] .preview-values`);
+    const previewNullSpan = document.querySelector(`.liste-preview[data-column="${columnName}"] .preview-null-policy`);
+    const ignoreCaseSpan = document.querySelector(`.liste-preview[data-column="${columnName}"] .preview-case-policy`);
+    
+    function updatePreview() {
+        if (previewValuesSpan && previewNullSpan) {
+            // Mise à jour des valeurs
+            const values = parseListeValues(listeTextarea ? listeTextarea.value : '');
+            if (values.length > 0) {
+                previewValuesSpan.innerHTML = values.map(v => `<span class="badge badge-info">${v}</span>`).join(' ');
+            } else {
+                previewValuesSpan.textContent = 'Aucune valeur';
+            }
+            
+            // Mise à jour de la politique null
+            const allowNull = allowNullCheckbox ? allowNullCheckbox.checked : false;
+            previewNullSpan.innerHTML = allowNull ? 
+                '<span class="badge badge-success">Autorisées</span>' : 
+                '<span class="badge badge-danger">Interdites</span>';
+                
+            // Mise à jour de la casse
+            const ignoreCase = ignoreCaseCheckbox ? ignoreCaseCheckbox.checked : false;
+            ignoreCaseSpan.innerHTML = ignoreCase ? 
+                '<span class="badge badge-success">Casse Ignorée</span>' : 
+                '<span class="badge badge-danger">Casse Importante</span>';
+        }
+    }
+    
+    if (listeTextarea) {
+        listeTextarea.addEventListener('input', updatePreview);
+    }
+    
+    if (allowNullCheckbox) {
+        allowNullCheckbox.addEventListener('change', updatePreview);
+    }
+    
+    if (ignoreCaseCheckbox) {
+        ignoreCaseCheckbox.addEventListener('change', updatePreview);
+    }
+    // Déclencher l'événement initial
+    updatePreview();
+}
+
+// Fonction utilitaire pour parser les valeurs de liste
+function parseListeValues(rawValues) {
+    if (!rawValues || rawValues.trim() === '') {
+        return [];
+    }
+    
+    return rawValues
+        .split(';')
+        .map(value => value.trim())
+        .filter(value => value !== '');
+}
+
+
+// Affichage des DataTables avec boutons de contrôle
+function displayDataTables() {
+    const dataTablesList = document.getElementById('dataTablesList');
+    dataTablesList.innerHTML = '<br>';
+    
+    dataTablesCache.forEach(dataTable => {
+        const div = document.createElement('div');
+        div.style.margin = '10px 0';
+        div.style.padding = '10px';
+        div.style.border = '1px solid #ddd';
+        div.style.borderRadius = '5px';
+        
+        const hasConfig = dataTableConfigurations[dataTable.id];
+        const controlButton = hasConfig ? 
+            `<button class="btn btn-control btn-sm" onclick="validateDataTable('${dataTable.id}')">Contrôle</button>` : 
+            '';
+        const configBadge = hasConfig ? 
+            '<span class="badge badge-success">Configuré</span>' : 
+            '<span class="badge badge-warning">Non configuré</span>';
+
+        div.innerHTML = `
+            <div class="datatable-header" style="padding: 10px; cursor: pointer;" onclick="toggleDataTablePreview('${dataTable.id}', '${dataTable.name}', this)">
+                <div class="row">
+                    <div class="col-md-8">
+                        <strong class="datatable-name">${dataTable.name}</strong>
+                        <small class="text-muted">(${dataTable.id})</small>
+                        <i class="fa fa-eye preview-icon" style="margin-left: 10px; color: #337ab7;" title="Cliquez pour voir l'aperçu des données"></i>
+                    </div>
+                    <div class="col-md-4 text-right">
+                        ${configBadge}
+                        ${controlButton}
+                    </div>
+                </div>
+            </div>
+            <!-- Conteneur pour l'aperçu (initialement masqué) -->
+            <div id="preview-${dataTable.id}" class="datatable-preview-container" style="display: none; border-top: 1px solid #eee;">
+                <!-- L'aperçu sera inséré ici -->
+            </div>
+        `;
+        
+        dataTablesList.appendChild(div);
+    });
+
+    // Actualisation du schéma si il est visible
+    const schemaSection = document.getElementById('schemaSection');
+    if (schemaSection && schemaSection.style.display !== 'none') {
+        setTimeout(() => {
+            generateDataTableSchema();
+        }, 100);
+    }
+    
+    console.log('📋 Liste des DataTables mise à jour');
+}
+
+async function checkAllDataTablesConfigured() {
+    const feedback = document.getElementById('globalControllerFeedback');
+    if (feedback) {
+        feedback.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Vérification en cours...';
+    }
+    let pageNum = 0
+    dataTablesCache.forEach(dataTable => {
+        const hasConfig = dataTableConfigurations[dataTable.id];
+        if(hasConfig){
+            pageNum++;
+            validateDataTable(dataTable.id,pageNum);
+        }
+    });
+    if (feedback) {
+        feedback.innerHTML = 'Vérification terminée';
+    }
+    
+}
+
+
+// Validation d'une DataTable - Version corrigée pour gérer l'asynchronisme
+async function validateDataTable(datatableId, pageNum=1) {
+    const config = dataTableConfigurations[datatableId];
+    if (!config) {
+        alert('Aucune configuration trouvée pour cette DataTable');
+        return;
+    }
+    
+    console.log('🔍 Début de la validation pour:', datatableId);
+    
+    // Afficher un indicateur de chargement
+    if(pageNum == 1) showValidationLoading(datatableId);
+    
+    try {
+        const allRows = await getDataTableRowsWithCache(datatableId);
+        console.log(`📊 ${allRows.length} lignes récupérées pour validation`);
+        
+        // Créer un tableau de promesses pour toutes les validations
+        const validationPromises = [];
+        
+        allRows.forEach((row, rowIndex) => {
+            Object.keys(config.columns).forEach(columnName => {
+                const columnConfig = config.columns[columnName];
+                const cellValue = row[columnName];
+                
+                if (cellValue) {
+                    // Chaque validation peut être async, donc on l'ajoute aux promesses
+                    const validationPromise = validateCellAsync(
+                        cellValue, 
+                        columnConfig, 
+                        columnName, 
+                        rowIndex + 1, 
+                        row
+                    );
+                    validationPromises.push(validationPromise);
+                }
+            });
+        });
+        
+        console.log(`⏳ Attente de ${validationPromises.length} validations...`);
+        
+        // Attendre que toutes les validations soient terminées
+        const allValidationResults = await Promise.all(validationPromises);
+        
+        // Filtrer les résultats null (validations réussies)
+        const validationResults = allValidationResults.filter(result => result !== null);
+        
+        console.log(`✅ Validation ${pageNum} terminée: ${validationResults.length} problème(s) détecté(s)`);
+        
+        displayValidationResults(datatableId, validationResults, pageNum);
+        
+        //hideValidationLoading();
+    } catch (err) {
+        console.error('❌ Erreur lors de la validation:', err);
+        alert('Erreur lors de la récupération des données de la DataTable');
+        hideValidationLoading();
+    }
+}
+
+// Validation d'une cellule - Version asynchrone
+async function validateCellAsync(value, columnConfig, columnName, rowNumber, currentRow) {
+    try {
+        //console.log(`Controle de ${columnName} la ligne ${rowNumber} colonne ${currentRow} avec la config ${columnConfig.type}`);
+        switch (columnConfig.type) {
+            case 'queue':
+                const queueExists = queuesCache.some(queue => queue.name === value || queue.id === value);
+                if (!queueExists) {
+                    return {
+                        type: 'error',
+                        message: `Ligne ${rowNumber}, Colonne "${columnName}": Queue "${value}" introuvable`,
+                        row: rowNumber,
+                        column: columnName,
+                        value: value
+                    };
+                }
+                break;
+                
+            case 'skill':
+                const skillExists = skillsCache.some(skill => skill.name === value || skill.id === value);
+                if (!skillExists) {
+                    return {
+                        type: 'error',
+                        message: `Ligne ${rowNumber}, Colonne "${columnName}": Skill "${value}" introuvable`,
+                        row: rowNumber,
+                        column: columnName,
+                        value: value
+                    };
+                }
+                break;
+                
+            case 'schedulegroup':
+                const scheduleGroupExists = scheduleGroupsCache.some(sg => sg.name === value || sg.id === value);
+                if (!scheduleGroupExists) {
+                    return {
+                        type: 'error',
+                        message: `Ligne ${rowNumber}, Colonne "${columnName}": Schedule Group "${value}" introuvable`,
+                        row: rowNumber,
+                        column: columnName,
+                        value: value
+                    };
+                }
+                break;
+                
+            case 'prompt':
+                const promptExists = promptsCache.some(prompt => prompt.name === value || prompt.id === value);
+                if (!promptExists) {
+                    return {
+                        type: 'error',
+                        message: `Ligne ${rowNumber}, Colonne "${columnName}": Prompt "${value}" introuvable`,
+                        row: rowNumber,
+                        column: columnName,
+                        value: value
+                    };
+                }
+                break;
+                
+            case 'liaison':
+                // Attendre le résultat de la validation de liaison
+                return await validateLiaisonAsync(value, columnConfig.liaisonTarget, columnName, rowNumber);
+                
+            case 'liaison_auto':
+                // Attendre le résultat de la validation de liaison automatique
+                return await validateLiaisonAutoAsync(value, columnConfig.liaisonAutoColumn, columnName, rowNumber, currentRow);
+
+            case 'liste':
+                return validateListe(value, columnConfig.listeValues, columnName, rowNumber,columnConfig.allowNull||false,columnConfig.ignoreCase||false);
+
+            case 'regex':
+                return validateRegex(value,columnConfig.regexPattern,columnName,rowNumber,columnConfig.allowNull || false,columnConfig.regexDescription || '');
+        }
+        
+        return null; // Validation réussie
+        
+    } catch (error) {
+        console.error(`❌ Erreur lors de la validation de la cellule ${columnName}:`, error);
+        return {
+            type: 'warning',
+            message: `Ligne ${rowNumber}, Colonne "${columnName}": Erreur lors de la validation de "${value}"`,
+            row: rowNumber,
+            column: columnName,
+            value: value
+        };
+    }
+}
+
+// Validation des liaisons normales - Version asynchrone
+async function validateLiaisonAsync(value, targetDatatableId, columnName, rowNumber) {
+    try {
+        const targetRows = await getDataTableRowsWithCache(targetDatatableId);
+        //console.log(`🔍 Vérification de la liaison "${value}" dans la DataTable cible ${targetDatatableId}`);
+        //console.log(`📊 ${targetRows.length} lignes récupérées pour la DataTable cible`);
+        //console.log(`liste des valeurs de la DataTable cible: ${targetRows.map(row => row.key || JSON.stringify(row))}`);
+        const valueExists = targetRows.some(row => 
+            row.key === value || Object.values(row).includes(value)
+        );
+        
+        if (!valueExists) {
+            const valueNotCaseExists = targetRows.some(row => 
+                row.key.toLowerCase() === value.toLowerCase() || Object.values(row).includes(value)
+            );
+            if (valueNotCaseExists) {
+                return {
+                    type: 'warning',
+                    message: `Ligne ${rowNumber}, Colonne "${columnName}": Liaison "${value}" n'a pas la bonne casse dans la DataTable ${getDataTableNameById(targetDatatableId)}`,
+                    row: rowNumber,
+                    column: columnName,
+                    value: value
+                };
+            }else{
+                return {
+                    type: 'error',
+                    message: `Ligne ${rowNumber}, Colonne "${columnName}": Liaison "${value}" introuvable dans la DataTable ${getDataTableNameById(targetDatatableId)}`,
+                    row: rowNumber,
+                    column: columnName,
+                    value: value
+                };
+            }
+        }
+        
+        return null; // Validation réussie
+        
+    } catch (err) {
+        console.error('❌ Erreur lors de la validation de liaison:', err);
+        return {
+            type: 'warning',
+            message: `Ligne ${rowNumber}, Colonne "${columnName}": Impossible de vérifier la liaison "${value}"`,
+            row: rowNumber,
+            column: columnName,
+            value: value
+        };
+    }
+}
+
+// Validation des liaisons automatiques - Version asynchrone
+async function validateLiaisonAutoAsync(value, referenceColumnName, columnName, rowNumber, currentRow) {
+    const referenceValue = currentRow[referenceColumnName];
+    
+    if (!referenceValue) {
+        return {
+            type: 'warning',
+            message: `Ligne ${rowNumber}, Colonne "${columnName}": Colonne de référence "${referenceColumnName}" vide`,
+            row: rowNumber,
+            column: columnName,
+            value: value
+        };
+    }
+    
+    const targetDataTableId = LIAISON_MAPPING[referenceValue];
+    
+    if (!targetDataTableId) {
+        return {
+            type: 'error',
+            message: `Ligne ${rowNumber}, Colonne "${columnName}": Aucune DataTable configurée pour "${referenceValue}" (colonne ${referenceColumnName})`,
+            row: rowNumber,
+            column: columnName,
+            value: value
+        };
+    }
+    
+    // Déléguer à la validation de liaison normale
+    return await validateLiaisonAsync(value, targetDataTableId, columnName, rowNumber);
+}
+
+// Validation pour les listes - Version mise à jour avec gestion des valeurs null
+function validateListe(value, allowedValues, columnName, rowNumber, allowNull = false, ignoreCase = false) {
+    // Vérifier si la valeur est null/vide
+    const isEmptyValue = value === null || value === undefined || value === '' || value.toString().trim() === '';
+    
+    if (isEmptyValue) {
+        if (allowNull) {
+            return null; // Validation réussie - valeur vide autorisée
+        } else {
+            return {
+                type: 'error',
+                message: `Ligne ${rowNumber}, Colonne "${columnName}": Valeur vide non autorisée`,
+                row: rowNumber,
+                column: columnName,
+                value: value || '(vide)'
+            };
+        }
+    }
+    
+    if (!allowedValues || allowedValues.length === 0) {
+        return {
+            type: 'warning',
+            message: `Ligne ${rowNumber}, Colonne "${columnName}": Aucune valeur configurée pour la validation`,
+            row: rowNumber,
+            column: columnName,
+            value: value
+        };
+    }
+    
+    // Convertir la valeur en string pour la comparaison
+    const stringValue = value.toString().trim();
+    const valueUpperCase = stringValue.toUpperCase();
+    const allowedValuesUpperCase = parseListeValues(allowedValues.join(';').toUpperCase());
+
+    if (!(allowedValues.includes(stringValue) || (allowedValuesUpperCase.includes(valueUpperCase) && ignoreCase))){
+        // Vérification insensible à la casse pour suggérer des corrections
+        const possibleMatches = allowedValues.filter(allowed => 
+            allowed.toUpperCase() === valueUpperCase
+        );
+        
+        let errorMessage = `Ligne ${rowNumber}, Colonne "${columnName}": Valeur "${stringValue}" non autorisée`;
+        
+        if (possibleMatches.length > 0) {
+            errorMessage += ` (Suggestion: "${possibleMatches[0]}")`;
+        }
+        
+        errorMessage += `. Valeurs autorisées: ${allowedValues.join(', ')}`;
+        
+        if (allowNull) {
+            errorMessage += ' (valeurs vides autorisées)';
+        }
+        
+        return {
+            type: 'error',
+            message: errorMessage,
+            row: rowNumber,
+            column: columnName,
+            value: stringValue,
+            allowedValues: allowedValues,
+            allowNull: allowNull
+        };
+    }
+    
+    return null; // Validation réussie
+}
+
+// Validation par expression régulière
+function validateRegex(value, regexPattern, columnName, rowNumber, allowNull = false, description = '') {
+    // Vérifier si la valeur est null/vide
+    const isEmptyValue = value === null || value === undefined || value === '' || value.toString().trim() === '';
+    
+    if (isEmptyValue) {
+        if (allowNull) {
+            return null; // Validation réussie - valeur vide autorisée
+        } else {
+            return {
+                type: 'error',
+                message: `Ligne ${rowNumber}, Colonne "${columnName}": Valeur vide non autorisée`,
+                row: rowNumber,
+                column: columnName,
+                value: value || '(vide)'
+            };
+        }
+    }
+
+    if (!regexPattern) {
+        return {
+            type: 'warning',
+            message: `Ligne ${rowNumber}, Colonne "${columnName}": Aucune expression régulière configurée`,
+            row: rowNumber,
+            column: columnName,
+            value: value
+        };
+    }
+    
+    try {
+        const regex = new RegExp(regexPattern);
+        const stringValue = value.toString();
+        
+        if (!regex.test(stringValue)) {
+            let errorMessage = `Ligne ${rowNumber}, Colonne "${columnName}": La valeur "${stringValue}" ne respecte pas le format requis`;
+            
+            if (description) {
+                errorMessage += ` (${description})`;
+            }
+            
+            errorMessage += `. Pattern attendu: ${regexPattern}`;
+            
+            return {
+                type: 'error',
+                message: errorMessage,
+                row: rowNumber,
+                column: columnName,
+                value: stringValue,
+                regexPattern: regexPattern,
+                description: description
+            };
+        }
+        
+        return null; // Validation réussie
+        
+    } catch (error) {
+        return {
+            type: 'warning',
+            message: `Ligne ${rowNumber}, Colonne "${columnName}": Expression régulière invalide (${error.message})`,
+            row: rowNumber,
+            column: columnName,
+            value: value
+        };
+    }
+}
+
+// Affichage des résultats de validation
+function displayValidationResults(datatableId, results,pageNum) {
+    const resultsDiv = document.getElementById('validationResults');
+    const contentDiv = document.getElementById('validationContent');
+    
+    const dataTableName = dataTablesCache.find(dt => dt.id === datatableId)?.name || datatableId;
+    
+    console.log(`Analyse de la validation`)
+    let html = `<h5>Résultats ${pageNum} pour: ${dataTableName}</h5>`;
+    
+    if (results.length === 0) {
+        html += '<div class="validation-result validation-success">✅ Aucune erreur détectée</div>';
+    } else {
+        const errors = results.filter(r => r.type === 'error');
+        const warnings = results.filter(r => r.type === 'warning');
+        
+        if (errors.length > 0) {
+            html += `<div class="validation-result validation-error">
+                <strong>❌ ${errors.length} erreur(s) détectée(s):</strong>
+                <ul>${errors.map(e => `<li>${e.message}</li>`).join('')}</ul>
+            </div>`;
+        }
+        
+        if (warnings.length > 0) {
+            html += `<div class="validation-result validation-warning">
+                <strong>⚠️ ${warnings.length} avertissement(s):</strong>
+                <ul>${warnings.map(w => `<li>${w.message}</li>`).join('')}</ul>
+            </div>`;
+        }
+    }
+    
+    if (pageNum>1){
+        contentDiv.innerHTML += html;
+    }else{
+        contentDiv.innerHTML = html;
+    }
+    resultsDiv.style.display = 'block';
+    
+    // Scroll vers les résultats
+    resultsDiv.scrollIntoView({ behavior: 'smooth' });
+}
+
+// Fonctions utilitaires pour l'interface - Améliorées
+function showValidationLoading(datatableId) {
+    const resultsDiv = document.getElementById('validationResults');
+    const contentDiv = document.getElementById('validationContent');
+    
+    if (resultsDiv && contentDiv) {
+        const dataTableName = getDataTableNameById(datatableId);
+        contentDiv.innerHTML += `
+            <div class="text-center">
+                <i class="fa fa-spinner fa-spin fa-3x text-primary"></i>
+                <h4>Validation en cours...</h4>
+                <p>Analyse de la DataTable: <strong>${dataTableName}</strong></p>
+                <p><small>Veuillez patienter pendant la vérification des données...</small></p>
+                <div class="progress">
+                    <div class="progress-bar progress-bar-striped active" role="progressbar" style="width: 100%">
+                        <span class="sr-only">Validation en cours...</span>
+                    </div>
+                </div>
+            </div>
+        `;
+        resultsDiv.style.display = 'block';
+        resultsDiv.scrollIntoView({ behavior: 'smooth' });
+    }
+}
+
+function hideValidationLoading() {
+    const resultsDiv = document.getElementById('validationResults');
+    if (resultsDiv) {
+        resultsDiv.style.display = 'none';
+    }
+}
+
+// Testeur d'expression régulière en temps réel
+function testRegexPattern(columnName) {
+    const regexInput = document.querySelector(`.regex-pattern[data-column="${columnName}"]`);
+    const testInput = document.querySelector(`.regex-test-input[data-column="${columnName}"]`);
+    const resultDiv = document.querySelector(`.regex-test-result[data-column="${columnName}"]`);
+    
+    if (!regexInput || !testInput || !resultDiv) return;
+    
+    const pattern = regexInput.value.trim();
+    const testValue = testInput.value;
+    
+    resultDiv.innerHTML = '';
+    
+    if (!pattern) {
+        resultDiv.innerHTML = '<small class="text-muted">Saisissez une expression régulière pour tester</small>';
+        return;
+    }
+    
+    if (!testValue) {
+        resultDiv.innerHTML = '<small class="text-muted">Saisissez une valeur de test</small>';
+        return;
+    }
+    
+    try {
+        const regex = new RegExp(pattern);
+        const isMatch = regex.test(testValue);
+        
+        if (isMatch) {
+            resultDiv.innerHTML = `
+                <div class="alert alert-success" style="padding: 5px; margin: 0;">
+                    <i class="fa fa-check"></i> <strong>✅ Correspond</strong> - La valeur "${testValue}" respecte le pattern
+                </div>
+            `;
+        } else {
+            resultDiv.innerHTML = `
+                <div class="alert alert-danger" style="padding: 5px; margin: 0;">
+                    <i class="fa fa-times"></i> <strong>❌ Ne correspond pas</strong> - La valeur "${testValue}" ne respecte pas le pattern
+                </div>
+            `;
+        }
+        
+        // Ajouter des informations sur les captures si disponibles
+        if (isMatch) {
+            const matches = testValue.match(regex);
+            if (matches && matches.length > 1) {
+                resultDiv.innerHTML += `
+                    <small class="text-info">
+                        <strong>Groupes capturés:</strong> ${matches.slice(1).join(', ')}
+                    </small>
+                `;
+            }
+        }
+        
+    } catch (error) {
+        resultDiv.innerHTML = `
+            <div class="alert alert-warning" style="padding: 5px; margin: 0;">
+                <i class="fa fa-exclamation-triangle"></i> <strong>⚠️ Expression invalide</strong><br>
+                <small>${error.message}</small>
+            </div>
+        `;
+    }
+}
+
+// Bibliothèque de patterns regex couramment utilisés
+const REGEX_PATTERNS_LIBRARY = {
+    'email': {
+        pattern: '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$',
+        description: 'Adresse email valide'
+    },
+    'phone_fr': {
+        pattern: '^(?:(?:\\+|00)33|0)\\s*[1-9](?:[\\s.-]*\\d{2}){4}$',
+        description: 'Numéro de téléphone français'
+    },
+    'postal_code_fr': {
+        pattern: '^\\d{5}$',
+        description: 'Code postal français (5 chiffres)'
+    },
+    'siret': {
+        pattern: '^\\d{14}$',
+        description: 'Numéro SIRET (14 chiffres)'
+    },
+    'integers_only': {
+        pattern: '^\\d+$',
+        description: 'Nombres entiers uniquement'
+    },
+    'alphanumeric': {
+        pattern: '^[a-zA-Z0-9]+$',
+        description: 'Caractères alphanumériques uniquement'
+    },
+    'sentence_case': {
+        pattern: '^[A-Z][a-z]*$',
+        description: 'Première lettre majuscule, reste en minuscules'
+    },
+    'uuid': {
+        pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
+        description: 'UUID/GUID standard'
+    },
+    'ip_address': {
+        pattern: '^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$',
+        description: 'Adresse IP v4'
+    },
+    'date_dd_mm_yyyy': {
+        pattern: '^\\d{2}/\\d{2}/\\d{4}$',
+        description: 'Date au format DD/MM/YYYY'
+    }
+};
+
+// Fonction pour afficher la bibliothèque de patterns
+function showRegexLibrary(columnName) {
+    const modal = document.createElement('div');
+    modal.className = 'modal fade';
+    modal.innerHTML = `
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h4 class="modal-title">📚 Bibliothèque d'expressions régulières</h4>
+                    <button type="button" class="close" data-dismiss="modal">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="row">
+                        ${Object.keys(REGEX_PATTERNS_LIBRARY).map(key => {
+                            const item = REGEX_PATTERNS_LIBRARY[key];
+                            return `
+                                <div class="col-md-6" style="margin-bottom: 15px;">
+                                    <div class="panel panel-default">
+                                        <div class="panel-body">
+                                            <h5>${item.description}</h5>
+                                            <code>${item.pattern}</code>
+                                            <br><br>
+                                            <button class="btn btn-sm btn-primary" onclick="useRegexPattern('${columnName}', '${item.pattern}', '${item.description}')">
+                                                <i class="fa fa-copy"></i> Utiliser
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-default" data-dismiss="modal">Fermer</button>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+    $(modal).modal('show');
+    
+    $(modal).on('hidden.bs.modal', function() {
+        document.body.removeChild(modal);
+    });
+}
+
+// Fonction pour utiliser un pattern de la bibliothèque
+function useRegexPattern(columnName, pattern, description) {
+    const regexInput = document.querySelector(`.regex-pattern[data-column="${columnName}"]`);
+    const descriptionInput = document.querySelector(`.regex-description[data-column="${columnName}"]`);
+    
+    if (regexInput) regexInput.value = pattern;
+    if (descriptionInput) descriptionInput.value = description;
+    
+    // Fermer la modal
+    $('.modal').modal('hide');
+    
+    console.log(`📋 Pattern appliqué pour ${columnName}: ${pattern}`);
+}
+
+/**
+ * Gestionnaire d'événements pour éviter les conflits de clic
+ */
+document.addEventListener('DOMContentLoaded', function() {
+    // Empêcher la propagation des clics sur les boutons de contrôle
+    document.addEventListener('click', function(e) {
+        if (e.target.closest('.btn-control')) {
+            e.stopPropagation();
+        }
+    });
+});

@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>GCTool - Outils d'Administration</title>
+    <link rel="icon" href="gctool.ico" type="image/x-icon">
+    <meta content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" name="viewport">
+    
+    <!-- Bootstrap & Styles -->
+    <link rel="stylesheet" href="./Scripts/bootstrap.min.css">
+    <!--<link rel="stylesheet" href="./Scripts/font-awesome.min.css">-->
+    <link rel="stylesheet" href="./Scripts/select2.min.css">
+    <link rel="stylesheet" href="./Scripts/AdminLTE.min.css">
+    <link rel="stylesheet" href="./Scripts/gcTool.css">
+</head>
+<body class="hold-transition sidebar-mini">
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="loading-overlay">
+        <div class="loading-content">
+            <div class="loading-spinner">
+                <i class="fa fa-spinner fa-spin"></i>
+            </div>
+            <h4>Chargement des données Genesys Cloud...</h4>
+            <p id="loadingStatus">Initialisation...</p>
+        </div>
+    </div>
+
+    <!-- Main Header -->
+    <header class="main-header">
+        <div class="container">
+            <div class="row">
+                <div class="col-md-8">
+                    <h1><i class="fa fa-cloud"></i> Genesys Cloud - Outils d'Administration</h1>
+                    <div class="subtitle">Suite d'outils pour l'administration et le contrôle de votre organisation Genesys Cloud</div>
+                </div>
+                <div class="col-md-4 text-right">
+                    <div id="userInfo" class="user-info" style="display: none;">
+                        <strong id="userName">Utilisateur</strong><br>
+                        <small id="orgInfo">Organisation</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <div class="container">
+        <!-- Error Message -->
+        <div id="errorMessage" class="error-message" style="display: none;">
+            <h4><i class="fa fa-exclamation-triangle"></i> Erreur d'initialisation</h4>
+            <p id="errorDetails"></p>
+        </div>
+
+
+
+        <!-- Main Tabs -->
+        <div id="mainContent" style="display: none;">
+            <ul class="nav nav-tabs" role="tablist">
+                <li role="presentation" class="active">
+                    <a href="#information" aria-controls="information" role="tab" data-toggle="tab">
+                        <i class="fa fa-info-circle"></i> Information
+                    </a>
+                </li>
+                <li role="presentation">
+                    <a href="#datatables-controller" aria-controls="datatables-controller" role="tab" data-toggle="tab">
+                        <i class="fa fa-table"></i> Contrôleur DataTables
+                    </a>
+                </li>
+                <li role="presentation">
+                    <a href="#datatables-flow" aria-controls="datatables-flow" role="tab" data-toggle="tab">
+                        <i class="fa fa-project-diagram"></i> Flows
+                    </a>
+                </li>
+                <!-- Prêt pour d'autres onglets -->
+                <li role="presentation" class="disabled">
+                    <a href="#" aria-controls="" role="tab">
+                        <i class="fa fa-plus"></i> Autres outils (à venir)
+                    </a>
+                </li>
+            </ul>
+
+            <!-- Tab Content -->
+            <div class="tab-content">
+                <!-- Information Tab -->
+                <div role="tabpanel" class="tab-pane active" id="information">
+                    <div id="informationContent">
+                        <!-- Le contenu sera chargé dynamiquement -->
+                    </div>
+                </div>
+
+                <!-- DataTables Controller Tab -->
+                <div role="tabpanel" class="tab-pane" id="datatables-controller">
+                    <div id="datatablesControlContent">
+                        <!-- Le contenu sera chargé dynamiquement -->
+                    </div>
+                </div>
+                
+                <!-- DataTables Flow Tab -->
+                <div role="tabpanel" class="tab-pane" id="datatables-flow">
+                    <div id="datatablesFlowContent">
+                        <!-- Le contenu sera chargé dynamiquement -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://sdk-cdn.mypurecloud.com/javascript/222.0.0/purecloud-platform-client-v2.min.js"></script>
+    <script src="https://kit.fontawesome.com/fc18fc76c3.js" crossorigin="anonymous"></script>
+    <script src="./Scripts/jquery.min.js"></script>
+    <script src="./Scripts/bootstrap.min.js"></script>
+    <script src="./Scripts/select2.full.min.js"></script>
+
+    <!-- Scripts de l'application -->
+    <script src="./Scripts/main-app.js"></script>
+    <script src="./Scripts/auth-init.js"></script>
+
+    <!-- Scripts spécifiques aux onglets -->
+    <script src="./Scripts/tabs/information.js"></script>
+    <script src="./Scripts/tabs/datatables-controller.js"></script>
+    <script src="./Scripts/tabs/schema-visualizer.js"></script>
+    <script src="./Scripts/tabs/config-manager.js"></script>
+    <script src="./Scripts/tabs/datatables-manager.js"></script>
+    <script src="./Scripts/tabs/datatables-preview.js"></script>
+    <script src="./Scripts/tabs/datatables-flow.js"></script>
+    <script src="./Scripts/tabs/visuals-flow-generator.js"></script>
+    <script src="./Scripts/tabs/task-manager.js"></script>
+    <script src="./Scripts/tabs/exportPdf.js"></script>
+    <script src="./Scripts/tabs/exportXml.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
+
+</body>
+</html>

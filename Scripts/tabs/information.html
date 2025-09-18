@@ -1,0 +1,142 @@
+<!-- Information Tab Content -->
+<div class="row">
+    <div class="col-md-12">
+        <div class="box box-primary">
+            <div class="box-header with-border">
+                <h3 class="box-title">
+                    <i class="fa fa-info-circle"></i> Informations de l'Organisation
+                </h3>
+                <div class="box-tools pull-right">
+                    <button type="button" class="btn btn-box-tool" onclick="refreshInformationPage()">
+                        <i class="fa fa-refresh"></i> Actualiser
+                    </button>
+                </div>
+            </div>
+            <div class="box-body">
+                <!-- Statistiques principales -->
+                <div class="row">
+                    <div class="col-lg-3 col-xs-6">
+                        <div class="small-box bg-aqua">
+                            <div class="inner">
+                                <h3 id="dataTablesCount">-</h3>
+                                <p>DataTables</p>
+                            </div>
+                            <div class="icon">
+                                <i class="fa fa-table"></i>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="col-lg-3 col-xs-6">
+                        <div class="small-box bg-green">
+                            <div class="inner">
+                                <h3 id="queuesCount">-</h3>
+                                <p>Queues</p>
+                            </div>
+                            <div class="icon">
+                                <i class="fa fa-phone"></i>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="col-lg-3 col-xs-6">
+                        <div class="small-box bg-yellow">
+                            <div class="inner">
+                                <h3 id="skillsCount">-</h3>
+                                <p>Skills</p>
+                            </div>
+                            <div class="icon">
+                                <i class="fa fa-star"></i>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="col-lg-3 col-xs-6">
+                        <div class="small-box bg-red">
+                            <div class="inner">
+                                <h3 id="promptsCount">-</h3>
+                                <p>Prompts</p>
+                            </div>
+                            <div class="icon">
+                                <i class="fa fa-volume-up"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Informations détaillées -->
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="box box-solid">
+                            <div class="box-header">
+                                <h3 class="box-title">Détails de l'Organisation</h3>
+                            </div>
+                            <div class="box-body">
+                                <table class="table table-bordered">
+                                    <tr>
+                                        <td><strong>Région :</strong></td>
+                                        <td><span id="orgRegion">-</span></td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>Organisation :</strong></td>
+                                        <td><span id="orgName">-</span>
+                                        <button class="btn btn-xs btn-default" onclick="changeOrganization()" title="Changer d'organisation">
+                                        <i class="fa fa-exchange"></i></td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>Utilisateur connecté :</strong></td>
+                                        <td><span id="currentUserName">-</span></td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>ID Utilisateur :</strong></td>
+                                        <td><code id="currentUserIdDisplay">-</code></td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>Dernière synchronisation :</strong></td>
+                                        <td><span id="lastSyncTime">-</span></td>
+                                    </tr>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-6">
+                        <div class="box box-solid">
+                            <div class="box-header">
+                                <h3 class="box-title">Actions Rapides</h3>
+                            </div>
+                            <div class="box-body">
+                                <button class="btn btn-primary btn-block" onclick="exportOrganizationSummary()">
+                                    <i class="fa fa-download"></i> Exporter Résumé Organisation
+                                </button>
+                                <button class="btn btn-info btn-block" onclick="showDetailedStatistics()">
+                                    <i class="fa fa-chart-bar"></i> Statistiques Détaillées
+                                </button>
+                                <button class="btn btn-warning btn-block" onclick="refreshAllData()">
+                                    <i class="fa fa-refresh"></i> Actualiser Toutes les Données
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Graphiques et statistiques avancées -->
+                <div class="row">
+                    <div class="col-md-12">
+                        <div class="box box-solid">
+                            <div class="box-header">
+                                <h3 class="box-title">Répartition des Ressources</h3>
+                            </div>
+                            <div class="box-body">
+                                <div id="resourcesChart"></div>
+                                <div id="detailedStats" style="display: none;">
+                                    <!-- Contenu des statistiques détaillées -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

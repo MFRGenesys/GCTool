@@ -1,0 +1,286 @@
+<!-- DataTables Flow Designer Tab Content - Version réorganisée -->
+<div class="flow-designer-container">
+    <div class="row flow-designer-row">
+        <!-- Palette des boîtes à gauche (réduite) -->
+        <div class="col-md-2 flow-palette-col">
+            <div class="box box-primary">
+                <div class="box-header with-border">
+                    <h3 class="box-title">
+                        <i class="fa fa-puzzle-piece"></i> Palette
+                    </h3>
+                </div>
+                <div class="box-body">
+                    <div class="flow-palette">
+                        <div class="palette-item" draggable="true" data-type="start">
+                            <div class="box-preview start-box">
+                                <i class="fa fa-play"></i>
+                                <span>Start</span>
+                                <div class="connection-points">
+                                    <div class="output-point"></div>
+                                </div>
+                            </div>
+                            <small>Démarrage</small>
+                        </div>
+                        
+                        <div class="palette-item" draggable="true" data-type="route">
+                            <div class="box-preview route-box">
+                                <i class="fa fa-arrow-right"></i>
+                                <span>Route</span>
+                                <div class="connection-points">
+                                    <div class="input-point"></div>
+                                    <div class="output-point"></div>
+                                </div>
+                            </div>
+                            <small>Route</small>
+                        </div>
+                        
+                        <div class="palette-item" draggable="true" data-type="menu">
+                            <div class="box-preview menu-box">
+                                <i class="fa fa-sitemap"></i>
+                                <span>Menu</span>
+                                <div class="connection-points">
+                                    <div class="input-point"></div>
+                                    <div class="output-point out1"></div>
+                                    <div class="output-point out2"></div>
+                                    <div class="output-point out3"></div>
+                                </div>
+                            </div>
+                            <small>Menu</small>
+                        </div>
+                        
+                        <div class="palette-item" draggable="true" data-type="message">
+                            <div class="box-preview message-box">
+                                <i class="fa fa-file-audio"></i>
+                                <span>Message</span>
+                                <div class="connection-points">
+                                    <div class="input-point"></div>
+                                    <div class="output-point"></div>
+                                </div>
+                            </div>
+                            <small>Message</small>
+                        </div>
+                        
+                        <div class="palette-item" draggable="true" data-type="calendar">
+                            <div class="box-preview calendar-box">
+                                <i class="fa fa-calendar"></i>
+                                <span>Calendar</span>
+                                <div class="connection-points">
+                                    <div class="input-point"></div>
+                                    <div class="output-point"></div>
+                                </div>
+                            </div>
+                            <small>Calendar</small>
+                        </div>
+
+                        <div class="palette-item" draggable="true" data-type="end">
+                            <div class="box-preview end-box">
+                                <i class="fa fa-stop"></i>
+                                <span>End</span>
+                                <div class="connection-points">
+                                    <div class="input-point"></div>
+                                </div>
+                            </div>
+                            <small>Fin</small>
+                        </div>
+                        
+                        <div class="palette-item" draggable="true" data-type="error">
+                            <div class="box-preview error-box">
+                                <i class="fa fa-exclamation-triangle"></i>
+                                <span>Erreur</span>
+                                <div class="connection-points">
+                                    <div class="input-point"></div>
+                                </div>
+                            </div>
+                            <small>Erreur</small>
+                        </div>
+                    </div>
+                    
+                    <hr>
+                    
+                    <!-- Actions -->
+                    <div class="flow-actions">
+                        <div class="form-group" style="margin-bottom: 10px;">
+                            <label for="visualsCount" style="font-size: 11px; margin-bottom: 5px;">Nb visuels :</label>
+                            <select class="form-control" id="visualsCount" style="font-size: 11px; height: 28px;">
+                                <option value="1" selected>1</option>
+                                <option value="10">10</option>
+                                <option value="50">50</option>
+                                <option value="all">Tous</option>
+                            </select>
+                        </div>
+                        
+                        <button class="btn btn-success btn-sm btn-block" onclick="generateFlowVisuals()">
+                            <i class="fa fa-magic"></i> Générer
+                        </button>
+                        <button class="btn btn-info btn-sm btn-block" onclick="validateFlow(true)">
+                            <i class="fa fa-check"></i> Valider
+                        </button>
+                        <button class="btn btn-warning btn-sm btn-block" onclick="clearCanvas()">
+                            <i class="fa fa-trash"></i> Vider
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Zone de canvas principale (agrandie) -->
+        <div class="col-md-7 flow-canvas-col">
+            <div class="box box-primary">
+                <div class="box-header with-border">
+                    <h3 class="box-title">
+                        <i class="fa fa-project-diagram"></i> Concepteur de Flux
+                    </h3>
+                    <div class="box-tools pull-right">
+                        <button type="button" class="btn btn-box-tool" onclick="exportFlow()">
+                            <i class="fa fa-download"></i>
+                        </button>
+                        <button type="button" class="btn btn-box-tool" onclick="importFlow()">
+                            <i class="fa fa-upload"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="box-body">
+                    <!-- Canvas pour le diagramme -->
+                    <div id="flowCanvas" class="flow-canvas">
+                        <svg id="flowSvg" width="100%" height="600">
+                            <defs>
+                                <marker id="arrowhead" markerWidth="10" markerHeight="7" 
+                                        refX="9" refY="3.5" orient="auto">
+                                    <polygon points="0 0, 10 3.5, 0 7" fill="#666" />
+                                </marker>
+                            </defs>
+                            <g id="connectionsGroup"></g>
+                            <g id="boxesGroup"></g>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Configuration de la boîte sélectionnée à droite -->
+        <div class="col-md-3 flow-config-col">
+            <div class="box box-info" id="boxConfigPanel" style="display: none;">
+                <div class="box-header with-border">
+                    <h3 class="box-title">
+                        <i class="fa fa-cog"></i> Configuration
+                    </h3>
+                    <div class="box-tools pull-right">
+                        <button type="button" class="btn btn-box-tool" onclick="deselectBox()">
+                            <i class="fa fa-times"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="box-body">
+                    <div id="boxConfigContent">
+                        <!-- Le contenu sera généré dynamiquement -->
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Panneau d'aide quand aucune boîte n'est sélectionnée -->
+            <div class="box box-default" id="helpPanel">
+                <div class="box-header with-border">
+                    <h3 class="box-title">
+                        <i class="fa fa-question-circle"></i> Aide
+                    </h3>
+                </div>
+                <div class="box-body">
+                    <h5>Comment utiliser :</h5>
+                    <ol style="font-size: 12px; padding-left: 15px;">
+                        <li>Glissez une boîte de la palette vers le canvas</li>
+                        <li>Cliquez sur une boîte pour la configurer</li>
+                        <li>Cliquez sur les points de connexion pour relier les boîtes</li>
+                        <li>Configurez les conditions de routage</li>
+                        <li>Générez les visuels pour tester le flux</li>
+                    </ol>
+                    
+                    <h5>Types de boîtes :</h5>
+                    <ul style="font-size: 11px; padding-left: 15px;">
+                        <li><span class="label" style="background-color: #28a745;">Start</span> Point de départ</li>
+                        <li><span class="label" style="background-color: #17a2b8;">Route</span> Passage simple</li>
+                        <li><span class="label" style="background-color: #ffc107; color: #333;">Menu</span> Branchement multiple</li>
+                        <li><span class="label" style="background-color: #496bd8;">Message</span> Diffusion d'un message</li>
+                        <li><span class="label" style="background-color: #ebd61d;">Calendar</span> Calendrier d'ouverture</li>
+                        <li><span class="label" style="background-color: #dc3545;">End</span> Point d'arrivée</li>
+                        <li><span class="label" style="background-color: #dc3545;">Error</span> Point d'erreur</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Résultats des visuels générés (pleine largeur) -->
+<div class="row" id="generatedVisualsSection" style="display: none;">
+    <div class="col-md-12">
+        <div class="box box-success">
+            <div class="box-header with-border">
+                <h3 class="box-title">
+                    <i class="fa fa-eye"></i> Visuels Générés
+                </h3>
+                <div class="box-tools pull-right">
+                    <button type="button" class="btn btn-box-tool" onclick="exportAllVisualsAsPDF()">
+                        <i class="fa fa-file-pdf-o"></i> Export PDF
+                    </button>                
+                    <button type="button" class="btn btn-box-tool dropdown-toggle" data-toggle="dropdown">
+                        <span class="caret"></span>
+                    </button>
+                    <ul class="dropdown-menu">
+                        <li><a href="#" onclick="exportAllVisualsAsPDF()">
+                            <i class="fa fa-file-pdf-o"></i> Export PDF rapide
+                        </a></li>
+                        <li><a href="#" onclick="showPDFExportOptions()">
+                            <i class="fa fa-cog"></i> Export PDF avec options
+                        </a></li>
+                    </ul>
+                    <button type="button" class="btn btn-box-tool" onclick="exportAllVisualsToDrawio()">
+                        <i class="fa fa-download"></i> Exporter
+                    </button>
+                    <button type="button" class="btn btn-box-tool" onclick="clearGeneratedVisuals()">
+                        <i class="fa fa-trash"></i> Vider
+                    </button>
+                    <button type="button" class="btn btn-box-tool" onclick="toggleVisualsSection()">
+                        <i class="fa fa-minus"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="box-body">
+                <div id="generatedVisualsContent" style="display: none;">
+                            <div class="text-center" id="generatingVisuals">
+                                <i class="fa fa-spinner fa-spin fa-2x"></i>
+                                <h4>Génération des visuels en cours...</h4>
+                                <p>Analyse des parcours avec gestion des menus...</p>
+                            </div>
+                    <!-- Les visuels générés apparaîtront ici -->
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal d'import de flux --> 
+<div class="modal fade" id="importFlowModal" tabindex="-1" role="dialog" aria-labelledby="importFlowModalLabel">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+                <h4 class="modal-title" id="importFlowModalLabel">
+                    <i class="fa fa-upload"></i> Importer un Flow
+                </h4>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="flowImportFile">Sélectionner un fichier JSON :</label>
+                    <input type="file" class="form-control" id="flowImportFile" accept=".json">
+                </div>
+                <div id="importError" class="alert alert-danger" style="display: none;"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-default" data-dismiss="modal">Annuler</button>
+                <button type="button" class="btn btn-primary" onclick="processFlowImport()">Importer</button>
+            </div>
+        </div>
+    </div>
+</div>
