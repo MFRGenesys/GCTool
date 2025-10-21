@@ -1,0 +1,95 @@
+<!-- Logs Flow Tab Content -->
+<div class="box box-primary" id="logsFlowRoot">
+  <div class="box-header with-border">
+    <h3 class="box-title">
+      <i class="fa fa-exchange"></i> Flux Logs
+    </h3>
+    <div class="box-tools pull-right">
+      <label class="btn btn-sm btn-primary" title="Charger un CSV de logs">
+        <i class="fa fa-upload"></i> Charger CSV
+        <input id="logsCsvInput" type="file" accept=".csv,text/csv" style="display:none">
+      </label>
+        <button id="exportDiagramBtn" class="btn btn-sm btn-success" title="Exporter le schéma en JSON">
+        <i class="fa fa-download"></i>
+        </button>
+        <label class="btn btn-sm btn-warning" title="Importer un schéma JSON">
+        <i class="fa fa-upload"></i>
+        <input id="importDiagramInput" type="file" accept="application/json,.json" style="display:none">
+        </label>
+      <button id="clearCountersBtn" class="btn btn-sm btn-default" title="Réinitialiser les compteurs">
+        <i class="fa fa-eraser"></i>
+      </button>
+      <button id="clearDiagramBtn" class="btn btn-sm btn-danger" title="Vider le diagramme">
+        <i class="fa fa-trash"></i>
+      </button>
+
+    </div>
+  </div>
+  <div class="box-body">
+    <div class="row">
+      <div class="col-md-3">
+        <div class="well well-sm" style="min-height:110px">
+          <strong>Utilisation</strong>
+          <ul style="padding-left:18px;margin-top:6px">
+            <li>Double‑cliquez sur le canevas pour <em>ajouter une boîte</em>.</li>
+            <li>Chaque boîte doit avoir un <strong>Label</strong> et un <strong>Point de passage</strong> au format <code>AAAA[999]</code> (3‑4 lettres + 3‑4 chiffres entre crochets).</li>
+            <li>Glissez les boîtes pour les déplacer.</li>
+            <li>Pour relier : cliquez le point <strong>bas</strong> d’une boîte (sortie), puis le point <strong>haut</strong> d’une autre (entrée).</li>
+            <li>Après chargement d’un CSV, le <strong>compteur</strong> de chaque boîte affiche le nombre d’<u>interactions</u> passées par ce point.</li>
+          </ul>
+          <small class="text-muted">
+            Le diagramme est sauvegardé en continu dans <code>localStorage</code> sous la clé <code>flux_log</code>.
+          </small>
+        </div>
+        <div id="logsCsvProgress" class="progress" style="display:none;margin-top:6px;">
+        <div id="logsCsvProgressBar" class="progress-bar" role="progressbar"
+            style="width:0%;min-width:30px;">0%</div>
+        </div>
+        <div class="well well-sm" id="logsStats" style="display:none"></div>
+      </div>
+      <div class="col-md-9">
+        <!-- Canvas -->
+        <div id="logFlowCanvas" class="flow-canvas" style="height:600px;border:1px solid #ddd;border-radius:4px;position:relative;">
+          <svg id="logFlowSvg" width="100%" height="100%">
+            <defs>
+              <marker id="logArrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                <polygon points="0 0, 10 3.5, 0 7"></polygon>
+              </marker>
+            </defs>
+            <g id="logConnectionsGroup"></g>
+            <g id="logBoxesGroup"></g>
+          </svg>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: créer/éditer une boîte -->
+<div class="modal fade" id="logBoxModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <button type="button" class="close" data-dismiss="modal">&times;</button>
+        <h4 class="modal-title"><i class="fa fa-square"></i> Nouvelle boîte</h4>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Label</label>
+          <input id="logBoxLabel" type="text" class="form-control" placeholder="Nom affiché sur la boîte" required>
+        </div>
+        <div class="form-group">
+          <label>Point de passage (ex: <code>MEN[101]</code> ou <code>IVR1[0001]</code>)</label>
+          <input id="logBoxWaypoint" type="text" class="form-control" placeholder="AAAA[999] (3-4 lettres + [3-4 chiffres])" required>
+          <small class="text-muted">Format: <code>^[A-Za-z]{3,4}\[\d{3,4}\]$</code></small>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-default" data-dismiss="modal">Annuler</button>
+        <button id="logBoxSaveBtn" type="button" class="btn btn-primary">
+          <i class="fa fa-check"></i> Valider
+        </button>
+      </div>
+    </div>
+  </div>
+</div>

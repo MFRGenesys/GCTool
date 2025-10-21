@@ -92,6 +92,9 @@ async function loadTabContents() {
         // Charger la page Contrôleur DataTables
         await loadTabFromFile('datatables-flow', 'datatablesFlowContent');
         
+        // Charger la page Flow logs
+        await loadTabFromFile('logs-flow', 'logsFlowContent');
+
         initializeInformationPage();
 
         console.log('📑 Contenu des onglets chargé depuis les fichiers');
@@ -204,6 +207,23 @@ $(document).ready(function() {
             case '#datatables-flow':
                 if (typeof initializeFlowDesigner === 'function') {
                     initializeFlowDesigner();
+                }
+                break;
+            case '#logs-flow':
+                console.log('🔧 Init LogsFlow via case exact');
+                if (typeof initializeLogsFlowTab === 'function') {
+                    initializeLogsFlowTab();
+                }
+                else {
+                    console.warn('⚠️ initializeLogsFlowTab introuvable (ni global, ni dans GCTOOL_LOGFLOW).');
+                }
+                break;
+
+            default:
+                // Fallback: si on a un ID approchant (ex: #logsflow, #logs_flow, …)
+                if (target.includes('logs') && target.includes('flow')) {
+                console.log('🔧 Init LogsFlow via fallback (target approchant):', target);
+                callLogsFlowInit();
                 }
                 break;
         }

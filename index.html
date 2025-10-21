@@ -73,6 +73,11 @@
                         <i class="fa fa-project-diagram"></i> Flows
                     </a>
                 </li>
+                <li role="presentation">
+                    <a href="#logs-flow" aria-controls="logs-flow" role="tab" data-toggle="tab">
+                        <i class="fa fa-exchange"></i> Flux Logs
+                    </a>
+                </li>
                 <!-- Prêt pour d'autres onglets -->
                 <li role="presentation" class="disabled">
                     <a href="#" aria-controls="" role="tab">
@@ -103,6 +108,10 @@
                         <!-- Le contenu sera chargé dynamiquement -->
                     </div>
                 </div>
+
+                <div role="tabpanel" class="tab-pane" id="logs-flow">
+                    <div id="logsFlowContent"><!-- chargé dynamiquement --></div>
+                </div>
             </div>
         </div>
     </div>
@@ -113,11 +122,7 @@
     <script src="./Scripts/jquery.min.js"></script>
     <script src="./Scripts/bootstrap.min.js"></script>
     <script src="./Scripts/select2.full.min.js"></script>
-
-    <!-- Scripts de l'application -->
-    <script src="./Scripts/main-app.js"></script>
-    <script src="./Scripts/auth-init.js"></script>
-
+    
     <!-- Scripts spécifiques aux onglets -->
     <script src="./Scripts/tabs/information.js"></script>
     <script src="./Scripts/tabs/datatables-controller.js"></script>
@@ -128,11 +133,15 @@
     <script src="./Scripts/tabs/datatables-flow.js"></script>
     <script src="./Scripts/tabs/visuals-flow-generator.js"></script>
     <script src="./Scripts/tabs/task-manager.js"></script>
+    <script src="./Scripts/tabs/logs-flow.js"></script>
     <script src="./Scripts/tabs/exportPdf.js"></script>
     <script src="./Scripts/tabs/exportXml.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 
+    <!-- Scripts de l'application -->
+    <script src="./Scripts/main-app.js"></script>
+    <script src="./Scripts/auth-init.js"></script>
 
 </body>
 </html>

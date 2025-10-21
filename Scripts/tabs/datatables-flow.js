@@ -1890,7 +1890,6 @@ function generateConditionalFlowPath(row, currentBox, keyValue, visitedBoxes = n
     //console.log(`DEBUG currentBox = `, currentBox);
     //console.log(`DEBUG currentBox KeyValue = `, keyValue);
     //console.log(`DEBUG currentRow = `, row);
-    validator.addBox(currentBox); 
     
 
     // Gestion spéciale pour les boîtes d'erreur
@@ -1917,6 +1916,9 @@ function generateConditionalFlowPath(row, currentBox, keyValue, visitedBoxes = n
             const currentRowData = dataTableRows.find(r => r.key === keyValue) || row;
             console.log(`DEBUG currentRowData = `, currentRowData);	
             
+            currentBox.data = currentRowData;
+            validator.addBox(currentBox); 
+
             let html = `<div class="flow-step ${currentBox.type}">
                 ${currentBox.displayColumn ? `${getColumnTitle(currentBox.dataTable,currentBox.displayColumn)}: ${currentRowData[currentBox.displayColumn] || 'N/A'}` : currentBox.type}
             `;
@@ -2423,7 +2425,6 @@ function calculateGlobalValidationStats(visualData) {
         stats.ko += validator.koCount;
         stats.untested += validator.untestedCount;
     });
-
     stats.progress = stats.total > 0 ? Math.round(((stats.ok + stats.ko) / stats.total) * 100) : 0;
     return stats;
 }
@@ -2712,6 +2713,7 @@ class FlowPathValidator {
         this.okCount = 0;
         this.koCount = 0;
         this.untestedCount = 0;
+        this.progress = 0;
         this.total = 0;
         this.tasks = [];
     }
@@ -2725,14 +2727,16 @@ class FlowPathValidator {
             case 'ko': this.koCount++; break;
             default: this.untestedCount++; break;
         }
+        this.progress = this.total > 0 ? Math.round(((this.okCount + this.koCount)/this.total)*100) : 0;
     }
 
     addTask(task) {
         this.tasks.push(task);
     }
 
-    get progress() {
+    /*get progress() {
         const tested = this.okCount + this.koCount;
         return this.total > 0 ? Math.round((tested / this.total) * 100) : 0;
-    }
+    }*/
+    
 }

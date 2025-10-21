@@ -384,7 +384,7 @@ function generateValidationReport_old(flowpath,visualIndex) {
                 <div class="step-header">
                     <div class="step-info">
                         <span class="step-name">${description}</span>
-                        <small class="text-muted">(${getDataTableNameById(box.datatable)})</small>
+                        <small class="text-muted">(${getDataTableNameById(box.dataTable)})</small>
                     </div>
                     <span class="badge badge-${status}">${getStatusLabel(status)}</span>
                 </div>
@@ -601,11 +601,14 @@ function generateValidationReport(flowPath, flowIndex) {
  */
 function generateStepValidationFromTasks(box,tasks, flowIndex, stepIndex) {
     const stepId = `flow_${flowIndex}_step_${stepIndex}`;
-    
+    console.log(`DEBUG génération de la step box = `, box);
     console.log(`DEBUG génération de la step avec les tasks `, tasks);
+    console.log(`Datatable Id = ${box.dataTable}`)
+    let keyColumn = box.displayColumn;
+    console.log(`key value = ${box.data[keyColumn]}`)
 
     const status = box.testConfig?.status || 'untested';
-    const description =`Étape ${stepIndex + 1} - ${box.displayName} (${(box.description || '')})`;
+    const description =`Étape ${stepIndex + 1} - ${box.displayName} (${(box.description || box.data[keyColumn])})`;
     let stepHTML = `
         <div class="test-case" data-status="${status}" data-box-id="${box.id}" data-visual-index="${flowIndex}">
             <div class="test-controls">
@@ -620,7 +623,7 @@ function generateStepValidationFromTasks(box,tasks, flowIndex, stepIndex) {
                 <div class="step-header">
                     <div class="step-info">
                         <span class="step-name">${description}</span>
-                        <small class="text-muted">(${getDataTableNameById(box.datatable)})</small>
+                        <small class="text-muted">(${getDataTableNameById(box.dataTable)})</small>
                     </div>
                     <span class="badge badge-${status}">${getStatusLabel(status)}</span>
                 </div>
