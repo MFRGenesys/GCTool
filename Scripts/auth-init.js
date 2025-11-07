@@ -109,7 +109,7 @@ function proceedWithAuthentication() {
                 updateLoadingStatus('Chargement des données Genesys...');
             }
             
-            return loadAllGenesysData();
+            //DEBUG COMMENT A ENLEVER return loadAllGenesysData();
         })
         .then(() => {
             console.log('✅ Données Genesys chargées avec succès');
