@@ -1,0 +1,377 @@
+
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Genesys Cloud App Lifecycle Demo</title>
+        <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/css/bootstrap.min.css" integrity="sha512-dTfge/zgoMYpP7QbHy4gWMEGsbsdZeCXz7irItjcC3sPUFtf0kuFbDz/ixG7ArTxmDjLXDmezHubeNikyKGVyQ==" crossorigin="anonymous">
+        <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/css/bootstrap-theme.min.css" integrity="sha384-aUGj/X2zp5rLCbBxumKTCw2Z50WgIr1vs/PFN4praOTvYXWlVyh2UtNUU0KAUhAX" crossorigin="anonymous">
+        <script src="https://code.jquery.com/jquery-2.1.4.min.js"></script>
+        <script src="https://sdk-cdn.mypurecloud.com/client-apps/2.6.3/purecloud-client-app-sdk-de77761d.min.js"></script>
+        <script src="https://sdk-cdn.mypurecloud.com/javascript/latest/purecloud-platform-client-v2.min.js"></script>
+        <style>
+            body{font-family:system-ui,Arial,sans-serif;margin:2rem;max-width:960px}
+            fieldset{border:1px solid #ddd;border-radius:8px;margin:1rem 0;padding:1rem}
+            label{display:block;margin:.4rem 0 .2rem}
+            input,select,button{padding:.5rem;font-size:14px}
+            .row{display:flex;gap:1rem;flex-wrap:wrap}
+            .row > div{flex:1;min-width:240px}
+            pre{background:#111;color:#eee;padding:1rem;border-radius:8px;overflow:auto}
+            .ok{color:#0a0}
+            .err{color:#c00}
+            .log {overflow: auto;
+                height: 15em;
+                line-height: 1.5em;}
+            section {
+                margin-top: 2em;
+                padding-left: 3em;
+            }
+            section h1 {
+                font-size: 2em;
+            }
+            ul.lifecycle-event-log li.incomming::before {
+                content: '↙ ';
+                color: #FF0000;
+            }
+            ul.lifecycle-event-log li.outgoing::before {
+                content: '↗ ';
+                color: #00FF00;
+            }
+            footer {
+                position: fixed;
+                bottom: 0;
+                width: 100%;
+                text-align: center;
+            }
+        </style>
+    </head>
+
+    <body>
+        <noscript>
+            For full functionality of this site it is necessary to enable JavaScript. Here are the <a href="http://www.enable-javascript.com/" target="_blank">instructions how to enable JavaScript in your web browser</a>.
+        </noscript>
+
+        <h1>Genesys Cloud App Lifecycle Demo</h1>
+        <p>
+            Genesys Cloud Apps have a full lifecycle that developers can utilize to
+            provide a seamless experience for end users.
+        </p>
+        <hr>
+
+        <section>
+            <h1>App Lifecycle</h1>
+            <ol>
+                <li>Loading - The app's iframe is loading</li>
+                <li>Bootstrapping (Opt-in)
+                    <ul>
+                        <li>'bootstrap' message fired from Genesys Cloud after load</li>
+                        <li>Genesys Cloud awaits app 'bootstrapped' response (Will timeout)</li>
+                    </ul>
+                </li>
+                <li>Running
+                    <ul>
+                        <li>'blur' message fired from Genesys Cloud on app blur (Opt-in)</li>
+                        <li>'focus' message fired from Genesys Cloud on subsequent app focus (Opt-in)</li>
+                    </ul>
+                </li>
+                <li>Stopping (Opt-in)
+                    <ul>
+                        <li>'stop' message fired from Genesys Cloud after load</li>
+                        <li>Genesys Cloud awaits app 'stopped' response (Will timeout)</li>
+                    </ul>
+                </li>
+                <li>Stopped - The app has shut down and the iframe will be removed from Genesys Cloud</li>
+            </ol>
+        </section>
+
+        <section class="lifecycle-events">
+            <h1>Lifecycle Events Log:</h1>
+            <ul class="log lifecycle-event-log">
+            </ul>
+        </section>
+
+        <span id="loginStatus"></span>
+        <input id="conversationId" placeholder="Conversation ID" />
+
+
+        <script>
+            var lifecycleStatusMessageTitle = 'Lifecycle Demo App';
+            var lifecycleStatusMessageId = 'lifecycleDemo-statusMsg';
+
+            function extractParams(paramStr) {
+                let result = {};
+
+                if (paramStr) {
+                    let params = paramStr.split('&');
+                    params.forEach(function(currParam) {
+                        if (currParam) {
+                            let paramTokens = currParam.split('=');
+                            let paramName = paramTokens[0];
+                            let paramValue = paramTokens[1];
+                            if (paramName) {
+                                paramName = decodeURIComponent(paramName);
+                                paramValue = paramValue ? decodeURIComponent(paramValue) : null;
+
+                                if (!result.hasOwnProperty(paramName)) {
+                                    result[paramName] = paramValue;
+                                } else if (Array.isArray(result[paramName])) {
+                                    result[paramName].push(paramValue);
+                                } else {
+                                    result[paramName] = [result[paramName], paramValue];
+                                }
+                            }
+                        }
+                    });
+                }
+
+                return result;
+            }
+
+            function getRequireManualToastDismissal() {
+                if (window.location.search) {
+                    let paramValue = extractParams(window.location.search.substring(1)).requireManualToastDismissal;
+                    if (paramValue === 'true') {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            jQuery(function () {
+                let myClientApp = null;
+
+                var requireManualToastDismissal = getRequireManualToastDismissal();
+
+                var count = 0;
+                // Note: This manual check for query string is for backwards compatibility of this
+                // deployed example.  In your own apps, you can assume the query param will be
+                // provided by Genesys Cloud if you have configured it in your app's config.
+                const envQueryParamName = 'pcEnvironment';
+                const hostQueryParamName = 'gcHostOrigin';
+                const targetEnvQueryParamName = 'gcTargetEnv';
+                const locationSearch = (window && window.location && typeof window.location.search === 'string') ? window.location.search : '';
+                const queryParams = new URLSearchParams(locationSearch);
+                if (queryParams.get(hostQueryParamName) || queryParams.get(targetEnvQueryParamName)) {
+                    // Compute Genesys Cloud region from host origin
+                    myClientApp = new window.purecloud.apps.ClientApp({
+                        gcHostOriginQueryParam: hostQueryParamName,
+                        gcTargetEnvQueryParam: targetEnvQueryParamName
+                    });
+                } else if (queryParams.get(envQueryParamName)) {
+                    // Compute Genesys Cloud region from pcEnvironment
+                    myClientApp = new window.purecloud.apps.ClientApp({ pcEnvironmentQueryParam: envQueryParamName });
+                } else {
+                    // Use default Genesys Cloud region
+                    myClientApp = new window.purecloud.apps.ClientApp();
+                }
+
+                myClientApp.lifecycle.addBootstrapListener(() => {
+                    logLifecycleEvent('App Lifecycle Event: bootstrap', true);
+
+                    // Simulating bootstrap delay of 500ms
+                    window.setTimeout(() => {
+                        myClientApp.lifecycle.bootstrapped();
+                        if (requireManualToastDismissal) {
+                            myClientApp.alerting.showToastPopup(
+                                lifecycleStatusMessageTitle,
+                                `Bootstrap Complete (500ms delay):${lifecycleStatusMessageId}-bootstrap-${count}`, {
+                                    id: `${lifecycleStatusMessageId}-bootstrap-${count}`,
+                                    type: 'success',
+                                    showCloseButton: true,
+                                    timeout: 0
+                                }
+                            );
+                            count++;
+                        } else {
+                            myClientApp.alerting.showToastPopup(
+                                lifecycleStatusMessageTitle,
+                                `Bootstrap Complete (500ms delay)`, {
+                                    id: lifecycleStatusMessageId,
+                                    type: 'success',
+                                }
+                            );
+                        }
+
+                        logLifecycleEvent('Notified PC of Successful App Bootstrap', false);
+                    }, 500);
+                });
+
+                function onAppFocus () {
+                    logLifecycleEvent('App Lifecycle Event: focus', true);
+                    if (requireManualToastDismissal) {
+                        myClientApp.alerting.showToastPopup(
+                            lifecycleStatusMessageTitle,
+                            `App Focused:${lifecycleStatusMessageId}-focus-${count}`, {
+                                id: `${lifecycleStatusMessageId}-focus-${count}`,
+                                showCloseButton: true,
+                                timeout: 0
+                            }
+                        );
+                        count++;
+                    } else {
+                        myClientApp.alerting.showToastPopup(
+                        lifecycleStatusMessageTitle,
+                            'App Focused', {
+                                id: lifecycleStatusMessageId
+                            }
+                        );
+                    }
+
+                }
+                myClientApp.lifecycle.addFocusListener(onAppFocus);
+
+                function onAppBlur () {
+                    logLifecycleEvent('App Lifecycle Event: blur', true);
+                    if (requireManualToastDismissal) {
+                        myClientApp.alerting.showToastPopup(
+                            lifecycleStatusMessageTitle,
+                            `App Blurred:${lifecycleStatusMessageId}-blur-${count}`, {
+                                id: `${lifecycleStatusMessageId}-blur-${count}`,
+                                showCloseButton: true,
+                                timeout: 0
+                            }
+                        );
+                        count++;
+                    } else {
+                        myClientApp.alerting.showToastPopup(
+                            lifecycleStatusMessageTitle,
+                            'App Blurred', {
+                                id: lifecycleStatusMessageId
+                            }
+                        );
+                    }
+
+                }
+                myClientApp.lifecycle.addBlurListener(onAppBlur);
+
+                myClientApp.lifecycle.addStopListener(() => {
+                    logLifecycleEvent('App Lifecycle Event: stop', true);
+
+                    // Clean up other, persistent listeners
+                    myClientApp.lifecycle.removeFocusListener(onAppFocus);
+                    myClientApp.lifecycle.removeBlurListener(onAppBlur);
+
+                    // Simulating delay of 500ms
+                    window.setTimeout(() => {
+                        myClientApp.lifecycle.stopped();
+                        if (requireManualToastDismissal) {
+                            myClientApp.alerting.showToastPopup(
+                                lifecycleStatusMessageTitle,
+                                `App Stopped (500ms delay):${lifecycleStatusMessageId}-stop-${count}`, {
+                                    id: `${lifecycleStatusMessageId}-stop-${count}`,
+                                    type: 'error',
+                                    showCloseButton: true,
+                                    timeout: 0
+                                }
+                            );
+                            count++;
+                        } else {
+                            myClientApp.alerting.showToastPopup(
+                                lifecycleStatusMessageTitle,
+                                'App Stopped (500ms delay)', {
+                                    id: lifecycleStatusMessageId,
+                                    type: 'error',
+                                    showCloseButton: true
+                                }
+                            );
+                        }
+
+                        logLifecycleEvent('Notified PC of Successful App Stop', false);
+                    }, 500);
+                });
+
+                function logLifecycleEvent(logText, incommingEvent) {
+                    $tgt = jQuery('.lifecycle-events .log')
+                    var newItem = $('<li>' + logText + '</li>');
+                    newItem.addClass(incommingEvent ? 'incomming' : 'outgoing');
+
+                    $tgt.prepend(newItem);
+                }
+            });
+        </script>
+
+        <script>
+        (function(){
+        // --- Accès au SDK (compatible include direct) ---
+        const platformClient = (window.require && window.require('platformClient')) || window.platformClient;
+        if (!platformClient) {
+            document.getElementById('out').textContent = 'SDK Genesys Cloud non chargé.';
+            return;
+        }
+
+        // --- Références UI ---
+        const elClientId     = "1baf39d4-819a-4222-9e69-d016073d0398";
+        const elClientSecret = "aoMpp8Gwm1V0-R0yx0seDUG2Yf5fPSquhj_qSQC_fz8";
+        const elRedirectUri  = "https://gctool.matt920free.synology.me/gcTool/PKCETest.html";
+        const elRegion       = "eu_central_1";
+        const elLoginStatus  = document.getElementById('loginStatus');
+        const elConversation = document.getElementById('conversationId').value;
+
+        // --- Initialisation ApiClient ---
+        const client = platformClient.ApiClient.instance;
+
+        // Persistance (nouveau) : évite de se reloguer à chaque refresh
+        client.setPersistSettings(true, 'PKCE_Sample_App');
+
+        function setRegionFromSelect(){
+            try {
+            const host = platformClient.PureCloudRegionHosts[elRegion.value]; // nouveau : mapping officiel des régions
+            client.setEnvironment(host); // ex: mypurecloud.ie / usw2.pure.cloud, etc.
+            } catch(e){
+            console.error(e);
+            }
+        }
+        setRegionFromSelect();
+
+        // --- 1) Connexion PKCE (nouveau) ---
+        async function connect(){
+            const clientId    = elClientId;
+            const redirectUri = elRedirectUri;
+            if(!clientId || !redirectUri){
+            elLoginStatus.innerHTML = '<span class="err">Client ID et Redirect URI requis</span>';
+            return;
+            }
+            elLoginStatus.textContent = 'Redirection vers Genesys Cloud…';
+            try {
+            // Le SDK gère automatiquement la génération/stockage du code verifier si non fourni
+            // et "résout" la promesse au retour sur la Redirect URI. (nouveau)
+            await client.loginPKCEGrant(clientId, redirectUri, { state: 'gc-pkce-sample' }); // ← PKCE
+            elLoginStatus.innerHTML = '<span class="ok">Connecté ✔</span>';
+            } catch (err) {
+            console.error(err);
+            elLoginStatus.innerHTML = '<span class="err">Échec connexion</span>';
+            }
+        };
+        connect();
+
+        // --- 2) Appel API : récupérer la conversation par ID (nouveau) ---
+        async function getInteractionDetail(convId){
+            if(!convId){
+            elLoginStatus.innerHTML = '<span class="err">Conversation ID requis</span>';
+            return;
+            }
+            elLoginStatus.textContent = 'Chargement…';
+            try {
+            const conversationsApi = new platformClient.ConversationsApi();
+            const data = await conversationsApi.getConversation(convId); // ← détails de l’interaction
+            elLoginStatus.textContent = JSON.stringify(data, null, 2);
+            } catch (err) {
+            console.error(err);
+            elLoginStatus.innerHTML = '<span class="err">Erreur</span>';
+            elLoginStatus.textContent = (err && err.stack) ? err.stack : String(err);
+            }
+        };
+        getInteractionDetail(elConversation);
+
+        // Optionnel : si on revient de l’OAuth redirect, relancer un coup d’oeil à l’état d’auth
+        // (loginPKCEGrant résout immédiatement si le jeton est déjà présent/persisté).
+        })();
+        
+        document.addEventListener('DOMContentLoaded', () => {
+            const params = new URLSearchParams(location.search);
+            const id = params.get('conversationId') || params.get('id'); // accepte 2 noms
+            if (id) document.getElementById('conversationId').value = id;
+          });
+        </script>
+    </body>
+</html>

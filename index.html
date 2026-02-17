@@ -78,6 +78,16 @@
                         <i class="fa fa-exchange"></i> Flux Logs
                     </a>
                 </li>
+                <li role="presentation">
+                    <a href="#priorisation" aria-controls="priorisation" role="tab" data-toggle="tab">
+                        <i class="fa fa-chart-bar"></i> Priorisation
+                    </a>
+                </li>
+                <li role="presentation">
+                    <a href="#api-explorer" aria-controls="api-explorer" role="tab" data-toggle="tab">
+                        <i class="fa fa-code"></i> API Explorer
+                    </a>
+                </li>
                 <!-- Prêt pour d'autres onglets -->
                 <li role="presentation" class="disabled">
                     <a href="#" aria-controls="" role="tab">
@@ -108,9 +118,14 @@
                         <!-- Le contenu sera chargé dynamiquement -->
                     </div>
                 </div>
-
                 <div role="tabpanel" class="tab-pane" id="logs-flow">
                     <div id="logsFlowContent"><!-- chargé dynamiquement --></div>
+                </div>
+                <div role="tabpanel" class="tab-pane" id="priorisation">
+                    <div id="priorisationContent"><!-- chargé dynamiquement --></div>
+                </div>
+                <div role="tabpanel" class="tab-pane" id="api-explorer">
+                    <div id="apiExplorerContent"><!-- charge dynamiquement --></div>
                 </div>
             </div>
         </div>
@@ -136,6 +151,8 @@
     <script src="./Scripts/tabs/logs-flow.js"></script>
     <script src="./Scripts/tabs/exportPdf.js"></script>
     <script src="./Scripts/tabs/exportXml.js"></script>
+    <script src="./Scripts/tabs/priorisation.js"></script>
+    <script src="./Scripts/tabs/api-explorer.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 

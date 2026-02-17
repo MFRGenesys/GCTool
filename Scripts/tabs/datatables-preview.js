@@ -547,6 +547,7 @@ function showDataTablePreviewInList(datatableId, datatableName, container, icon)
         .then(([allRows, dataTableSchema]) => {
             console.log('📊 Données reçues:', {
             rowsCount: allRows ? allRows.length : 0,
+            first5Rows: allRows.slice(0,5),
             schemaValid: !!(dataTableSchema && dataTableSchema.schema),
             schema: dataTableSchema
             });

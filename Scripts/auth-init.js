@@ -22,6 +22,11 @@ const ORG_CONFIGS = {
         description: 'Org LBP TFON'
     },
     'org4': {
+        name: 'LBP Prod',
+        clientId: 'a59c92b9-ad42-43bd-80b4-a589661f0396', 
+        description: 'Org LBP Prod'
+    },
+    'org5': {
         name: 'Organisation 3',
         clientId: 'yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy', 
         description: 'Organisation de développement'
@@ -34,7 +39,7 @@ let selectedOrgConfig = null;
 let redirectURL = window.location.origin + window.location.pathname;
 
 // APIs Genesys Cloud
-let usersApi, architectApi, routingApi;
+let usersApi, architectApi, routingApi, analyticsApi;
 let currentUserId;
 let currentOrgId;
 
@@ -49,6 +54,7 @@ function initializeApis() {
     usersApi = new platformClient.UsersApi();
     architectApi = new platformClient.ArchitectApi();
     routingApi = new platformClient.RoutingApi();
+    analyticsApi = new platformClient.AnalyticsApi();
 }
 
 /**
@@ -109,7 +115,8 @@ function proceedWithAuthentication() {
                 updateLoadingStatus('Chargement des données Genesys...');
             }
             
-            //DEBUG COMMENT A ENLEVER return loadAllGenesysData();
+            //DEBUG COMMENT A ENLEVER 
+            return loadAllGenesysData();
         })
         .then(() => {
             console.log('✅ Données Genesys chargées avec succès');
@@ -422,11 +429,11 @@ let scheduleGroupsCache = [];
 // Chargement de toutes les données Genesys en parallèle
 function loadAllGenesysData() {
     const loadingPromises = [
-        getAllDatatables(),
+        //getAllDatatables(),
         getAllQueues(),
-        getAllSkills(),
-        getAllPrompts(),
-        getAllScheduleGroups()
+        //getAllSkills(),
+        //getAllPrompts(),
+        //getAllScheduleGroups()
     ];
     
     return Promise.all(loadingPromises)

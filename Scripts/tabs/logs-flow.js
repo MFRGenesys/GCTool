@@ -19,6 +19,8 @@
   let csvStats = null;                // { totalRows, totalInteractions, countsByWaypoint:{} }
   const MAX_OUTGOING = 10;
   let isLeftCollapsed = false;
+  let autoCreateMissing = JSON.parse(localStorage.getItem('logflow_createMissing') || 'true');
+
 
   // RegExp de validation stricte (ex: MEN[101])
   const WAYPOINT_VALIDATE_RE = /^[A-Za-z]{3,4}\[\d{3,4}\]$/;
@@ -55,8 +57,8 @@
     });
 
     $(document).on('click', '#toggleLeftColBtn', toggleLeftColumn);
-    $(document).on('click', '#loadDataBtn, #ldOpenBtn, #ldShowBtn', ensureLeftPanelVisible);
-    document.addEventListener('logFlow:openLoadData', ensureLeftPanelVisible);
+    // $(document).on('click', '#loadDataBtn, #ldOpenBtn, #ldShowBtn', ensureLeftPanelVisible);
+    // document.addEventListener('logFlow:openLoadData', ensureLeftPanelVisible);
 
     // Connexion temporaire (suivi souris)
     svgEl.addEventListener('mousemove', onMouseMoveWhileConnecting);
@@ -64,14 +66,14 @@
       if (isConnecting && !e.target.classList.contains('log-conn-point')) cancelConnection();
     });
 
-    // Boutons
-    document.getElementById('logsCsvInput').addEventListener('change', onCsvSelected);
-    document.getElementById('clearCountersBtn').addEventListener('click', resetCounters);
-    document.getElementById('clearDiagramBtn').addEventListener('click', () => clearDiagram(true));
+    // // Boutons
+    // document.getElementById('logsCsvInput').addEventListener('change', onCsvSelected);
+    // document.getElementById('clearCountersBtn').addEventListener('click', resetCounters);
+    // document.getElementById('clearDiagramBtn').addEventListener('click', () => clearDiagram(true));
 
     // Boutons Load Date et IndexedDB
-    setDefaultPeriod();
-    document.getElementById('loadDataBtn').addEventListener('click', ()=> $('#loadDataModal').modal('show'));
+    // setDefaultPeriod();
+    // document.getElementById('loadDataBtn').addEventListener('click', ()=> $('#loadDataModal').modal('show'));
     document.getElementById('ldStart').addEventListener('change', validateDatetimeRange);
     document.getElementById('ldEnd').addEventListener('change', validateDatetimeRange);
     document.getElementById('loadDataValidateBtn').addEventListener('click', (e)=>{
@@ -82,8 +84,10 @@
       }
       onValidateLoadData()
     },true);
-    // [IDB] boutons de service
-    $('#ldBuildFromLocalBtn').on('click', ()=> openJobsPickerModal());
+
+
+    // [IDB] Modal Gestion des IndexDB locals
+    // $('#ldBuildFromLocalBtn').on('click', ()=> openJobsPickerModal());
     // Moteur de recherche + refresh
     $(document).on('input', '#ldJobsSearch', async function(){
       const jobs = await fetchAllJobs();
@@ -103,91 +107,83 @@
       if (statusEl) statusEl.textContent = `Chargement du job local ${jobId}…`;
       await buildGraphFromStored(jobId);
     });
-
-    // (Optionnel) Supprimer un job
+    // Supprimer un job
     $(document).on('click', '#ldJobsDeleteBtn', async ()=>{
       const jobId = getSelectedJobIdFromModal();
       if (!jobId) return;
       if (!confirm(`Supprimer le job ${jobId} et ses interactions ?`)) return;
       // supprimer interactions + job
-      const db = await idbOpen();
-      await new Promise((res,rej)=>{
-        const tx = db.transaction([IDB_STORE_INTERACTIONS, IDB_STORE_JOBS], 'readwrite');
-        const stI = tx.objectStore(IDB_STORE_INTERACTIONS).index('byJob');
-        const req = stI.openCursor(IDB_STORE_JOBS? IDBKeyRange.only(jobId): jobId);
-        req.onsuccess = (e)=>{
-          const c = e.target.result;
-          if (c){ c.delete(); c.continue(); }
-          else res();
-        };
-        req.onerror = ()=> rej(req.error);
-        tx.oncomplete = ()=> {
-          const tx2 = db.transaction(IDB_STORE_JOBS, 'readwrite');
-          tx2.objectStore(IDB_STORE_JOBS).delete(jobId);
-          tx2.oncomplete = res; tx2.onerror = ()=> rej(tx2.error);
-        };
-      });
-      // refresh table
-      const jobs = await fetchAllJobs();
-      const ft = $('#ldJobsSearch').val()||'';
-      renderJobsTable(jobs, ft);
+      deleteIndexedDbJob(jobId);
     });
 
-    $('#ldPurgeLocalBtn').on('click', async ()=>{
-      await idbClear(IDB_STORE_INTERACTIONS);
-      await idbClear(IDB_STORE_JOBS);
-      alert('Stockage local purgé.');
+    $(document).on('click', '#ldJobsExportBtn', async ()=>{
+      const jobId = getSelectedJobIdFromModal();
+      if (!jobId) return;
+      // export des interactions + job
+      exportIndexedDbToJson(jobId);
     });
-    $('#ldExportLocalBtn').on('click', async ()=>{
-      try{
-        await exportIndexedDbToJson();
-      }catch(e){
-        alert('Export échoué: ' + e.message);
-      }
-    });
-    $('#ldImportLocalBtn').on('click', ()=> $('#idbImportFile').click());
-    $(document).on('change', '#idbImportFile', async function(){
-      const file = this.files && this.files[0];
-      if (!file) return;
-      try{
-        if (typeof ensureLeftPanelVisible === 'function') ensureLeftPanelVisible();
-        const r = await importDataAuto(file);
-        // petit toast/alert selon le type
-        if (r.type === 'idb'){
-          alert(`Import IDB OK : ${r.jobs} jobs, ${r.interactions} interactions.`);
-        } else {
-          alert(`Import Genesys OK : jobId=${r.jobId}, ${r.saved} conversations.`);
-        }
-        // const { jobs, interactions } = await importIndexedDbFromJson(file, { merge:false });
-        // alert(`Import terminé : ${jobs} jobs, ${interactions} interactions.`);
-        // // reconstruire le graphe depuis le stockage local :
-        // buildGraphFromStored(); // (rejoue sur tout le stock)
-      }catch(e){
-        alert('Import échoué: ' + e.message);
-      }finally{
-        this.value = '';
-      }
-    });
+
+    // $('#ldPurgeLocalBtn').on('click', async ()=>{
+    //   await idbClear(IDB_STORE_INTERACTIONS);
+    //   await idbClear(IDB_STORE_JOBS);
+    //   alert('Stockage local purgé.');
+    // });
+    // $('#ldExportLocalBtn').on('click', async ()=>{
+    //   try{
+    //     await exportIndexedDbToJson();
+    //   }catch(e){
+    //     alert('Export échoué: ' + e.message);
+    //   }
+    // });
+    // $('#ldImportLocalBtn').on('click', ()=> $('#idbImportFile').click());
+    // $(document).on('change', '#idbImportFile', async function(){
+    //   const file = this.files && this.files[0];
+    //   if (!file) return;
+    //   try{
+    //     if (typeof ensureLeftPanelVisible === 'function') ensureLeftPanelVisible();
+    //     const r = await importDataAuto(file);
+    //     // petit toast/alert selon le type
+    //     if (r.type === 'idb'){
+    //       alert(`Import IDB OK : ${r.jobs} jobs, ${r.interactions} interactions.`);
+    //     } else {
+    //       alert(`Import Genesys OK : jobId=${r.jobId}, ${r.saved} conversations.`);
+    //     }
+    //     // const { jobs, interactions } = await importIndexedDbFromJson(file, { merge:false });
+    //     // alert(`Import terminé : ${jobs} jobs, ${interactions} interactions.`);
+    //     // // reconstruire le graphe depuis le stockage local :
+    //     // buildGraphFromStored(); // (rejoue sur tout le stock)
+    //   }catch(e){
+    //     alert('Import échoué: ' + e.message);
+    //   }finally{
+    //     this.value = '';
+    //   }
+    // });
 
     // Import Excel
-    $(document).on('click', '#excelImportBtn', ()=> $('#excelImportFile').click());
+    // $(document).on('click', '#excelImportBtn', ()=> $('#excelImportFile').click());
 
-    $(document).on('change', '#excelImportFile', async function(){
-      const f = this.files && this.files[0];
-      if (!f) return;
-      try{
-        await importExcelWaypoints(f);
-      }catch(e){
-        alert('Import Excel échoué : ' + (e.message||e));
-      }finally{
-        this.value = '';
-      }
-    });
+    // $(document).on('change', '#excelImportFile', async function(){
+    //   const f = this.files && this.files[0];
+    //   if (!f) return;
+    //   try{
+    //     await importExcelWaypoints(f);
+    //   }catch(e){
+    //     alert('Import Excel échoué : ' + (e.message||e));
+    //   }finally{
+    //     this.value = '';
+    //   }
+    // });
 
+    // init checkbox depuis le stockage
+    const cb = document.getElementById('ldCreateMissing');
+    if (cb){
+      cb.checked = autoCreateMissing;
+      cb.addEventListener('change', ()=> setAutoCreateMissing(cb.checked));
+    }
 
-    // Modal
+    // Modal Edit Box
     $('#logBoxSaveBtn').on('click', saveBoxFromModal);
-    // [NEW] handler bouton supprimer (dans bindUi() ou équivalent)
+    // handler bouton supprimer (dans bindUi() ou équivalent)
     $('#logBoxDeleteBtn').on('click', function(){
       const editingId = ($('#logBoxEditingId').val() || '').trim();
       if (!editingId) return;
@@ -195,6 +191,161 @@
       $('#logBoxModal').modal('hide');
       deleteBoxAndConnections(editingId);
     });
+
+    bindGroupedMenus();
+  }
+
+
+    // =============== [MENU] Bind items de menus ===============
+  function bindGroupedMenus(){
+    // -- Chargement de données --
+    // Import CSV
+    $(document).on('click', '#menuImportCsv', (e)=>{ e.preventDefault(); $('#menuCsvFile').click(); });
+    $(document).on('change', '#menuCsvFile', async function(){
+      const f = this.files && this.files[0]; if (!f) return;
+      try{
+        const text = await f.text();
+        const enableCreate = confirm('Créer automatiquement les points de passage manquants ?');
+        await runWithCreateMissing(enableCreate, () => {
+          createMissing = enableCreate;
+        });
+        processCsvTextWithProgress(text);
+      } finally { this.value = ''; }
+    });
+
+    // Paramètres API (ouvrir le panneau)
+    $(document).on('click', '#menuLoadDataOpen', (e)=>{
+      if (typeof ensureLeftPanelVisible === 'function') ensureLeftPanelVisible();
+      $('#loadDataModal').modal('show')
+    });
+
+    // Export données locales (IndexedDB)
+    $(document).on('click', '#menuLocalExport', async (e)=>{
+      e.preventDefault();
+      if (typeof exportIndexedDbToJson === 'function') await exportIndexedDbToJson();
+      else alert('exportIndexedDbToJson introuvable.');
+    });
+
+    // Import JSON auto (IDB/Genesys)
+    $(document).on('click', '#menuLocalImport', (e)=>{
+      e.preventDefault(); $('#menuLocalImportFile').click();
+    });
+    $(document).on('change', '#menuLocalImportFile', async function(){
+      const f = this.files && this.files[0]; if (!f) return;
+      try{
+        if (typeof ensureLeftPanelVisible === 'function') ensureLeftPanelVisible();
+        if (typeof importDataAuto === 'function') {
+          await importDataAuto(f);
+        } else {
+          // fallback : import IDB “pur”
+          if (typeof importIndexedDbFromJson === 'function') await importIndexedDbFromJson(f, { merge:false });
+        }
+      } catch(e){
+        alert('Import JSON échoué : ' + (e.message||e));
+      } finally { this.value = ''; }
+    });
+
+    // Effacer données locales (IndexedDB)
+    $(document).on('click', '#menuLocalErase', async (e)=>{
+      e.preventDefault();
+      if (!confirm('Effacer toutes les données locales (IndexedDB) ?')) return;
+      await idbClear(IDB_STORE_INTERACTIONS);
+      await idbClear(IDB_STORE_JOBS);
+      alert('Données locales effacées.');
+    });
+
+    // -- Gestion du graphe --
+    // Export graph JSON
+    $(document).on('click', '#menuGraphExport', (e)=>{
+      e.preventDefault();
+      if (typeof exportGraphToJson === 'function') exportGraphToJson();
+      else alert('exportGraphToJson introuvable.');
+    });
+
+    // Import graph JSON
+    $(document).on('click', '#menuGraphImport', (e)=>{
+      e.preventDefault();
+      $('#menuGraphImportFile').click();
+    });
+    $(document).on('change', '#menuGraphImportFile', async function(){
+      const f = this.files && this.files[0]; if (!f) return;
+      try{
+        if (typeof importGraphFromJson === 'function') await importGraphFromJson(f);
+        else alert('importGraphFromJson introuvable.');
+      } catch(e){
+        alert('Import graphe échoué : ' + (e.message||e));
+      } finally { this.value = ''; }
+    });
+
+    // RAZ graphe
+    $(document).on('click', '#menuGraphErase', (e)=>{
+      e.preventDefault();
+      if (!confirm('Supprimer toutes les boîtes, connexions et compteurs ?')) return;
+      if (typeof clearDiagram === 'function') clearDiagram(false);
+      if (typeof updateSvgViewportSize === 'function') updateSvgViewportSize();
+    });
+
+    // RAZ compteurs
+    $(document).on('click', '#menuResetCounters', (e)=>{
+      e.preventDefault();
+      resetCounters(); // helper ci-dessous
+    });
+
+    // Construire graphe depuis local
+    $(document).on('click', '#menuBuildFromLocal', async (e)=>{
+      e.preventDefault();
+      if (typeof openJobsPickerModal === 'function') openJobsPickerModal();
+      else if (typeof buildGraphFromStored === 'function') await buildGraphFromStored();
+      else alert('Fonctions de reconstruction locale introuvables.');
+    });
+
+    // Import Graph from Excel (waypoints)
+    $(document).on('click', '#menuImportExcel', (e)=>{
+      e.preventDefault();
+      $('#menuExcelFile').click();
+    });
+    // ==================== [MOD] Ouvrir wizard à la sélection du fichier ====================
+    $(document).on('change', '#menuExcelFile', async function(){
+      const f = this.files && this.files[0];
+      if (!f) return;
+      try{
+        await openExcelImportWizard(f); 
+      }catch(e){
+        alert('Lecture Excel échouée : ' + (e.message||e));
+      }finally{
+        this.value = '';
+      }
+    });
+
+    // ==================== Confirmer l'import depuis la modale ====================
+    $(document).on('click', '#excelImportConfirmBtn', async function(){
+      $(this).prop('disabled', true);
+      try{
+        await runExcelImportWithMapping();
+        $('#excelImportModal').modal('hide');
+      }catch(e){
+        alert('Import Excel échoué : ' + (e.message||e));
+      }finally{
+        $(this).prop('disabled', false);
+      }
+    });
+  }
+
+  async function runWithCreateMissing(tempValue, fn){
+    const prev = autoCreateMissing;
+    setAutoCreateMissing(tempValue);
+    try{
+      const r = fn && fn();
+      if (r && typeof r.then === 'function') await r;
+      return r;
+    } finally {
+      setAutoCreateMissing(prev);
+    }
+  }
+
+  function setAutoCreateMissing(v){
+    autoCreateMissing = !!v;
+    try { localStorage.setItem('logflow_createMissing', String(autoCreateMissing)); } catch(e){}
   }
 
 
@@ -297,7 +448,7 @@
       tx.onerror    = ()=> rej(tx.error);
     }));
   }
-  function idbGetAllByIndex(store, index, query){
+  async function idbGetAllByIndex(store, index, query){
     return idbOpen().then(db => new Promise((res, rej)=>{
       const tx = db.transaction(store, 'readonly');
       const idx = tx.objectStore(store).index(index);
@@ -565,25 +716,27 @@ async function importDataAuto(fileOrText){
 
   // ====== MODAL CRÉATION ======
   let pendingBoxPos = {x:0,y:0};
-  // [NEW] Ouvre la modale en mode création
+  // Ouvre la modale en mode création
   function openCreateBoxModal(x,y,preset = {}){
     pendingBoxPos = {x,y};
     $('#logBoxEditingId').val('');
     $('#logBoxModalTitle').text('Nouvelle boîte');
     $('#logBoxLabel').val(preset.label || '');
+    $('#logBoxDescription').val(preset.description || '');
     $('#logBoxWaypoint').val(preset.waypoint || '').prop('disabled', false);
     $('#logBoxWpHint').hide();
     $('#logBoxDeleteBtn').hide();
     $('#logBoxModal').modal('show');
   }
 
-  // [NEW] Ouvre la modale en mode édition (waypoint verrouillé)
+  // Ouvre la modale en mode édition (waypoint verrouillé)
   function openEditBoxModal(boxId){
     const box = boxes.get(boxId);
     if (!box) return;
     $('#logBoxEditingId').val(boxId);
     $('#logBoxModalTitle').text('Éditer la boîte');
     $('#logBoxLabel').val(box.label || '');
+    $('#logBoxDescription').val(box.description || '');
     $('#logBoxWaypoint').val(box.waypoint || '').prop('disabled', true);
     $('#logBoxWpHint').show();
     $('#logBoxDeleteBtn').show();
@@ -594,6 +747,7 @@ async function importDataAuto(fileOrText){
   function saveBoxFromModal(){
     const editingId = ($('#logBoxEditingId').val() || '').trim();
     const label = ($('#logBoxLabel').val()||'').trim();
+    const description = ($('#logBoxDescription').val()||'').trim();
     let waypoint = ($('#logBoxWaypoint').val()||'').trim().toUpperCase();
 
     if (!label){
@@ -608,6 +762,7 @@ async function importDataAuto(fileOrText){
       // waypoint ne doit PAS changer : on ignore l’input (désactivé de toute façon)
       // Mise à jour du label
       box.label = label;
+      box.description = description;
       box.userCreated = true;
       box.locked = true;
       const g = document.getElementById(box.id);
@@ -624,7 +779,8 @@ async function importDataAuto(fileOrText){
           badgeTxt.textContent = '★';
           const tip = createSvg('title', {}); tip.textContent = 'Créé manuellement';
           badge.appendChild(badgeRect); badge.appendChild(badgeTxt); badge.appendChild(tip);
-          g.insertAfter(badge, g.firstChild);
+          g.appendChild(badge);
+          //g.insertBefore(badge, g.firstChild);
         }
       }
 
@@ -645,8 +801,8 @@ async function importDataAuto(fileOrText){
 
     const id = `lbox_${nextId++}`;
     const box = {
-      id, x: pendingBoxPos?.x || 40, y: pendingBoxPos?.y || 40, w: 120, h: 80,
-      label, waypoint, count: 0,
+      id, x: pendingBoxPos?.x || 40, y: pendingBoxPos?.y || 40, w: 160, h: 100,
+      label, description, waypoint, count: 0,
       userCreated: true,  // création manuelle
       locked: true        // ne bouge pas en layout auto
     };
@@ -659,7 +815,7 @@ async function importDataAuto(fileOrText){
     if (csvStats) applyCountsToBoxes();
   }
 
-  // [NEW] suppression d'une boîte et de ses connexions
+  // suppression d'une boîte et de ses connexions
   function deleteBoxAndConnections(boxId){
     // supprimer connexions liées
     const toDelete = connections.filter(c => c.from.boxId === boxId || c.to.boxId === boxId)
@@ -697,12 +853,15 @@ async function importDataAuto(fileOrText){
     // titre
     const title = createSvg('text', { x: box.w/2, y: 22, 'text-anchor':'middle', class:'log-title' });
     title.textContent = box.label;
+    // description
+    const descr = createSvg('text', { x: box.w/2, y: 40, 'text-anchor':'middle', class:'log-description' });
+    descr.textContent = box.description;
     // waypoint
-    const wp = createSvg('text', { x: box.w/2, y: 40, 'text-anchor':'middle', class:'log-waypoint' });
+    const wp = createSvg('text', { x: box.w/2, y: 60, 'text-anchor':'middle', class:'log-waypoint' });
     wp.textContent = box.waypoint;
     // compteur
-    const counter = createSvg('text', { x: box.w/2, y: 60, 'text-anchor':'middle', class:'log-counter', id:`cnt_${box.id}` });
-    counter.textContent = '(0)';
+    const counter = createSvg('text', { x: box.w/2, y: 80, 'text-anchor':'middle', class:'log-counter', id:`cnt_${box.id}` });
+    counter.textContent = '0';
     // points connexion (entrée haut, sortie bas)
     const inPt = createSvg('circle', { cx: box.w/2, cy: 0, r:6, class:'log-conn-point in', 'data-type':'in', 'data-id':box.id });
     const outPt= createSvg('circle', { cx: box.w/2, cy: box.h, r:6, class:'log-conn-point out', 'data-type':'out', 'data-id':box.id });
@@ -719,11 +878,15 @@ async function importDataAuto(fileOrText){
 
     g.appendChild(rect);
     g.appendChild(title);
+    g.appendChild(descr);
     g.appendChild(wp);
     g.appendChild(counter);
     g.appendChild(inPt);
     g.appendChild(outPt);
     boxesGroup.appendChild(g);
+    
+    // Ajuster les textes une fois dans le DOM
+    requestAnimationFrame(()=> fitTextsInBoxById(box.id));
   }
 
   function recreateBox(id){
@@ -736,7 +899,41 @@ async function importDataAuto(fileOrText){
     // surbrillance si en connexion
   }
 
-  
+  const TEXT_PADDING = 10; // marge interne gauche/droite
+
+  function setFittedText(el, fullText, maxWidthPx){
+    if (!el) return;
+    const txt = (fullText ?? '').toString();
+    el.textContent = txt;
+
+    // si pas mesurable ou tient déjà, stop
+    if (!el.getComputedTextLength || el.getComputedTextLength() <= maxWidthPx) return;
+
+    // Ellipsis binaire pour s'approcher vite
+    let lo = 0, hi = txt.length;
+    while (lo < hi){
+      const mid = Math.floor((lo + hi) / 2);
+      el.textContent = txt.slice(0, mid) + '…';
+      if (el.getComputedTextLength() <= maxWidthPx) lo = mid + 1;
+      else hi = mid;
+    }
+    el.textContent = txt.slice(0, Math.max(0, lo - 1)) + '…';
+  }
+
+  function fitTextsInBoxById(boxId){
+    const box = boxes.get(boxId);
+    if (!box) return;
+    const g = document.getElementById(boxId);
+    if (!g) return;
+
+    const titleEl = g.querySelector('.log-title');
+    const descrEl = g.querySelector('.log-description');
+    const maxW = Math.max(0, (box.w || 120) - TEXT_PADDING*2);
+
+    if (titleEl) setFittedText(titleEl, box.label || '', maxW);
+    if (descrEl) setFittedText(descrEl, box.description || '', maxW);
+  }
+
   // ====== DRAG ======
   function startDragBox(e, id){
     e.preventDefault();
@@ -812,9 +1009,9 @@ function computeContentExtents(){
 
   // tenir compte des sections (bandes) si utilisées
   let sectionsBottom = 0;
-  if (typeof computeSectionOrder === 'function' && typeof SECTION_HEIGHT !== 'undefined'){
+  if (typeof computeSectionOrder === 'function' && typeof SECTION_DEFAULT_HEIGHT !== 'undefined'){
     const groups = computeSectionOrder();
-    sectionsBottom = groups.length * SECTION_HEIGHT;
+    sectionsBottom = groups.length * SECTION_DEFAULT_HEIGHT;
   }
 
   return {
@@ -1450,17 +1647,17 @@ function updateSvgViewportSize(){
 
 
   // ====== CSV ======
-  function onCsvSelected(evt) {
-    const file = evt.target.files && evt.target.files[0];
-    evt.target.value = "";
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const text = reader.result || "";
-      processCsvTextWithProgress(text);
-    };
-    reader.readAsText(file);
-  }
+  // function onCsvSelected(evt) {
+  //   const file = evt.target.files && evt.target.files[0];
+  //   evt.target.value = "";
+  //   if (!file) return;
+  //   const reader = new FileReader();
+  //   reader.onload = () => {
+  //     const text = reader.result || "";
+  //     processCsvTextWithProgress(text);
+  //   };
+  //   reader.readAsText(file);
+  // }
 
   // Traitement progressif du CSV (avec barre d’avancement)
   function processCsvTextWithProgress(csvText) {
@@ -1735,10 +1932,10 @@ function updateSvgViewportSize(){
         return v.trim();
     }
     // 2) embedded dans le label ? ex: "Accueil [IVR123]"
-    if (typeof box.label === "string") {
-      const m = box.label.match(WAYPOINT_EXTRACT_RE);
-      if (m && m.length) return m[0].replace(/[\[\]]/g, "");
-    }
+    // if (typeof box.label === "string") {
+    //   const m = box.label.match(WAYPOINT_EXTRACT_RE);
+    //   if (m && m.length) return m[0].replace(/[\[\]]/g, "");
+    // }
     return null;
   }
 
@@ -1793,11 +1990,12 @@ function updateSvgViewportSize(){
     return null;
   }
   // crée une box si absente (label = waypoint)
-  function ensureBoxForWaypoint(wp) {
+  function ensureBoxForWaypoint(wp, createMissing = autoCreateMissing) {
     const waypoint = normWp(wp);
     let id = getBoxIdByWaypoint(waypoint);
     if (id) return id;
-
+    if (!createMissing) return null;
+    //Création de la Box si non trouvée et/ou si createMissing=true
     // placement simple en grille
     const count = boxes.size;
     const col = count % 4;
@@ -1807,8 +2005,9 @@ function updateSvgViewportSize(){
 
     const newId = `lbox_${nextId++}`;
     const box = {
-      id: newId, x, y, w: 120, h: 80,
+      id: newId, x, y, w: 160, h: 100,
       label: waypoint,
+      description: "-",
       waypoint,
       count: 0,
       userCreated: false,
@@ -1822,7 +2021,7 @@ function updateSvgViewportSize(){
 
 
   // crée une connexion entre deux waypoints (s’ils sont valides et non dupliqués)
-  function ensureConnectionByWaypoints(fromWp, toWp) {
+  function ensureConnectionByWaypoints(fromWp, toWp, createMissing = autoCreateMissing) {
     const fromId = ensureBoxForWaypoint(fromWp);
     const toId = ensureBoxForWaypoint(toWp);
     // évite doublons exacts
@@ -1833,82 +2032,88 @@ function updateSvgViewportSize(){
     createConnection(fromId, toId);
   }
 
-  // constants pour les sections
-  const SECTION_HEIGHT = 220;
-  const SECTION_COLORS = ['#fef6e4','#e3f2fd','#f3e5f5','#e8f5e9','#fff3e0','#e0f2f1'];
+  // ====== Sections redimensionnables ======
+  const SECTION_DEFAULT_HEIGHT = 220;
+  const SECTION_MIN_HEIGHT = 100;
+  const HANDLE_W = 24;     // largeur du petit "bouton"
+  const HANDLE_H = 8;      // hauteur du bouton
+  const HANDLE_MARGIN = 4; // marge visuelle
+  const SECTION_COLORS = ['#fae8bdff','#b5dffdff','#f2c9f8ff','#d0fcd3ff','#e4bf84ff','#9df7f2ff'];
 
-// récupère le quadrigramme "BACC" depuis "BACC[0123]"
-function getQuadriFromWaypoint(wp){
-  const m = String(wp||'').toUpperCase().match(/^([A-Z]{3,4})\[\d{3,4}\]$/);
-  return m ? m[1] : 'AUTRE';
-}
+  let sectionHeights = {}; // { [groupKey]: height }
 
-// calcule l'ordre des sections en minimisant les retours vers le haut
-function computeSectionOrder(){
-  // 1) collecter les groupes
-  const groupsSet = new Set();
-  boxes.forEach(b => groupsSet.add(getQuadriFromWaypoint(b.waypoint)));
-  const groups = Array.from(groupsSet);
-
-  // 2) index
-  const idx = Object.fromEntries(groups.map((g,i)=>[g,i]));
-
-  // 3) arêtes pondérées
-  const out = new Map(groups.map(g=>[g,new Map()])); // g -> (h -> weight)
-  const indeg = new Map(groups.map(g=>[g,0]));
-  const outdeg = new Map(groups.map(g=>[g,0]));
-
-  connections.forEach(c=>{
-    const fb = boxes.get(c.from.boxId);
-    const tb = boxes.get(c.to.boxId);
-    if (!fb || !tb) return;
-    const gFrom = getQuadriFromWaypoint(fb.waypoint);
-    const gTo   = getQuadriFromWaypoint(tb.waypoint);
-    if (gFrom === gTo) return;
-    const m = out.get(gFrom);
-    m.set(gTo, (m.get(gTo)||0)+1);
-  });
-
-  // calcul degrés
-  groups.forEach(g=>{
-    let o=0,i=0;
-    out.get(g).forEach(w=>o+=w);
-    out.forEach((mp,from)=>{
-      if (mp.has(g)) i+= mp.get(g);
-    });
-    outdeg.set(g,o); indeg.set(g,i);
-  });
-
-  // 4) tri topo + heuristique (Kahn + cassure par out-in)
-  const order = [];
-  const S = groups.filter(g=>indeg.get(g)===0);
-  const remaining = new Set(groups);
-
-  const removeNode = (g)=>{
-    remaining.delete(g);
-    order.push(g);
-    out.get(g).forEach((w, h)=>{
-      indeg.set(h, indeg.get(h)-w);
-    });
-    // nettoyer pour éviter les valeurs négatives
-    out.get(g).clear();
-  };
-
-  while (S.length){ removeNode(S.shift()); }
-
-  // si cyclique, on ajoute par heuristique (plus gros out-in d'abord)
-  while (remaining.size){
-    const pick = Array.from(remaining).sort((a,b)=> (outdeg.get(b)-indeg.get(b)) - (outdeg.get(a)-indeg.get(a)) )[0];
-    removeNode(pick);
-    // réévaluer sources restantes
-    Array.from(remaining).forEach(g=>{
-      if (indeg.get(g)<=0 && !S.includes(g)) S.push(g);
-    });
-    while (S.length){ removeNode(S.shift()); }
+  // récupère le quadrigramme "BACC" depuis "BACC[0123]"
+  function getQuadriFromWaypoint(wp){
+    const m = String(wp||'').toUpperCase().match(/^([A-Z]{3,4})\[\d{3,4}\]$/);
+    return m ? m[1] : 'AUTRE';
   }
 
-  return order;
-}
+  // calcule l'ordre des sections en minimisant les retours vers le haut
+  function computeSectionOrder(){
+    // 1) collecter les groupes
+    const groupsSet = new Set();
+    boxes.forEach(b => groupsSet.add(getQuadriFromWaypoint(b.waypoint)));
+    const groups = Array.from(groupsSet);
+
+    // 2) index
+    const idx = Object.fromEntries(groups.map((g,i)=>[g,i]));
+
+    // 3) arêtes pondérées
+    const out = new Map(groups.map(g=>[g,new Map()])); // g -> (h -> weight)
+    const indeg = new Map(groups.map(g=>[g,0]));
+    const outdeg = new Map(groups.map(g=>[g,0]));
+
+    connections.forEach(c=>{
+      const fb = boxes.get(c.from.boxId);
+      const tb = boxes.get(c.to.boxId);
+      if (!fb || !tb) return;
+      const gFrom = getQuadriFromWaypoint(fb.waypoint);
+      const gTo   = getQuadriFromWaypoint(tb.waypoint);
+      if (gFrom === gTo) return;
+      const m = out.get(gFrom);
+      m.set(gTo, (m.get(gTo)||0)+1);
+    });
+
+    // calcul degrés
+    groups.forEach(g=>{
+      let o=0,i=0;
+      out.get(g).forEach(w=>o+=w);
+      out.forEach((mp,from)=>{
+        if (mp.has(g)) i+= mp.get(g);
+      });
+      outdeg.set(g,o); indeg.set(g,i);
+    });
+
+    // 4) tri topo + heuristique (Kahn + cassure par out-in)
+    const order = [];
+    const S = groups.filter(g=>indeg.get(g)===0);
+    const remaining = new Set(groups);
+
+    const removeNode = (g)=>{
+      remaining.delete(g);
+      order.push(g);
+      out.get(g).forEach((w, h)=>{
+        indeg.set(h, indeg.get(h)-w);
+      });
+      // nettoyer pour éviter les valeurs négatives
+      out.get(g).clear();
+    };
+
+    while (S.length){ removeNode(S.shift()); }
+
+    // si cyclique, on ajoute par heuristique (plus gros out-in d'abord)
+    while (remaining.size){
+      const pick = Array.from(remaining).sort((a,b)=> (outdeg.get(b)-indeg.get(b)) - (outdeg.get(a)-indeg.get(a)) )[0];
+      removeNode(pick);
+      // réévaluer sources restantes
+      Array.from(remaining).forEach(g=>{
+        if (indeg.get(g)<=0 && !S.includes(g)) S.push(g);
+      });
+      while (S.length){ removeNode(S.shift()); }
+    }
+
+    return order;
+  }
 
   // liste triée des quadrigrammes présents
   function getOrderedQuadriList(){
@@ -1926,14 +2131,99 @@ function computeSectionOrder(){
     //const groups = getOrderedQuadriList();
     const groups = computeSectionOrder();
     groups.forEach((code, i)=>{
-      const y = i*SECTION_HEIGHT;
-      const rect = createSvg('rect', { x:0, y, width, height: SECTION_HEIGHT, class:'log-section', fill: SECTION_COLORS[i % SECTION_COLORS.length] });
+      const y = i*SECTION_DEFAULT_HEIGHT;
+      const rect = createSvg('rect', { x:0, y, width, height: SECTION_DEFAULT_HEIGHT, class:'log-section', fill: SECTION_COLORS[i % SECTION_COLORS.length] });
       const title = createSvg('text', { x:12, y: y + 20, class:'log-section-title' });
       title.textContent = code;
       g.appendChild(rect);
       g.appendChild(title);
     });
   }
+
+  function ensureSectionsGroups(){
+    const root = svgEl; if (!root) return {};
+    let sect = document.getElementById('logSectionsGroup');
+    let handles = document.getElementById('logSectionHandlesGroup');
+    if (!sect){
+      sect = createSvg('g', { id:'logSectionsGroup' });
+      root.insertBefore(sect, root.firstChild); // sous les boîtes
+    }
+    if (!handles){
+      handles = createSvg('g', { id:'logSectionHandlesGroup' });
+      root.insertBefore(handles, sect.nextSibling);
+    }
+    return { sect, handles };
+  }
+
+  // couleur par section (si tu as déjà une fonction, réutilise-la)
+  function colorForSection(key, idx){
+    if (typeof getSectionColor === 'function') return getSectionColor(key, idx);
+    const hues = [210, 160, 40, 280, 120]; // fallback doux
+    const h = hues[idx % hues.length];
+    return `hsl(${h} 50% 96%)`;
+  }
+
+  function drawSectionsWithHandles(){
+    const { order, heights, yMap, totalH } = getSectionModel();
+    const { sect, handles } = ensureSectionsGroups();
+    if (!sect || !handles) return;
+
+    // nettoyer
+    while (sect.firstChild) sect.removeChild(sect.firstChild);
+    while (handles.firstChild) handles.removeChild(handles.firstChild);
+
+    // largeur actuelle du svg
+    const w = svgEl.width?.baseVal?.value || svgEl.clientWidth || 1200;
+
+    // dessiner rects
+    order.forEach((gKey, idx)=>{
+      const r = createSvg('rect', {
+        class: 'log-section',
+        x: 0, y: yMap[gKey],
+        width: w,
+        height: heights[gKey],
+        fill: colorForSection(gKey, idx),
+        'data-section': gKey
+      });
+      sect.appendChild(r);
+
+      // titre de bande (optionnel)
+      const title = createSvg('text', {
+        x: 10, y: yMap[gKey] + 18,
+        class: 'log-section-title'
+      });
+      title.textContent = gKey;
+      sect.appendChild(title);
+    });
+
+    // poignées entre les sections (sauf après la dernière)
+    for (let i=0; i<order.length-1; i++){
+      const above = order[i], below = order[i+1];
+      const yBoundary = yMap[below]; // frontière = début de la section du dessous
+      // petit bouton à gauche
+      const x = 10;
+      const y = yBoundary - HANDLE_H/2;
+
+      const btn = createSvg('rect', {
+        x, y, width: HANDLE_W, height: HANDLE_H, rx: 3,
+        class: 'log-section-handle',
+        'data-above': above,
+        'data-below': below
+      });
+      btn.addEventListener('mousedown', onStartResizeSection);
+      handles.appendChild(btn);
+    }
+
+    // ajuster la surface du svg si besoin
+    if (typeof updateSvgViewportSize === 'function'){
+      // on force la hauteur minimale sur totalH + une marge ; largeur sera recalée par updateSvgViewportSize
+      const pad = 80;
+      const targetH = Math.max(totalH + pad, svgEl.height?.baseVal?.value || 0);
+      svgEl.setAttribute('height', targetH);
+      updateSvgViewportSize(); // recalcule aussi la largeur/hauteur si nécessaire
+    }
+  }
+
 
   // repositionner les boîtes dans leur section (grille)
   function layoutBoxesBySections(){
@@ -1946,9 +2236,9 @@ function computeSectionOrder(){
       if (!buckets.has(g)) buckets.set(g, []);
       buckets.get(g).push(b);
     });
-    bucket.sort((a,b)=>a.waypoint.localeCompare(b.waypoint))
+    //bucket.sort((a,b)=>a.waypoint.localeCompare(b.waypoint))
     groups.forEach((code, gi)=>{
-      const y0 = gi*SECTION_HEIGHT + padY;
+      const y0 = gi*SECTION_DEFAULT_HEIGHT + padY;
       (buckets.get(code)||[]).forEach((b, idx)=>{
         const col = idx % cols;
         const row = Math.floor(idx/cols);
@@ -1967,7 +2257,7 @@ function computeSectionOrder(){
       const row = Math.floor(idx / gridCol);
       const nx = padX + col * cellW;
       const ny = padY + row * cellH;
-      placeAuto(b, nx, ny);
+      placeBox(b, nx, ny);
     });
     if (typeof updateSvgViewportSize === 'function') updateSvgViewportSize();
     if (typeof redrawAllConnections === 'function') redrawAllConnections();
@@ -1982,7 +2272,7 @@ function computeSectionOrder(){
 
   // orchestrateur
   function refreshSectionsAndLayout(){
-    drawSections();
+    drawSectionsWithHandles();
     layoutBoxesBySections();
     redrawAllConnections();
   }
@@ -1994,7 +2284,7 @@ function computeSectionOrder(){
     if (g) g.setAttribute('transform', `translate(${nx},${ny})`);
   }
 
-  // [NEW] récupère une propriété sans tenir compte de la casse
+  // récupère une propriété sans tenir compte de la casse
   function getFieldCaseInsensitive(obj, ...names){
     if (!obj) return undefined;
     const keys = Object.keys(obj);
@@ -2005,7 +2295,7 @@ function computeSectionOrder(){
     return undefined;
   }
 
-  // [NEW] retrouve l'id d'une box par waypoint exact (si ta base ne l'a pas)
+  // retrouve l'id d'une box par waypoint exact (si ta base ne l'a pas)
   function getBoxIdByWaypointExact(wp){
     // si tu as déjà getBoxIdByWaypoint(wp), utilise-la
     if (typeof getBoxIdByWaypoint === 'function') return getBoxIdByWaypoint(wp);
@@ -2014,88 +2304,310 @@ function computeSectionOrder(){
     return found;
   }
 
+  function loadSectionHeights(){
+    try { sectionHeights = JSON.parse(localStorage.getItem('logflow_section_heights')||'{}') || {}; }
+    catch { sectionHeights = {}; }
+  }
+  function saveSectionHeights(){
+    try { localStorage.setItem('logflow_section_heights', JSON.stringify(sectionHeights)); } catch {}
+  }
 
+  function getSectionModel(){
+    const order = (typeof computeSectionOrder === 'function') ? computeSectionOrder() : [];
+    const heights = {};
+    order.forEach(g=>{
+      heights[g] = Math.max(SECTION_MIN_HEIGHT, Number(sectionHeights[g]||SECTION_DEFAULT_HEIGHT));
+    });
+    // cumuls y
+    const yMap = {};
+    let y = 0;
+    order.forEach(g=>{
+      yMap[g] = y;
+      y += heights[g];
+    });
+    return { order, heights, yMap, totalH: y };
+  }
 
+  function onStartResizeSection(e){
+    e.preventDefault();
 
+    const above = e.target.getAttribute('data-above');
+    const below = e.target.getAttribute('data-below');
+    if (!above || !below) return;
 
+    const startY = e.clientY;
 
+    // modèles initiaux
+    const model0 = getSectionModel();
+    const hAbove0 = model0.heights[above];
 
+    let dragging = true;
+    let rAF = null;
 
+    const onMove = (ev)=>{
+      if (!dragging) return;
+      const dy = ev.clientY - startY;
 
+      // nouvelle hauteur proposed : above +dy ; below -dy
+      let newAbove = Math.max(SECTION_MIN_HEIGHT, hAbove0 + dy);
 
+      // appliquer dans l'état et redraw rapide
+      sectionHeights[above] = newAbove;
 
-
-
-
-
-  // [NEW] import Excel waypoints
-  async function importExcelWaypoints(file){
-    if (!window.XLSX){ alert('Librairie XLSX non chargée.'); return; }
-    const buf = await file.arrayBuffer();
-    const wb = XLSX.read(buf, { type:'array' });
-    const sheet = wb.Sheets[wb.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
-
-    let created = 0, updated = 0, skipped = 0;
-
-    for (const r of rows){
-      let wpRaw = getFieldCaseInsensitive(r, 'Number');        // waypoint
-      const desc = String(getFieldCaseInsensitive(r, 'LOG_CALL_X') || '').trim(); // label
-
-      if (!wpRaw){ skipped++; continue; }
-
-      // normaliser waypoint -> "LLLL[DDDD]"
-      wpRaw = String(wpRaw).trim().toUpperCase();
-      // Si le fichier contient "BACC0123", normWp va matcher et produire "BACC[0123]"
-      const wp = normWp(wpRaw);
-      if (!wp || !/^[A-Z]{3,4}\[\d{3,4}\]$/.test(wp)){ skipped++; continue; }
-
-      // existe déjà ?
-      let boxId = getBoxIdByWaypointExact(wp);
-      if (boxId){
-        const b = boxes.get(boxId);
-        if (desc && b && b.label !== desc){
-          b.label = desc;
-          // MAJ DOM
-          const g = document.getElementById(b.id);
-          const title = g && g.querySelector('.log-title');
-          if (title) title.textContent = b.label;
-          updated++;
-        } else {
-          // rien à changer
-        }
-      } else {
-        // créer via ta fonction d'auto-création (position initiale quelconque)
-        boxId = ensureBoxForWaypoint(wp);
-        const b = boxes.get(boxId);
-        if (b){
-          b.label = desc || wp;
-          b.userCreated = false;
-          b.locked = false;
-          // MAJ DOM
-          const g = document.getElementById(b.id);
-          const title = g && g.querySelector('.log-title');
-          if (title) title.textContent = b.label;
-          created++;
-        }
+      // redraw (les Y cumulés des sections suivantes vont naturellement se décaler)
+      if (!rAF){
+        rAF = requestAnimationFrame(()=>{
+          rAF = null;
+          drawSectionsWithHandles();   // ne bouge pas les boîtes
+          // (connexions inchangées : pas besoin de les recalculer)
+        });
       }
-    }
+    };
 
-    // ranger par nom
-    layoutBoxesByWaypointName();
+    const onUp = ()=>{
+      dragging = false;
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      if (rAF) { cancelAnimationFrame(rAF); rAF = null; }
+      saveSectionHeights(); // persiste la nouvelle hauteur
+    };
 
-    // feedback + persistance
-    saveToStorage(true);
-    const msg = `Import Excel terminé — créées: ${created}, mises à jour: ${updated}, ignorées: ${skipped}.`;
-    console.log(msg);
-    const statusEl = document.getElementById('ldStatus');
-    if (statusEl) statusEl.textContent = msg;
-    alert(msg);
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
   }
 
 
 
 
+
+
+
+
+
+// ==================== Wizard: ouvrir à partir d'un fichier ====================
+async function openExcelImportWizard(file){
+  if (!window.XLSX){ alert('Lib XLSX non chargée'); return; }
+  const buf = await file.arrayBuffer();
+  const wb = XLSX.read(buf, { type:'array' });
+
+  excelImportCtx.workbook = wb;
+  excelImportCtx.fileName = file.name || 'workbook.xlsx';
+  excelImportCtx.sheetName = '';
+  excelImportCtx.headers = [];
+
+  // Feuilles
+  const sel = $('#xlsSheetSelect').empty();
+  (wb.SheetNames || []).forEach(name => sel.append(`<option value="${name}">${name}</option>`));
+
+  // Reset mapping zone
+  $('#xlsMappingSection').hide();
+  $('#xlsWpCol').empty();
+  $('#xlsLabelCol').empty();
+  $('#xlsDescrCol').empty();
+  $('#xlsPreview').hide().empty();
+  $('#excelImportConfirmBtn').prop('disabled', true);
+
+  // Affiche la modale
+  $('#excelImportModal').modal('show');
+
+  // Déclenche le change pour la première feuille par défaut
+  setTimeout(()=> $('#xlsSheetSelect').trigger('change'), 0);
+}
+
+
+// ==================== Import réel selon le mapping ====================
+async function runExcelImportWithMapping(){
+  const sheetName = excelImportCtx.sheetName;
+  const wpCol = $('#xlsWpCol').val();
+  const lbCol = $('#xlsLabelCol').val();
+  const desCol = $('#xlsDescrCol').val();
+  if (!sheetName || !wpCol || !lbCol){ return; }
+
+  const sheet = excelImportCtx.workbook.Sheets[sheetName];
+  const rows = XLSX.utils.sheet_to_json(sheet, { defval:'', raw:true });
+
+  let created = 0, updated = 0, skipped = 0;
+
+  for (const r of rows){
+    let wpRaw = String(getByHeader(r, wpCol) || '').trim();
+    const label = String(getByHeader(r, lbCol) || '').trim();
+    const desc = String(getByHeader(r, desCol) || '').trim();
+
+    if (!wpRaw){ skipped++; continue; }
+
+    // Normaliser waypoint -> "LLLL[DDDD]"
+    wpRaw = wpRaw.toUpperCase();
+    const wp = normWp(wpRaw);
+    if (!wp || !/^[A-Z]{3,4}\[\d{3,4}\]$/.test(wp)){ skipped++; continue; }
+
+    // Existe ?
+    let boxId = (typeof getBoxIdByWaypoint === 'function') ? getBoxIdByWaypoint(wp) : null;
+    if (boxId){
+      const b = boxes.get(boxId);
+      if (label && b && b.label !== label){
+        b.label = label;
+        const g = document.getElementById(b.id);
+        const title = g && g.querySelector('.log-title');
+        if (title) title.textContent = b.label;
+        updated++;
+      } else {
+        // pas de changement
+      }
+      if (desc && b && b.description !== desc){
+        b.description = desc;
+        const g = document.getElementById(b.id);
+        const descr = g && g.querySelector('.log-description');
+        if (descr) descr.textContent = b.description;
+      } else {
+        // pas de changement
+      }
+    } else {
+      // créer via auto (non userCreated, non locked)
+      boxId = ensureBoxForWaypoint(wp);
+      const b = boxes.get(boxId);
+      if (b){
+        b.label = label || wp;
+        b.description = desc;
+        b.userCreated = false;
+        b.locked = false;
+        const g = document.getElementById(b.id);
+        const title = g && g.querySelector('.log-title');
+        if (title) title.textContent = b.label;
+        const descr = g && g.querySelector('.log-description');
+        if (descr) descr.textContent = b.description;
+        created++;
+      }
+    }
+  }
+
+  // Ranger par nom de waypoint (alpha)
+  //layoutBoxesByWaypointName();
+  refreshSectionsAndLayout();
+  updateSvgViewportSize();
+  saveToStorage(true);
+
+  const msg = `Import Excel (${sheetName}) — créées: ${created}, mises à jour: ${updated}, ignorées: ${skipped}.`;
+  console.log(msg);
+  const statusEl = document.getElementById('ldStatus');
+  if (statusEl) statusEl.textContent = msg;
+  alert(msg);
+}
+
+
+
+// ==================== Contexte Import Excel ====================
+let excelImportCtx = {
+  workbook: null,
+  fileName: '',
+  sheetName: '',
+  headers: []
+};
+
+// utilitaire : liste de headers (unique, non vides)
+function uniqueHeaders(arr){
+  const out = [];
+  const seen = new Set();
+  (arr||[]).forEach(h=>{
+    const k = String(h||'').trim();
+    if (!k) return;
+    const key = k.toLowerCase();
+    if (!seen.has(key)){ seen.add(key); out.push(k); }
+  });
+  return out;
+}
+
+// heuristique de mapping auto (insensible à la casse)
+function autoGuessHeader(headers, candidates){
+  const hs = headers.map(h=>({ raw:h, low:h.toLowerCase() }));
+  for (const cand of candidates){
+    const c = cand.toLowerCase();
+    const hit = hs.find(h => h.low === c);
+    if (hit) return hit.raw;
+  }
+  // contient ?
+  for (const cand of candidates){
+    const c = cand.toLowerCase();
+    const hit = hs.find(h => h.low.includes(c));
+    if (hit) return hit.raw;
+  }
+  return headers[0] || '';
+}
+
+// lit une valeur d'objet par header, tolérant casse/espace
+function getByHeader(obj, header){
+  if (!obj) return '';
+  if (header in obj) return obj[header];
+  const low = header.toLowerCase();
+  const k = Object.keys(obj).find(k => k.toLowerCase() === low);
+  return k ? obj[k] : '';
+}
+
+// ==================== On change feuille: détecter headers ====================
+$(document).on('change', '#xlsSheetSelect', function(){
+  const name = $(this).val();
+  excelImportCtx.sheetName = name;
+
+  const sheet = excelImportCtx.workbook.Sheets[name];
+  if (!sheet){ return; }
+
+  // Récupère headers depuis 1ère ligne non vide
+  const rowsA1 = XLSX.utils.sheet_to_json(sheet, { header:1, defval:'' });
+  const headerRow = (rowsA1 || []).find(r => (r||[]).some(v => String(v||'').trim() !== '')) || [];
+  const headers = uniqueHeaders(headerRow);
+
+  excelImportCtx.headers = headers;
+
+  const $wp = $('#xlsWpCol').empty();
+  const $lb = $('#xlsLabelCol').empty();
+  const $desc = $('#xlsDescrCol').empty();
+  headers.forEach(h=>{
+    $wp.append(`<option value="${h}">${h}</option>`);
+    $lb.append(`<option value="${h}">${h}</option>`);
+    $desc.append(`<option value="${h}">${h}</option>`);
+  });
+
+  // Mapping auto : waypoint puis label
+  const guessWp = autoGuessHeader(headers, ['Number','WayPoint','Waypoint','WP','Point de passage','Step','Node']);
+  const guessLb = autoGuessHeader(headers, ['LOG_CALL_X','Label','Nom','Title','Libellé']);
+  const guessDesc = autoGuessHeader(headers, ['Description','Desc']);
+
+  if (guessWp) $wp.val(guessWp);
+  if (guessLb) $lb.val(guessLb);
+  if (guessDesc) $desc.val(guessDesc);
+
+  $('#xlsMappingSection').show();
+
+  // Aperçu et activation du bouton
+  updateExcelPreviewAndValidate();
+});
+
+// ==================== Aperçu + validation mapping ====================
+function updateExcelPreviewAndValidate(){
+  const sheetName = excelImportCtx.sheetName;
+  const wb = excelImportCtx.workbook;
+  const wpCol = $('#xlsWpCol').val();
+  const lbCol = $('#xlsLabelCol').val();
+  const descCol = $('#xlsDescrCol').val();
+
+  const ok = !!(sheetName && wpCol && lbCol && descCol);
+  $('#excelImportConfirmBtn').prop('disabled', !ok);
+  if (!ok){ $('#xlsPreview').hide().empty(); return; }
+
+  const sheet = wb.Sheets[sheetName];
+  // On génère des objets avec les headers (première ligne = clés)
+  const rows = XLSX.utils.sheet_to_json(sheet, { defval:'', raw:true });
+
+  const previewItems = rows.slice(0, 6).map(r=>{
+    const wpRaw = String(getByHeader(r, wpCol)||'').trim();
+    const label = String(getByHeader(r, lbCol)||'').trim();
+    const desc = String(getByHeader(r, descCol)||'').trim();
+    return `${wpRaw}  —  ${label} - ${desc}`;
+  });
+
+  $('#xlsPreview').show().text(previewItems.length ? previewItems.join('\n') : '(Aperçu vide)');
+}
+
+$(document).on('change', '#xlsWpCol, #xlsLabelCol, #xlsDescrCol', updateExcelPreviewAndValidate);
 
 
 
@@ -2120,8 +2632,10 @@ function computeSectionOrder(){
       ? await idbGetAllByIndex(IDB_STORE_INTERACTIONS, 'byJob', jobId)
       : await idbGetAll(IDB_STORE_INTERACTIONS);
 
+    console.log(`DEBUG buildGraphFromStored Records: `,records)
     // Progress UI (on réutilise celle du CSV pour uniformiser)
     const total = records.length;
+    console.log(`DEBUG buildGraphFromStored nbRecords: `,records.length)
     if (typeof showCsvProgress === 'function') showCsvProgress(total);
 
     const counts = new Map();
@@ -2134,7 +2648,10 @@ function computeSectionOrder(){
         const rec = records[i];
         const logVal = rec && rec.logInteraction;
         if (!logVal) continue;
-
+        // DEBUG
+        if(i<10){
+          console.log(`DEBUG buildGraphFromStored step record: `,rec,logVal)
+        }
         // Extrait séquence canonique "LLLL[DDDD]"
         const seq = Array.from((logVal || '').matchAll(WAYPOINT_EXTRACT_RE),
                               m => `${m[1].toUpperCase()}[${m[2]}]`);
@@ -2184,7 +2701,99 @@ function computeSectionOrder(){
 
 
   // ====== [IDB-EXPORT] Export complet IndexedDB → fichier JSON téléchargeable ======
-  async function exportIndexedDbToJson(){
+  async function deleteIndexedDbJob(jobId){
+    const db = await idbOpen();
+          await new Promise((res,rej)=>{
+            const tx = db.transaction([IDB_STORE_INTERACTIONS, IDB_STORE_JOBS], 'readwrite');
+            const stI = tx.objectStore(IDB_STORE_INTERACTIONS).index('byJob');
+            const req = stI.openCursor(IDB_STORE_JOBS? IDBKeyRange.only(jobId): jobId);
+            req.onsuccess = (e)=>{
+              const c = e.target.result;
+              if (c){ c.delete(); c.continue(); }
+              else res();
+            };
+            req.onerror = ()=> rej(req.error);
+            tx.oncomplete = ()=> {
+              const tx2 = db.transaction(IDB_STORE_JOBS, 'readwrite');
+              tx2.objectStore(IDB_STORE_JOBS).delete(jobId);
+              tx2.oncomplete = res; tx2.onerror = ()=> rej(tx2.error);
+            };
+          });
+          // refresh table
+          const jobs = await fetchAllJobs();
+          const ft = $('#ldJobsSearch').val()||'';
+          renderJobsTable(jobs, ft);
+  }
+
+  async function exportIndexedDbToJson(jobId){
+    const db = await idbOpen();
+
+    function getJobById(id){
+      return new Promise((resolve, reject)=>{
+        const tx = db.transaction(IDB_STORE_JOBS, 'readonly');
+        const st = tx.objectStore(IDB_STORE_JOBS);
+        const rq = st.get(id);
+        rq.onsuccess = ()=> resolve(rq.result || null);
+        rq.onerror   = ()=> reject(rq.error);
+      });
+    }
+
+    function dumpInteractionsByJob(id){
+      return new Promise((resolve, reject)=>{
+        const tx = db.transaction(IDB_STORE_INTERACTIONS, 'readonly');
+        const idx = tx.objectStore(IDB_STORE_INTERACTIONS).index('byJob');
+        const out = [];
+        // IDBKeyRange.only pour cibler le jobId
+        const range = IDBKeyRange.only(id);
+        const rq = idx.openCursor(range);
+        rq.onsuccess = (e)=>{
+          const cur = e.target.result;
+          if (cur){ out.push(cur.value); cur.continue(); }
+          else resolve(out);
+        };
+        rq.onerror = ()=> reject(rq.error);
+      });
+    }
+    
+      // -- lecture job + interactions --
+    const job = await getJobById(jobId);
+    if (!job) throw new Error(`Job introuvable: ${jobId}`);
+
+    const interactions = await dumpInteractionsByJob(jobId);
+
+  // -- payload au format homogène à exportIndexedDbToJson --
+    const payload = {
+      meta: {
+        type: 'gctool-idb-job',
+        dbName: IDB_DB_NAME,
+        version: IDB_DB_VER,
+        exportedAt: new Date().toISOString(),
+        jobId,
+        params: job.params || {},
+        count: {
+          jobs: 1,
+          interactions: interactions.length
+        }
+      },
+      data: {
+        jobs: [ job ],
+        interactions
+      }
+    };
+
+    const json = JSON.stringify(payload, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const fname = `${IDB_DB_NAME}-${new Date().toISOString().replace(/[:.]/g,'-')}.json`;
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = fname;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); }, 0);
+  }
+
+  async function exportIndexedDbToJson_old(){
     const db = await idbOpen();
     const stores = [IDB_STORE_JOBS, IDB_STORE_INTERACTIONS];
 
@@ -2356,7 +2965,7 @@ function computeSectionOrder(){
   function updateBoxCountVisual(id) {
     const box = boxes.get(id);
     const t = document.getElementById(`cnt_${id}`);
-    if (t) t.textContent = `(${box.count})`;
+    if (t) t.textContent = `${box.count}`;
   }
 
   function showStats(stats) {
@@ -2467,9 +3076,10 @@ function computeSectionOrder(){
   const css = `
     #logFlowSvg marker polygon { fill:#666; }
     .log-box .log-rect{ fill:#dae8fc; stroke:#6c8ebf; stroke-width:2; }
-    .log-title{ font-weight:bold; fill:#1a1a1a; font-size:13px; }
+    .log-title{ font-weight:800; fill:#1a1a1a; font-size:13px; pointer-events:none;}
+    .log-description{ font-style:italic; fill:#555; font-size:10px; pointer-events:none;}
     .log-waypoint{ fill:#1a1a1a; font-size:11px; }
-    .log-counter{ fill:#000; font-size:12px; }
+    .log-counter{ fill:#000; font-size:14px; }
     .log-conn-point{ fill:#fff; stroke:#333; stroke-width:2; cursor:pointer; }
     .log-conn-point.connecting{ fill:#ff6b6b; }
     .log-line{ stroke:#666; stroke-width:2; }
@@ -2492,6 +3102,8 @@ function computeSectionOrder(){
       padding: 8px;
       margin-top: 6px;
     }
+    .log-section-handle {cursor: ns-resize; fill: #fff; stroke: #999; stroke-width: 1; }
+    .log-section-handle:hover { fill: #f3f4f6; stroke: #666;}
   `;
   const styleEl = document.createElement('style');
   styleEl.textContent = css;
@@ -2499,7 +3111,7 @@ function computeSectionOrder(){
 
   
   // Exporter le schéma en JSON (fichier)
-  function exportDiagramJson() {
+  function exportGraphToJson() {
     try {
       const payload = serializeDiagram();
       const blob = new Blob([JSON.stringify(payload, null, 2)], {
@@ -2521,16 +3133,14 @@ function computeSectionOrder(){
   }
 
   // Importer un JSON de schéma
-  function importDiagramJson(evt) {
-    const file = evt.target.files && evt.target.files[0];
-    evt.target.value = ""; // reset pour ré-importer le même nom
-    if (!file) return;
-
+  function importGraphFromJson(file) {
     const reader = new FileReader();
     reader.onload = () => {
       try {
         const data = JSON.parse(reader.result);
         deserializeDiagram(data);
+        if (typeof layoutBoxesByWaypointName === 'function') layoutBoxesByWaypointName();
+        if (typeof updateSvgViewportSize === 'function') updateSvgViewportSize();
         saveToStorage(true); // save immédiat
         alert("Schéma importé avec succès ✅");
       } catch (e) {
@@ -2553,6 +3163,7 @@ function computeSectionOrder(){
         w: b.w,
         h: b.h,
         label: b.label,
+        description: b.description,
         waypoint: b.waypoint,
         count: b.count || 0,
       })),

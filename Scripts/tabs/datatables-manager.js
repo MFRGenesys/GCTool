@@ -21,6 +21,7 @@ async function getDataTableRowsWithCache(datatableId) {
             // Mettre les données en cache une fois récupérées
             liaisonDataCache.set(datatableId, rows);
             console.log(`✅ ${rows.length} lignes mises en cache pour: ${datatableId}`);
+            console.log(`📋 Aperçu des données pour ${datatableId}:`, rows.slice(0, 5));
             return rows;
         })
         .catch((error) => {
@@ -300,10 +301,11 @@ function getAllDataTableRows(datatableId) {
             pageNumber: pageNumber,
             showbrief: false
         };
-        
+        console.log(`DEBUG getAllDataTableRows opts = `,opts);
+
         return architectApi.getFlowsDatatableRows(datatableId, opts)
             .then((data) => {
-                //console.log(`DEBUG DataTable ${datatableId} page ${pageNumber} récupérée:`, data.entities.length, 'lignes');
+                console.log(`DEBUG DataTable ${datatableId} page ${pageNumber} récupérée:`, data.entities.length, 'lignes');
                 
                 // Ajouter les lignes de cette page
                 allRows = allRows.concat(data.entities);

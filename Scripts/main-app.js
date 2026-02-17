@@ -95,6 +95,12 @@ async function loadTabContents() {
         // Charger la page Flow logs
         await loadTabFromFile('logs-flow', 'logsFlowContent');
 
+        // Charger la page Flow logs
+        await loadTabFromFile('priorisation', 'priorisationContent');
+
+        // Charger la page API Explorer
+        await loadTabFromFile('api-explorer', 'apiExplorerContent');
+
         initializeInformationPage();
 
         console.log('📑 Contenu des onglets chargé depuis les fichiers');
@@ -216,6 +222,24 @@ $(document).ready(function() {
                 }
                 else {
                     console.warn('⚠️ initializeLogsFlowTab introuvable (ni global, ni dans GCTOOL_LOGFLOW).');
+                }
+                break;
+            case '#priorisation':
+                console.log('🔧 Init Priorisation via case exact');
+                if (typeof initializePriorisationTab === 'function') {
+                    initializePriorisationTab();
+                }
+                else {
+                    console.warn('⚠️ initializePriorisationTab introuvable (ni global, ni dans GCTOOL_PRIORISATION).');
+                }
+                break;
+            case '#api-explorer':
+                console.log('Init API Explorer via case exact');
+                if (typeof initializeApiExplorerTab === 'function') {
+                    initializeApiExplorerTab();
+                }
+                else {
+                    console.warn('initializeApiExplorerTab introuvable.');
                 }
                 break;
 

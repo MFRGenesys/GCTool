@@ -1,0 +1,2721 @@
+/*
+ * api-explorer.js
+ * Explorateur dynamique des APIs Genesys Cloud via la librairie SDK deja chargee.
+ *
+ * Architecture preparee pour une evolution batch:
+ * - construction de lot d'entrees
+ * - execution en boucle
+ * - agregation/projection
+ * - export CSV
+ */
+
+(function apiExplorerModule() {
+    'use strict';
+    const ARRAY_WILDCARD_TOKEN = '__ARRAY_ALL__';
+    const FAVORITES_COOKIE_NAME = 'gctool_api_explorer_favorites';
+    const FAVORITES_COOKIE_TTL_DAYS = 365;
+    const PROJECTION_AUTOCOMPLETE_DEBOUNCE_MS = 140;
+    const PROJECTION_AUTOCOMPLETE_MIN_CHARS = 2;
+    const PROJECTION_AUTOCOMPLETE_LIMIT = 20;
+
+    const state = {
+        // Etat runtime uniquement (pas de persistance locale, sauf favoris via cookie).
+        initialized: false,
+        catalog: [],
+        apiInstances: {},
+        expandedCategories: new Set(),
+        favorites: new Set(),
+        inputMode: 'fields',
+        selectedEndpointId: null,
+        lastResponse: null,
+        lastProjection: null,
+        lastExecutionMeta: null,
+        projectionAutocompletePaths: [],
+        currentProjectionSuggestions: [],
+        projectionAutocompleteDebounceId: null,
+        isProjectionProcessing: false
+    };
+
+    const batchScaffold = {
+        // Espace reserve pour la future API batch "avancee" exposee globalement.
+        parseInputLines: function parseInputLines(rawText) {
+            if (!rawText) return [];
+            return String(rawText)
+                .split(/\r?\n/)
+                .map((line) => line.trim())
+                .filter(Boolean);
+        },
+
+        async executeBatchRequests() {
+            throw new Error('Mode batch non implemente dans cette version.');
+        },
+
+        aggregateResponses: function aggregateResponses(responses, projectionPath) {
+            const list = Array.isArray(responses) ? responses : [];
+            if (!projectionPath) return list;
+            return list.map((item) => getValueByPath(item, projectionPath)).filter((item) => typeof item !== 'undefined');
+        }
+    };
+
+    window.GCTOOL_API_EXPLORER_BATCH = batchScaffold;
+    window.initializeApiExplorerTab = initializeApiExplorerTab;
+
+    function initializeApiExplorerTab() {
+        const root = document.getElementById('apiExplorerRoot');
+        if (!root) {
+            console.warn('[API Explorer] Root introuvable.');
+            return;
+        }
+
+        if (state.initialized) {
+            return;
+        }
+
+        state.initialized = true;
+        loadFavoritesFromCookie();
+        bindUiEvents();
+        buildCatalog();
+        pruneUnknownFavorites();
+        renderCatalog();
+
+        console.log('[API Explorer] Module initialise.');
+    }
+
+    function bindUiEvents() {
+        ensureBatchValidationElement();
+        ensureProjectionSuggestionDataList();
+
+        const searchInput = document.getElementById('apiExplorerSearchInput');
+        if (searchInput) {
+            searchInput.addEventListener('input', renderCatalog);
+        }
+
+        const filters = document.querySelectorAll('.api-method-filter');
+        filters.forEach((checkbox) => {
+            checkbox.addEventListener('change', renderCatalog);
+        });
+
+        const catalog = document.getElementById('apiExplorerCatalog');
+        if (catalog) {
+            catalog.addEventListener('click', onCatalogClicked);
+        }
+
+        const favoritesList = document.getElementById('apiExplorerFavoritesList');
+        if (favoritesList) {
+            favoritesList.addEventListener('click', onFavoritesClicked);
+        }
+
+        const executeBtn = document.getElementById('apiExplorerExecuteBtn');
+        if (executeBtn) {
+            executeBtn.addEventListener('click', executeSelectedEndpoint);
+        }
+
+        const modeFieldsBtn = document.getElementById('apiExplorerModeFieldsBtn');
+        if (modeFieldsBtn) {
+            modeFieldsBtn.addEventListener('click', () => switchInputMode('fields'));
+        }
+
+        const modeBatchBtn = document.getElementById('apiExplorerModeBatchBtn');
+        if (modeBatchBtn) {
+            modeBatchBtn.addEventListener('click', () => switchInputMode('batch'));
+        }
+
+        const batchJsonInput = document.getElementById('apiExplorerBatchJson');
+        if (batchJsonInput) {
+            // Fallback JS au cas ou le HTML n'a pas encore les attributs.
+            batchJsonInput.setAttribute('spellcheck', 'false');
+            batchJsonInput.setAttribute('autocomplete', 'off');
+            batchJsonInput.setAttribute('autocorrect', 'off');
+            batchJsonInput.setAttribute('autocapitalize', 'off');
+            batchJsonInput.addEventListener('input', () => validateBatchJsonEditorRealtime({ silentWhenEmpty: true }));
+        }
+
+        const applyProjectionBtn = document.getElementById('apiExplorerApplyProjectionBtn');
+        if (applyProjectionBtn) {
+            applyProjectionBtn.addEventListener('click', applyProjection);
+        }
+
+        const resetProjectionBtn = document.getElementById('apiExplorerResetProjectionBtn');
+        if (resetProjectionBtn) {
+            resetProjectionBtn.addEventListener('click', resetProjection);
+        }
+
+        const exportCsvBtn = document.getElementById('apiExplorerExportCsvBtn');
+        if (exportCsvBtn) {
+            exportCsvBtn.addEventListener('click', exportCurrentProjectionToCsv);
+        }
+
+        const responseViewer = document.getElementById('apiExplorerResponse');
+        if (responseViewer) {
+            responseViewer.addEventListener('click', onResponseViewerClicked);
+        }
+
+        const projectionPathInput = document.getElementById('apiExplorerProjectionPath');
+        if (projectionPathInput) {
+            projectionPathInput.setAttribute('spellcheck', 'false');
+            projectionPathInput.setAttribute('autocomplete', 'off');
+            projectionPathInput.addEventListener('input', scheduleProjectionAutocompleteRefresh);
+            projectionPathInput.addEventListener('focus', refreshProjectionAutocompleteSuggestions);
+            projectionPathInput.addEventListener('keydown', onProjectionPathKeyDown);
+        }
+    }
+
+    function ensureBatchValidationElement() {
+        const batchInput = document.getElementById('apiExplorerBatchJson');
+        if (!batchInput) return null;
+
+        let statusEl = document.getElementById('apiExplorerBatchJsonValidation');
+        if (statusEl) return statusEl;
+
+        statusEl = document.createElement('div');
+        statusEl.id = 'apiExplorerBatchJsonValidation';
+        statusEl.className = 'small text-muted';
+        statusEl.style.marginTop = '6px';
+        statusEl.textContent = 'JSON lot: en attente de saisie.';
+        if (batchInput.parentNode) {
+            batchInput.parentNode.appendChild(statusEl);
+        }
+
+        return statusEl;
+    }
+
+    function ensureProjectionSuggestionDataList() {
+        const input = document.getElementById('apiExplorerProjectionPath');
+        if (!input) return null;
+
+        const expectedId = 'apiExplorerProjectionSuggestions';
+        let dataList = document.getElementById(expectedId);
+        if (!dataList) {
+            dataList = document.createElement('datalist');
+            dataList.id = expectedId;
+            const root = document.getElementById('apiExplorerRoot') || document.body;
+            root.appendChild(dataList);
+        }
+
+        if (input.getAttribute('list') !== expectedId) {
+            input.setAttribute('list', expectedId);
+        }
+
+        return dataList;
+    }
+
+    function onResponseViewerClicked(event) {
+        const toggleBtn = event.target.closest('.json-toggle');
+        if (!toggleBtn || toggleBtn.classList.contains('json-toggle-empty')) {
+            return;
+        }
+
+        const node = toggleBtn.closest('.json-node');
+        if (!node || !node.classList.contains('json-composite')) {
+            return;
+        }
+
+        node.classList.toggle('json-collapsed');
+        toggleBtn.textContent = node.classList.contains('json-collapsed') ? '+' : '-';
+    }
+
+    function switchInputMode(mode) {
+        const endpoint = getSelectedEndpoint();
+        if (!endpoint) return;
+
+        const allowsBatch = allowsBatchMode(endpoint);
+        const targetMode = mode === 'batch' && allowsBatch ? 'batch' : 'fields';
+        state.inputMode = targetMode;
+
+        const modeFieldsBtn = document.getElementById('apiExplorerModeFieldsBtn');
+        const modeBatchBtn = document.getElementById('apiExplorerModeBatchBtn');
+        const paramsForm = document.getElementById('apiExplorerParamsForm');
+        const batchPanel = document.getElementById('apiExplorerBatchPanel');
+
+        if (modeFieldsBtn) modeFieldsBtn.classList.toggle('active', targetMode === 'fields');
+        if (modeBatchBtn) {
+            modeBatchBtn.classList.toggle('active', targetMode === 'batch');
+            modeBatchBtn.disabled = !allowsBatch;
+            modeBatchBtn.title = allowsBatch
+                ? 'Executer plusieurs appels avec des inputs differents'
+                : 'Le mode lot est reserve aux GET/DELETE/PATCH/PUT';
+        }
+
+        if (paramsForm) paramsForm.style.display = targetMode === 'fields' ? 'block' : 'none';
+        if (batchPanel) batchPanel.style.display = targetMode === 'batch' ? 'block' : 'none';
+    }
+
+    function allowsBatchMode(endpoint) {
+        if (!endpoint) return false;
+        return ['GET', 'DELETE', 'PATCH', 'PUT'].includes(endpoint.httpMethod);
+    }
+
+    function getSelectedEndpoint() {
+        return state.catalog.find((item) => item.id === state.selectedEndpointId) || null;
+    }
+
+    function buildCatalog() {
+        state.catalog = [];
+
+        if (typeof platformClient === 'undefined' || !platformClient) {
+            setCatalogInfo('SDK platformClient introuvable.');
+            return;
+        }
+
+        const apiClassNames = Object.keys(platformClient)
+            .filter((key) => key.endsWith('Api') && key !== 'ApiClient' && typeof platformClient[key] === 'function')
+            .sort();
+
+        const entries = [];
+
+        // Introspection SDK: on parcourt toutes les classes *Api puis leurs methodes.
+        apiClassNames.forEach((apiClassName) => {
+            const apiInstance = getApiInstance(apiClassName);
+            if (!apiInstance) return;
+
+            const proto = Object.getPrototypeOf(apiInstance);
+            if (!proto) return;
+
+            const methodNames = Object.getOwnPropertyNames(proto)
+                .filter((name) => name !== 'constructor' && typeof apiInstance[name] === 'function')
+                .sort();
+
+            methodNames.forEach((methodName) => {
+                const fn = apiInstance[methodName];
+                const meta = inferEndpointMetadata(apiClassName, methodName, fn);
+                entries.push(meta);
+            });
+        });
+
+        state.catalog = entries;
+    }
+
+    function getApiInstance(apiClassName) {
+        if (state.apiInstances[apiClassName]) {
+            return state.apiInstances[apiClassName];
+        }
+
+        try {
+            state.apiInstances[apiClassName] = new platformClient[apiClassName]();
+            return state.apiInstances[apiClassName];
+        } catch (error) {
+            console.warn('[API Explorer] Impossible de creer', apiClassName, error);
+            return null;
+        }
+    }
+
+    function inferEndpointMetadata(apiClassName, methodName, fn) {
+        // On derive les metadonnees directement depuis le code source genere du SDK.
+        const source = String(fn);
+        const callApiArgs = extractCallApiArguments(source);
+        const routePath = unwrapQuotedValue(callApiArgs[0]) || '';
+        const httpMethod = (unwrapQuotedValue(callApiArgs[1]) || 'UNKNOWN').toUpperCase();
+        const requiredParams = extractRequiredParams(source);
+        const requiredInputParams = requiredParams.filter((name) => name !== 'body');
+        const bodyArgumentExpression = (callApiArgs[6] || '').trim();
+        const expectsBodyFromOptions = /\.body\b/.test(bodyArgumentExpression);
+        const hasBodyParameter = requiredParams.includes('body') || expectsBodyFromOptions || ['POST', 'PATCH', 'PUT'].includes(httpMethod);
+
+        return {
+            id: apiClassName + '.' + methodName,
+            apiClassName,
+            category: prettifyCategoryName(apiClassName),
+            methodName,
+            httpMethod,
+            routePath,
+            requiredParams,
+            requiredInputParams,
+            functionArity: Number(fn.length) || 0,
+            hasBodyParameter,
+            expectsBodyFromOptions
+        };
+    }
+
+    function extractCallApiArguments(sourceCode) {
+        // Parseur "leger" d'arguments callApi(...), robuste aux chaines/objets imbriques.
+        const token = 'callApi(';
+        const start = sourceCode.indexOf(token);
+        if (start === -1) return [];
+
+        let index = start + token.length;
+        let depth = 1;
+        let current = '';
+        const args = [];
+
+        let inSingleQuote = false;
+        let inDoubleQuote = false;
+        let inTemplateQuote = false;
+        let escaped = false;
+
+        while (index < sourceCode.length) {
+            const ch = sourceCode[index];
+
+            if (escaped) {
+                current += ch;
+                escaped = false;
+                index++;
+                continue;
+            }
+
+            if (ch === '\\') {
+                current += ch;
+                escaped = true;
+                index++;
+                continue;
+            }
+
+            if (inSingleQuote) {
+                current += ch;
+                if (ch === "'") inSingleQuote = false;
+                index++;
+                continue;
+            }
+
+            if (inDoubleQuote) {
+                current += ch;
+                if (ch === '"') inDoubleQuote = false;
+                index++;
+                continue;
+            }
+
+            if (inTemplateQuote) {
+                current += ch;
+                if (ch === '`') inTemplateQuote = false;
+                index++;
+                continue;
+            }
+
+            if (ch === "'") {
+                inSingleQuote = true;
+                current += ch;
+                index++;
+                continue;
+            }
+
+            if (ch === '"') {
+                inDoubleQuote = true;
+                current += ch;
+                index++;
+                continue;
+            }
+
+            if (ch === '`') {
+                inTemplateQuote = true;
+                current += ch;
+                index++;
+                continue;
+            }
+
+            if (ch === '(' || ch === '{' || ch === '[') {
+                depth++;
+                current += ch;
+                index++;
+                continue;
+            }
+
+            if (ch === ')' || ch === '}' || ch === ']') {
+                depth--;
+
+                if (depth === 0) {
+                    args.push(current.trim());
+                    break;
+                }
+
+                current += ch;
+                index++;
+                continue;
+            }
+
+            if (ch === ',' && depth === 1) {
+                args.push(current.trim());
+                current = '';
+                index++;
+                continue;
+            }
+
+            current += ch;
+            index++;
+        }
+
+        return args;
+    }
+
+    function unwrapQuotedValue(value) {
+        if (!value) return '';
+        const trimmed = value.trim();
+        if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+            return trimmed.slice(1, -1);
+        }
+        return trimmed;
+    }
+
+    function extractRequiredParams(sourceCode) {
+        // Le SDK signale les params requis via "Missing the required parameter ...".
+        const regex = /Missing the required parameter "([^"]+)"/g;
+        const found = [];
+        let match;
+
+        while ((match = regex.exec(sourceCode)) !== null) {
+            const paramName = match[1];
+            if (!found.includes(paramName)) {
+                found.push(paramName);
+            }
+        }
+
+        return found;
+    }
+
+    function prettifyCategoryName(apiClassName) {
+        return apiClassName
+            .replace(/Api$/, '')
+            .replace(/([a-z0-9])([A-Z])/g, '$1 $2');
+    }
+
+    function getSelectedHttpMethods() {
+        const methods = new Set();
+        const checkboxes = document.querySelectorAll('.api-method-filter');
+
+        checkboxes.forEach((checkbox) => {
+            if (checkbox.checked) {
+                methods.add(String(checkbox.value).toUpperCase());
+            }
+        });
+
+        return methods;
+    }
+
+    function renderCatalog() {
+        const catalogEl = document.getElementById('apiExplorerCatalog');
+        if (!catalogEl) return;
+
+        const searchValue = ((document.getElementById('apiExplorerSearchInput') || {}).value || '').trim().toLowerCase();
+        const enabledMethods = getSelectedHttpMethods();
+
+        const filtered = state.catalog.filter((item) => {
+            const methodAllowed = item.httpMethod === 'UNKNOWN' || enabledMethods.has(item.httpMethod);
+            if (!methodAllowed) return false;
+
+            if (!searchValue) return true;
+
+            const haystack = (item.category + ' ' + item.apiClassName + ' ' + item.methodName + ' ' + item.routePath + ' ' + item.httpMethod)
+                .toLowerCase();
+
+            return haystack.includes(searchValue);
+        });
+
+        const grouped = groupByCategory(filtered);
+        const categories = Object.keys(grouped).sort();
+
+        // La section favoris est rendue a chaque filtrage pour rester synchronisee.
+        renderFavoritesSection();
+
+        if (categories.length && state.expandedCategories.size === 0) {
+            state.expandedCategories.add(categories[0]);
+        }
+
+        if (!filtered.length) {
+            catalogEl.innerHTML = '<div class="text-muted" style="padding:10px;">Aucune API ne correspond au filtre.</div>';
+            setCatalogInfo('0 endpoint - 0 categorie');
+            return;
+        }
+
+        const html = categories.map((category) => {
+            const endpoints = grouped[category];
+            const expanded = state.expandedCategories.has(category);
+
+            return `
+                <div class="api-category-row">
+                    <button type="button" class="api-category-toggle" data-category="${escapeAttribute(category)}">
+                        <i class="fa ${expanded ? 'fa-caret-down' : 'fa-caret-right'}"></i>
+                        ${escapeHtml(category)}
+                        <span class="badge" style="float:right;">${endpoints.length}</span>
+                    </button>
+                    <div class="api-endpoint-list" style="display:${expanded ? 'block' : 'none'};">
+                        ${endpoints.map(renderEndpointButton).join('')}
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        catalogEl.innerHTML = html;
+        setCatalogInfo(filtered.length + ' endpoint(s) - ' + categories.length + ' categorie(s)');
+    }
+
+    function groupByCategory(items) {
+        return items.reduce((acc, item) => {
+            if (!acc[item.category]) {
+                acc[item.category] = [];
+            }
+
+            acc[item.category].push(item);
+            return acc;
+        }, {});
+    }
+
+    function renderEndpointButton(item) {
+        const selectedClass = item.id === state.selectedEndpointId ? 'is-selected' : '';
+        const isFavorite = state.favorites.has(item.id);
+
+        return `
+            <div class="api-endpoint-item ${selectedClass}">
+                <button type="button"
+                    class="api-endpoint-fav ${isFavorite ? 'is-favorite' : ''}"
+                    data-favorite-toggle="1"
+                    data-endpoint-id="${escapeAttribute(item.id)}"
+                    title="${isFavorite ? 'Retirer des favoris' : 'Ajouter aux favoris'}">
+                    <i class="fa ${isFavorite ? 'fa-star' : 'fa-star-o'}"></i>
+                </button>
+                <button type="button" class="api-endpoint-main" data-endpoint-id="${escapeAttribute(item.id)}">
+                    <span class="label ${getMethodLabelClass(item.httpMethod)}">${escapeHtml(item.httpMethod)}</span>
+                    <code>${escapeHtml(item.methodName)}</code>
+                    <span class="api-path">${escapeHtml(item.routePath || '(route non detectee)')}</span>
+                </button>
+            </div>
+        `;
+    }
+
+    function onCatalogClicked(event) {
+        // Delegation d'evenements pour limiter le nombre de listeners.
+        const favoriteBtn = event.target.closest('[data-favorite-toggle="1"]');
+        if (favoriteBtn) {
+            const endpointId = favoriteBtn.getAttribute('data-endpoint-id');
+            if (endpointId) {
+                toggleFavorite(endpointId);
+            }
+            return;
+        }
+
+        const toggle = event.target.closest('.api-category-toggle');
+        if (toggle) {
+            const category = toggle.getAttribute('data-category') || '';
+            if (!category) return;
+
+            if (state.expandedCategories.has(category)) {
+                state.expandedCategories.delete(category);
+            } else {
+                state.expandedCategories.add(category);
+            }
+
+            renderCatalog();
+            return;
+        }
+
+        const endpointBtn = event.target.closest('.api-endpoint-main');
+        if (endpointBtn) {
+            const endpointId = endpointBtn.getAttribute('data-endpoint-id');
+            if (endpointId) {
+                selectEndpoint(endpointId);
+            }
+        }
+    }
+
+    function onFavoritesClicked(event) {
+        const favoriteBtn = event.target.closest('[data-favorite-toggle="1"]');
+        if (favoriteBtn) {
+            const endpointId = favoriteBtn.getAttribute('data-endpoint-id');
+            if (endpointId) {
+                toggleFavorite(endpointId);
+            }
+            return;
+        }
+
+        const favoriteItemBtn = event.target.closest('.api-favorite-item');
+        if (favoriteItemBtn) {
+            const endpointId = favoriteItemBtn.getAttribute('data-endpoint-id');
+            if (endpointId) {
+                selectEndpoint(endpointId);
+            }
+        }
+    }
+
+    function renderFavoritesSection() {
+        const favoritesListEl = document.getElementById('apiExplorerFavoritesList');
+        if (!favoritesListEl) return;
+
+        const favoriteEndpoints = state.catalog
+            .filter((item) => state.favorites.has(item.id))
+            .sort((a, b) => {
+                const left = (a.category + '.' + a.methodName).toLowerCase();
+                const right = (b.category + '.' + b.methodName).toLowerCase();
+                if (left < right) return -1;
+                if (left > right) return 1;
+                return 0;
+            });
+
+        if (!favoriteEndpoints.length) {
+            favoritesListEl.innerHTML = '<div class="small text-muted">Aucun favori enregistre.</div>';
+            return;
+        }
+
+        favoritesListEl.innerHTML = favoriteEndpoints.map((item) => `
+            <div class="api-favorite-row">
+                <button type="button" class="api-favorite-item" data-endpoint-id="${escapeAttribute(item.id)}">
+                    <span class="label ${getMethodLabelClass(item.httpMethod)}">${escapeHtml(item.httpMethod)}</span>
+                    <code>${escapeHtml(item.methodName)}</code>
+                    <span class="api-favorite-path">${escapeHtml(item.routePath || '(route non detectee)')}</span>
+                </button>
+                <button type="button"
+                    class="api-endpoint-fav is-favorite"
+                    data-favorite-toggle="1"
+                    data-endpoint-id="${escapeAttribute(item.id)}"
+                    title="Retirer des favoris">
+                    <i class="fa fa-star"></i>
+                </button>
+            </div>
+        `).join('');
+    }
+
+    function toggleFavorite(endpointId) {
+        if (!endpointId) return;
+
+        if (state.favorites.has(endpointId)) {
+            state.favorites.delete(endpointId);
+        } else {
+            state.favorites.add(endpointId);
+        }
+
+        saveFavoritesToCookie();
+        renderCatalog();
+    }
+
+    function selectEndpoint(endpointId) {
+        const endpoint = state.catalog.find((item) => item.id === endpointId);
+        if (!endpoint) return;
+
+        state.selectedEndpointId = endpointId;
+        state.lastResponse = null;
+        state.lastProjection = null;
+        state.lastExecutionMeta = null;
+        state.projectionAutocompletePaths = [];
+        state.currentProjectionSuggestions = [];
+        clearProjectionAutocompleteDebounce();
+
+        renderCatalog();
+        renderWorkbench(endpoint);
+    }
+
+    function renderWorkbench(endpoint) {
+        const emptyState = document.getElementById('apiExplorerEmptyState');
+        const workbench = document.getElementById('apiExplorerWorkbench');
+
+        if (emptyState) emptyState.style.display = 'none';
+        if (workbench) workbench.style.display = 'block';
+
+        const nameEl = document.getElementById('apiExplorerSelectedName');
+        const methodEl = document.getElementById('apiExplorerSelectedMethod');
+        const pathEl = document.getElementById('apiExplorerSelectedPath');
+        const classEl = document.getElementById('apiExplorerSelectedClass');
+
+        if (nameEl) nameEl.textContent = endpoint.methodName;
+        if (methodEl) {
+            methodEl.textContent = endpoint.httpMethod;
+            methodEl.className = 'label api-badge-method ' + getMethodLabelClass(endpoint.httpMethod);
+        }
+        if (pathEl) pathEl.textContent = endpoint.routePath || '(route non detectee)';
+        if (classEl) classEl.textContent = endpoint.apiClassName + ' (arity=' + endpoint.functionArity + ')';
+
+        renderRequiredParams(endpoint);
+        configureBatchInputForEndpoint(endpoint);
+        switchInputMode(state.inputMode);
+
+        const bodyInput = document.getElementById('apiExplorerBodyJson');
+        if (bodyInput) {
+            if (endpoint.hasBodyParameter) {
+                bodyInput.disabled = false;
+                bodyInput.placeholder = '{"key":"value"}';
+            } else {
+                bodyInput.disabled = true;
+                bodyInput.placeholder = 'Body non utilise par cette methode';
+                bodyInput.value = '';
+            }
+        }
+
+        const optionsInput = document.getElementById('apiExplorerOptionsJson');
+        if (optionsInput) {
+            optionsInput.value = '';
+        }
+
+        const autoPagingCb = document.getElementById('apiExplorerPostAutoPaging');
+        if (autoPagingCb) {
+            autoPagingCb.checked = false;
+            autoPagingCb.disabled = endpoint.httpMethod !== 'POST';
+        }
+
+        const projectionPathInput = document.getElementById('apiExplorerProjectionPath');
+        if (projectionPathInput) projectionPathInput.value = '';
+        refreshProjectionAutocompleteSuggestions();
+
+        setExecutionStatus('Pret a executer.', 'info');
+        updateResponseStats(null);
+        renderResponseText('Aucune reponse pour le moment.');
+    }
+
+    function renderRequiredParams(endpoint) {
+        const container = document.getElementById('apiExplorerParamsForm');
+        if (!container) return;
+
+        if (!endpoint.requiredInputParams.length) {
+            container.innerHTML = '<p class="text-muted">Aucun parametre obligatoire detecte.</p>';
+            return;
+        }
+
+        container.innerHTML = endpoint.requiredInputParams.map((paramName) => {
+            const inputId = buildRequiredInputId(paramName);
+
+            return `
+                <div class="form-group">
+                    <label for="${escapeAttribute(inputId)}">${escapeHtml(paramName)}</label>
+                    <input id="${escapeAttribute(inputId)}" data-required-param="${escapeAttribute(paramName)}" type="text" class="form-control" placeholder="${escapeAttribute(paramName)}" />
+                </div>
+            `;
+        }).join('');
+    }
+
+    function configureBatchInputForEndpoint(endpoint) {
+        const batchTextarea = document.getElementById('apiExplorerBatchJson');
+        if (!batchTextarea) return;
+
+        ensureBatchValidationElement();
+        batchTextarea.value = '';
+        batchTextarea.placeholder = buildBatchJsonPlaceholder(endpoint);
+        validateBatchJsonEditorRealtime({ silentWhenEmpty: true });
+
+        if (!allowsBatchMode(endpoint) && state.inputMode === 'batch') {
+            state.inputMode = 'fields';
+        }
+    }
+
+    function buildBatchJsonPlaceholder(endpoint) {
+        const templateEntry = {};
+        const requiredParams = endpoint && Array.isArray(endpoint.requiredInputParams) ? endpoint.requiredInputParams : [];
+
+        requiredParams.forEach((paramName) => {
+            templateEntry[paramName] = '...';
+        });
+
+        if (endpoint && (endpoint.httpMethod === 'PATCH' || endpoint.httpMethod === 'PUT')) {
+            templateEntry.body = { key: 'value' };
+        }
+
+        return JSON.stringify([templateEntry], null, 2);
+    }
+
+    function buildRequiredInputId(paramName) {
+        return 'apiExplorerParam_' + String(paramName).replace(/[^A-Za-z0-9_-]/g, '_');
+    }
+
+    // =========================
+    // Execution des appels API
+    // =========================
+    async function executeSelectedEndpoint() {
+        const endpoint = state.catalog.find((item) => item.id === state.selectedEndpointId);
+        if (!endpoint) {
+            setExecutionStatus('Selectionnez une API a executer.', 'warning');
+            return;
+        }
+
+        setExecutionStatus('Execution en cours...', 'info');
+
+        try {
+            const instance = getApiInstance(endpoint.apiClassName);
+            if (!instance || typeof instance[endpoint.methodName] !== 'function') {
+                throw new Error('Methode SDK introuvable: ' + endpoint.apiClassName + '.' + endpoint.methodName);
+            }
+
+            const startedAt = Date.now();
+            // Point d'entree unique: simple, lot JSON, ou pagination auto POST.
+            const executionResult = await executeEndpointWithSelectedMode(endpoint, instance);
+            const response = normalizeExecutionResultForDisplay(executionResult);
+            console.log(`Response Global : `, response);
+            const duration = Date.now() - startedAt;
+
+            state.lastResponse = response;
+            state.lastProjection = response;
+            state.lastExecutionMeta = isPlainObject(executionResult) ? executionResult : null;
+            rebuildProjectionAutocompletePaths();
+
+            renderResponseObject(response);
+            setExecutionStatus(buildExecutionSuccessMessage(executionResult, duration), 'success');
+        } catch (error) {
+            const normalizedError = normalizeError(error);
+            state.lastResponse = normalizedError;
+            state.lastProjection = normalizedError;
+            state.lastExecutionMeta = null;
+            rebuildProjectionAutocompletePaths();
+            renderResponseObject(normalizedError);
+            setExecutionStatus('Erreur: ' + (error && error.message ? error.message : 'Execution impossible'), 'danger');
+            console.error('[API Explorer] Erreur execution', error);
+        }
+    }
+
+    async function executeEndpointWithSelectedMode(endpoint, instance) {
+        // Priorite: pagination auto POST > mode lot > execution simple.
+        if (endpoint.httpMethod === 'POST' && isPostAutoPagingEnabled()) {
+            return executePostAutoPaging(endpoint, instance);
+        }
+
+        if (state.inputMode === 'batch' && allowsBatchMode(endpoint)) {
+            return executeBatchByJsonInputs(endpoint, instance);
+        }
+
+        const args = buildInvocationArgs(endpoint);
+        logApiCall(endpoint, args, { executionMode: 'single' });
+        return instance[endpoint.methodName].apply(instance, args);
+    }
+
+    async function executeBatchByJsonInputs(endpoint, instance) {
+        // Mode lot: 1 ligne JSON = 1 appel API.
+        const batchItems = parseBatchJsonInput(endpoint);
+        if (!batchItems.length) {
+            throw new Error('Le JSON de lot est vide.');
+        }
+
+        const baseBodyRead = readBodyValueFromEditor();
+        const baseBody = baseBodyRead.hasBodyInput ? baseBodyRead.bodyValue : null;
+        const baseOptions = readOptionsObject();
+
+        const responses = [];
+        const errors = [];
+        let totalHitsSum = 0;
+        let hasTotalHitsValue = false;
+        let maxPageNumber = null;
+        let maxPageCount = null;
+
+        console.log(`Batch items : `,batchItems);
+        for (let i = 0; i < batchItems.length; i += 1) {
+            const item = batchItems[i];
+            setExecutionStatus('Execution en cours... ' + (i + 1) + ' / ' + batchItems.length + ' requetes', 'info');
+            console.log(`Appel Batch `,i,` sur `,batchItems.length,` : `,item);
+            try {
+                const parts = buildInvocationPartsFromBatchItem(endpoint, item, baseBody, baseOptions);
+                const args = buildInvocationArgsFromParts(endpoint, parts);
+                logApiCall(endpoint, args, { executionMode: 'batch', batchIndex: i + 1 });
+
+                //await requestFreshAccessTokenForBatchCall(i + 1, batchItems.length);
+                // Code d'origine (sans refresh token par appel):
+                const response = await instance[endpoint.methodName].apply(instance, args);
+                const stats = extractResponseStats(response);
+                if (typeof stats.totalHits === 'number') {
+                    totalHitsSum += stats.totalHits;
+                    hasTotalHitsValue = true;
+                }
+                if (typeof stats.pageNumber === 'number') {
+                    maxPageNumber = maxPageNumber === null ? stats.pageNumber : Math.max(maxPageNumber, stats.pageNumber);
+                }
+                if (typeof stats.pageCount === 'number') {
+                    maxPageCount = maxPageCount === null ? stats.pageCount : Math.max(maxPageCount, stats.pageCount);
+                }
+
+                responses.push({
+                    index: i + 1,
+                    input: item,
+                    response
+                });
+            } catch (error) {
+                // On continue le lot meme en cas d'erreur individuelle.
+                errors.push({
+                    index: i + 1,
+                    input: item,
+                    error: normalizeError(error)
+                });
+            }
+        }
+
+        const fallbackPageValue = responses.length > 0 ? responses.length : null;
+
+        return {
+            mode: 'batch-inputs',
+            method: endpoint.httpMethod,
+            totalCalls: batchItems.length,
+            successCount: responses.length,
+            errorCount: errors.length,
+            paging: {
+                totalHits: hasTotalHitsValue ? totalHitsSum : null,
+                pageNumber: maxPageNumber !== null ? maxPageNumber : fallbackPageValue,
+                pageCount: maxPageCount !== null ? maxPageCount : fallbackPageValue
+            },
+            responses,
+            errors
+        };
+    }
+
+    async function requestFreshAccessTokenForBatchCall(batchIndex, totalCalls) {
+        const apiClient = platformClient && platformClient.ApiClient
+            ? platformClient.ApiClient.instance
+            : null;
+
+        if (!apiClient || typeof apiClient.loginImplicitGrant !== 'function') {
+            console.warn('[API Explorer] Refresh token batch ignore: ApiClient/loginImplicitGrant indisponible.');
+            return;
+        }
+
+        const hasOrgContext = typeof selectedOrgConfig !== 'undefined'
+            && selectedOrgConfig
+            && typeof selectedOrgConfig.clientId === 'string'
+            && selectedOrgConfig.clientId.length > 0;
+
+        if (!hasOrgContext) {
+            console.warn('[API Explorer] Refresh token batch ignore: selectedOrgConfig.clientId introuvable.');
+            return;
+        }
+
+        const redirectForLogin = typeof redirectURL !== 'undefined' && redirectURL
+            ? redirectURL
+            : (window.location.origin + window.location.pathname);
+
+        console.log('[API Explorer] Refresh token avant appel batch', {
+            batchIndex,
+            totalCalls
+        });
+
+        await apiClient.loginImplicitGrant(selectedOrgConfig.clientId, redirectForLogin);
+    }
+
+    async function executePostAutoPaging(endpoint, instance) {
+        const debugPrefix = '[API Explorer][POST-PAGINATION]';
+        const parts = buildInvocationPartsFromForm(endpoint);
+        const pageSetter = createPageSetter(parts);
+        if (!pageSetter) {
+            console.error(debugPrefix + ' Configuration pagination introuvable.', {
+                endpoint: endpoint.apiClassName + '.' + endpoint.methodName,
+                bodyValue: parts.bodyValue,
+                optionsObject: parts.optionsObject
+            });
+            throw new Error('Pagination auto POST: ajoutez un pageNumber dans body/options (ou pageSize + body/options).');
+        }
+
+        let currentPage = pageSetter.getCurrentPage();
+        let pageCount = null;
+        let guard = 0;
+        const guardLimit = 500;
+        let paginationCollectionKey = null;
+        console.log(debugPrefix + ' Demarrage', {
+            endpoint: endpoint.apiClassName + '.' + endpoint.methodName,
+            startPage: currentPage,
+            pageSetterStrategy: pageSetter.strategy || 'unknown',
+            guardLimit
+        });
+
+        const responses = [];
+        let totalHits = null;
+
+        // Boucle de pagination defensive: arret via pageCount, page vide, ou garde max.
+        while (guard < guardLimit) {
+            guard += 1;
+            const totalPagesLabel = pageCount !== null ? String(pageCount) : '?';
+            setExecutionStatus('Execution en cours... page ' + currentPage + ' / ' + totalPagesLabel, 'info');
+            console.log(debugPrefix + ' Iteration', {
+                iteration: guard,
+                page: currentPage
+            });
+
+            const iterationParts = cloneInvocationParts(parts);
+            pageSetter.setPage(iterationParts, currentPage);
+            console.log(debugPrefix + ' Payload page', {
+                page: currentPage,
+                requiredInputValues: iterationParts.requiredInputValues,
+                bodyValue: iterationParts.bodyValue,
+                optionsObject: iterationParts.optionsObject
+            });
+            const args = buildInvocationArgsFromParts(endpoint, iterationParts);
+            logApiCall(endpoint, args, { executionMode: 'post-auto-pagination', pageNumber: currentPage });
+
+            const response = await instance[endpoint.methodName].apply(instance, args);
+            responses.push(response);
+
+            const stats = extractResponseStats(response);
+            if (typeof stats.totalHits === 'number') {
+                totalHits = stats.totalHits;
+            }
+
+            const collectionSummary = summarizeTopLevelCollections(response);
+            if (!paginationCollectionKey && collectionSummary.primaryKey) {
+                // On verrouille la cle de collection principale des la premiere detection.
+                paginationCollectionKey = collectionSummary.primaryKey;
+                console.log(debugPrefix + ' Collection pagination detectee', {
+                    key: paginationCollectionKey
+                });
+            }
+
+            const pageCollection = extractCollectionByKey(response, paginationCollectionKey);
+            const pageItemCount = Array.isArray(pageCollection) ? pageCollection.length : 0;
+            console.log(debugPrefix + ' Reponse recue', {
+                page: currentPage,
+                totalHits,
+                stats,
+                paginationCollectionKey,
+                pageItemCount,
+                collectionsDetected: collectionSummary.collections
+            });
+
+            if (typeof stats.pageCount === 'number' && stats.pageCount > 0) {
+                pageCount = stats.pageCount;
+                setExecutionStatus('Execution en cours... page ' + currentPage + ' / ' + stats.pageCount, 'info');
+                if (currentPage >= stats.pageCount) {
+                    console.log(debugPrefix + ' Arret: derniere page atteinte', {
+                        page: currentPage,
+                        pageCount: stats.pageCount
+                    });
+                    break;
+                }
+            } else {
+                // Sans pageCount, on s'arrete si aucune donnee paginee detectee.
+                const hasPageData = paginationCollectionKey
+                    ? pageItemCount > 0
+                    : collectionSummary.hasAnyCollectionData;
+                if (!hasPageData) {
+                    responses.pop();
+                    console.log(debugPrefix + ' Arret: aucune donnee sur la page courante', {
+                        page: currentPage,
+                        paginationCollectionKey,
+                        collectionsDetected: collectionSummary.collections
+                    });
+                    break;
+                }
+            }
+
+            currentPage += 1;
+        }
+
+        if (guard >= guardLimit) {
+            console.error(debugPrefix + ' Arret securite: limite atteinte', {
+                guard,
+                guardLimit,
+                currentPage
+            });
+            throw new Error('Pagination auto POST interrompue (limite de securite atteinte).');
+        }
+
+        const mergedEntities = [];
+        const mergedResults = [];
+        const mergedItems = [];
+        responses.forEach((response) => {
+            if (Array.isArray(response && response.entities)) {
+                mergedEntities.push.apply(mergedEntities, response.entities);
+            }
+            if (Array.isArray(response && response.results)) {
+                mergedResults.push.apply(mergedResults, response.results);
+            }
+
+            // Agregation generique (ex: conversations/items/data), independante du nom.
+            const pageCollection = extractCollectionByKey(response, paginationCollectionKey);
+            if (Array.isArray(pageCollection)) {
+                mergedItems.push.apply(mergedItems, pageCollection);
+            }
+        });
+
+        console.log(debugPrefix + ' Termine', {
+            totalCalls: responses.length,
+            totalHits,
+            pageNumber: pageCount || responses.length || null,
+            pageCount: pageCount || responses.length || null,
+            paginationCollectionKey,
+            mergedEntities: mergedEntities.length,
+            mergedResults: mergedResults.length,
+            mergedItems: mergedItems.length
+        });
+
+        const pagingSummary = {
+            totalHits,
+            pageNumber: pageCount || responses.length || null,
+            pageCount: pageCount || responses.length || null
+        };
+
+        return {
+            mode: 'post-auto-pagination',
+            method: endpoint.httpMethod,
+            totalCalls: responses.length,
+            paging: pagingSummary,
+            responses,
+            mergedEntities,
+            mergedResults,
+            mergedCollectionKey: paginationCollectionKey,
+            mergedItems,
+            mergedResponse: mergePostPaginationResponses(responses, paginationCollectionKey, pagingSummary)
+        };
+    }
+
+    function normalizeExecutionResultForDisplay(executionResult) {
+        if (!isPlainObject(executionResult)) {
+            return executionResult;
+        }
+
+        if (executionResult.mode === 'post-auto-pagination') {
+            if (typeof executionResult.mergedResponse !== 'undefined') {
+                return executionResult.mergedResponse;
+            }
+
+            // Fallback defensif: si pas de fusion possible, on expose le tableau brut des pages.
+            return Array.isArray(executionResult.responses) ? executionResult.responses : executionResult;
+        }
+
+        if (executionResult.mode === 'batch-inputs') {
+            const batchResponses = Array.isArray(executionResult.responses) ? executionResult.responses : [];
+            if (executionResult.errorCount > 0 && Array.isArray(executionResult.errors)) {
+                console.warn('[API Explorer] Batch: certaines erreurs ne sont pas affichees dans le JSON simplifie.', executionResult.errors);
+            }
+
+            // Format simple et intuitif pour la projection: objet avec un tableau "results".
+            const results = batchResponses.map((entry) => {
+                if (isPlainObject(entry) && Object.prototype.hasOwnProperty.call(entry, 'response')) {
+                    return entry.response;
+                }
+
+                return entry;
+            });
+
+            return { results };
+        }
+
+        return executionResult;
+    }
+
+    function mergePostPaginationResponses(responses, collectionKey, pagingSummary) {
+        if (!Array.isArray(responses) || responses.length === 0) {
+            return {};
+        }
+
+        if (collectionKey === '$root') {
+            const mergedRoot = [];
+            responses.forEach((response) => {
+                if (Array.isArray(response)) {
+                    mergedRoot.push.apply(mergedRoot, response);
+                }
+            });
+            return mergedRoot;
+        }
+
+        const firstResponse = responses[0];
+        if (!isPlainObject(firstResponse)) {
+            return cloneJsonValue(firstResponse);
+        }
+
+        const mergedResponse = cloneJsonValue(firstResponse);
+        if (!collectionKey) {
+            return mergedResponse;
+        }
+
+        const mergedCollection = [];
+        responses.forEach((response) => {
+            const collection = extractCollectionByKey(response, collectionKey);
+            if (Array.isArray(collection)) {
+                mergedCollection.push.apply(mergedCollection, collection);
+            }
+        });
+
+        mergedResponse[collectionKey] = mergedCollection;
+        const mergedTotal = isPlainObject(pagingSummary) && typeof pagingSummary.totalHits === 'number'
+            ? pagingSummary.totalHits
+            : mergedCollection.length;
+        const mergedPageNumber = isPlainObject(pagingSummary) ? parseNumericValue(pagingSummary.pageNumber) : null;
+        const mergedPageCount = isPlainObject(pagingSummary) ? parseNumericValue(pagingSummary.pageCount) : null;
+
+        if (typeof mergedResponse.totalHits !== 'undefined') mergedResponse.totalHits = mergedTotal;
+        if (typeof mergedResponse.total !== 'undefined') mergedResponse.total = mergedTotal;
+        if (typeof mergedResponse.totalCount !== 'undefined') mergedResponse.totalCount = mergedTotal;
+        if (typeof mergedResponse.totalRecords !== 'undefined') mergedResponse.totalRecords = mergedTotal;
+        if (typeof mergedResponse.count !== 'undefined') mergedResponse.count = mergedTotal;
+        if (typeof mergedResponse.pageNumber !== 'undefined' && mergedPageNumber !== null) mergedResponse.pageNumber = mergedPageNumber;
+        if (typeof mergedResponse.page !== 'undefined' && mergedPageNumber !== null) mergedResponse.page = mergedPageNumber;
+        if (typeof mergedResponse.currentPage !== 'undefined' && mergedPageNumber !== null) mergedResponse.currentPage = mergedPageNumber;
+        if (typeof mergedResponse.pageCount !== 'undefined' && mergedPageCount !== null) mergedResponse.pageCount = mergedPageCount;
+        if (typeof mergedResponse.totalPages !== 'undefined' && mergedPageCount !== null) mergedResponse.totalPages = mergedPageCount;
+        if (typeof mergedResponse.pages !== 'undefined' && mergedPageCount !== null) mergedResponse.pages = mergedPageCount;
+
+        // Si la structure expose un bloc paging, on le normalise pour refleter une vue fusionnee.
+        if (isPlainObject(mergedResponse.paging)) {
+            if (typeof mergedResponse.paging.totalHits !== 'undefined') mergedResponse.paging.totalHits = mergedTotal;
+            if (typeof mergedResponse.paging.total !== 'undefined') mergedResponse.paging.total = mergedTotal;
+            if (typeof mergedResponse.paging.totalCount !== 'undefined') mergedResponse.paging.totalCount = mergedTotal;
+            if (typeof mergedResponse.paging.totalRecords !== 'undefined') mergedResponse.paging.totalRecords = mergedTotal;
+            if (typeof mergedResponse.paging.count !== 'undefined') mergedResponse.paging.count = mergedTotal;
+            if (typeof mergedResponse.paging.pageNumber !== 'undefined' && mergedPageNumber !== null) mergedResponse.paging.pageNumber = mergedPageNumber;
+            if (typeof mergedResponse.paging.page !== 'undefined' && mergedPageNumber !== null) mergedResponse.paging.page = mergedPageNumber;
+            if (typeof mergedResponse.paging.currentPage !== 'undefined' && mergedPageNumber !== null) mergedResponse.paging.currentPage = mergedPageNumber;
+            if (typeof mergedResponse.paging.pageCount !== 'undefined' && mergedPageCount !== null) mergedResponse.paging.pageCount = mergedPageCount;
+            if (typeof mergedResponse.paging.totalPages !== 'undefined' && mergedPageCount !== null) mergedResponse.paging.totalPages = mergedPageCount;
+            if (typeof mergedResponse.paging.pages !== 'undefined' && mergedPageCount !== null) mergedResponse.paging.pages = mergedPageCount;
+        }
+
+        return mergedResponse;
+    }
+
+    function buildInvocationArgs(endpoint, overrides) {
+        const parts = overrides && isPlainObject(overrides.parts)
+            ? overrides.parts
+            : buildInvocationPartsFromForm(endpoint);
+
+        return buildInvocationArgsFromParts(endpoint, parts);
+    }
+
+    function buildInvocationPartsFromForm(endpoint) {
+        const requiredInputValues = endpoint.requiredInputParams.map((paramName) => {
+            const element = document.getElementById(buildRequiredInputId(paramName));
+            const rawValue = element ? element.value.trim() : '';
+
+            if (!rawValue) {
+                throw new Error('Parametre requis vide: ' + paramName);
+            }
+
+            return coerceInputValue(rawValue);
+        });
+
+        const bodyRead = readBodyValueFromEditor();
+        const optionsObject = readOptionsObject();
+
+        return {
+            requiredInputValues,
+            bodyValue: bodyRead.bodyValue,
+            hasBodyInput: bodyRead.hasBodyInput,
+            optionsObject
+        };
+    }
+
+    function buildInvocationPartsFromBatchItem(endpoint, item, baseBody, baseOptions) {
+        if (!isPlainObject(item)) {
+            throw new Error('Chaque ligne du lot doit etre un objet JSON.');
+        }
+
+        const requiredInputValues = endpoint.requiredInputParams.map((paramName) => {
+            if (!Object.prototype.hasOwnProperty.call(item, paramName)) {
+                throw new Error('Parametre requis manquant dans le lot: ' + paramName);
+            }
+
+            const value = item[paramName];
+            return typeof value === 'string' ? coerceInputValue(value) : value;
+        });
+
+        const bodyValue = Object.prototype.hasOwnProperty.call(item, 'body') ? item.body : baseBody;
+        const hasBodyInput = bodyValue !== null && typeof bodyValue !== 'undefined';
+
+        const itemOptions = Object.prototype.hasOwnProperty.call(item, 'options') ? item.options : null;
+        if (itemOptions !== null && !isPlainObject(itemOptions)) {
+            throw new Error('item.options doit etre un objet.');
+        }
+
+        const mergedOptions = mergeOptions(baseOptions, itemOptions);
+
+        return {
+            requiredInputValues,
+            bodyValue,
+            hasBodyInput,
+            optionsObject: mergedOptions
+        };
+    }
+
+    function buildInvocationArgsFromParts(endpoint, parts) {
+        const args = [];
+        const requiredInputValues = Array.isArray(parts.requiredInputValues) ? parts.requiredInputValues : [];
+
+        requiredInputValues.forEach((value) => args.push(value));
+
+        const hasBodyInput = Boolean(parts.hasBodyInput);
+        const bodyValue = parts.bodyValue;
+
+        let optionsObject = parts.optionsObject;
+
+        if (endpoint.requiredParams.includes('body')) {
+            if (!hasBodyInput) {
+                throw new Error('Le body JSON est requis pour cette methode.');
+            }
+            args.push(bodyValue);
+        }
+
+        // Certaines methodes SDK transportent le body via options.body (et non en argument direct).
+        if (endpoint.expectsBodyFromOptions && hasBodyInput) {
+            if (optionsObject === null) {
+                optionsObject = {};
+            }
+
+            if (!isPlainObject(optionsObject)) {
+                throw new Error('Options JSON doit etre un objet pour transporter body.');
+            }
+
+            optionsObject.body = bodyValue;
+        }
+
+        if (optionsObject !== null) {
+            if (endpoint.functionArity > args.length) {
+                args.push(optionsObject);
+            } else {
+                throw new Error('Cette methode ne permet pas d ajouter un objet options ici.');
+            }
+        } else if (endpoint.expectsBodyFromOptions && hasBodyInput && endpoint.functionArity > args.length) {
+            args.push({ body: bodyValue });
+        }
+
+        return args;
+    }
+
+    function readBodyValueFromEditor() {
+        const bodyInput = document.getElementById('apiExplorerBodyJson');
+        const bodyText = bodyInput ? bodyInput.value.trim() : '';
+        const hasBodyInput = bodyText.length > 0;
+        const bodyValue = hasBodyInput ? parseJsonOrThrow(bodyText, 'Body JSON') : null;
+
+        return { hasBodyInput, bodyValue };
+    }
+
+    function parseBatchJsonInput(endpoint) {
+        const inputEl = document.getElementById('apiExplorerBatchJson');
+        const raw = inputEl ? inputEl.value.trim() : '';
+
+        if (!raw) {
+            throw new Error('Mode lot: JSON vide.');
+        }
+
+        const parsed = parseJsonOrThrow(raw, 'Batch JSON');
+        if (!Array.isArray(parsed)) {
+            throw new Error('Batch JSON doit etre un tableau d objets.');
+        }
+
+        if (!parsed.every((item) => isPlainObject(item))) {
+            throw new Error('Batch JSON: chaque element doit etre un objet.');
+        }
+
+        if (parsed.length === 0) {
+            throw new Error('Batch JSON: tableau vide.');
+        }
+
+        const missingRequired = endpoint.requiredInputParams.some((paramName) => !Object.prototype.hasOwnProperty.call(parsed[0], paramName));
+        if (missingRequired) {
+            // Validation detaillee lors de chaque ligne ensuite.
+        }
+
+        return parsed;
+    }
+
+    function isPostAutoPagingEnabled() {
+        const cb = document.getElementById('apiExplorerPostAutoPaging');
+        return Boolean(cb && cb.checked && !cb.disabled);
+    }
+
+    function mergeOptions(baseOptions, itemOptions) {
+        const hasBase = isPlainObject(baseOptions);
+        const hasItem = isPlainObject(itemOptions);
+
+        if (!hasBase && !hasItem) return null;
+        if (!hasBase) return cloneJsonValue(itemOptions);
+        if (!hasItem) return cloneJsonValue(baseOptions);
+
+        return Object.assign({}, cloneJsonValue(baseOptions), cloneJsonValue(itemOptions));
+    }
+
+    function cloneInvocationParts(parts) {
+        return {
+            requiredInputValues: Array.isArray(parts.requiredInputValues) ? parts.requiredInputValues.slice() : [],
+            bodyValue: cloneJsonValue(parts.bodyValue),
+            hasBodyInput: Boolean(parts.hasBodyInput),
+            optionsObject: cloneJsonValue(parts.optionsObject)
+        };
+    }
+
+    function cloneJsonValue(value) {
+        if (value === null || typeof value === 'undefined') return value;
+        if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value;
+        try {
+            return JSON.parse(JSON.stringify(value));
+        } catch (_error) {
+            return value;
+        }
+    }
+
+    function createPageSetter(parts) {
+        // Detection des conventions de pagination supportees dans body/options.
+        if (isPlainObject(parts.bodyValue)) {
+            if (typeof parts.bodyValue.pageNumber !== 'undefined' || typeof parts.bodyValue.pageSize !== 'undefined') {
+                const startPage = Number(parts.bodyValue.pageNumber) > 0 ? Number(parts.bodyValue.pageNumber) : 1;
+                return {
+                    strategy: 'body.pageNumber',
+                    getCurrentPage: () => startPage,
+                    setPage: (targetParts, pageNumber) => {
+                        if (!isPlainObject(targetParts.bodyValue)) targetParts.bodyValue = {};
+                        targetParts.bodyValue.pageNumber = pageNumber;
+                        targetParts.hasBodyInput = true;
+                    }
+                };
+            }
+
+            if (isPlainObject(parts.bodyValue.paging)) {
+                const paging = parts.bodyValue.paging;
+                if (typeof paging.pageNumber !== 'undefined' || typeof paging.pageSize !== 'undefined') {
+                    const startPage = Number(paging.pageNumber) > 0 ? Number(paging.pageNumber) : 1;
+                    return {
+                        strategy: 'body.paging.pageNumber',
+                        getCurrentPage: () => startPage,
+                        setPage: (targetParts, pageNumber) => {
+                            if (!isPlainObject(targetParts.bodyValue)) targetParts.bodyValue = {};
+                            if (!isPlainObject(targetParts.bodyValue.paging)) targetParts.bodyValue.paging = {};
+                            targetParts.bodyValue.paging.pageNumber = pageNumber;
+                            targetParts.hasBodyInput = true;
+                        }
+                    };
+                }
+            }
+        }
+
+        if (isPlainObject(parts.optionsObject)) {
+            if (typeof parts.optionsObject.pageNumber !== 'undefined' || typeof parts.optionsObject.pageSize !== 'undefined') {
+                const startPage = Number(parts.optionsObject.pageNumber) > 0 ? Number(parts.optionsObject.pageNumber) : 1;
+                return {
+                    strategy: 'options.pageNumber',
+                    getCurrentPage: () => startPage,
+                    setPage: (targetParts, pageNumber) => {
+                        if (!isPlainObject(targetParts.optionsObject)) targetParts.optionsObject = {};
+                        targetParts.optionsObject.pageNumber = pageNumber;
+                    }
+                };
+            }
+        }
+
+        return null;
+    }
+
+    function summarizeTopLevelCollections(payload) {
+        // Detecte les tableaux de 1er niveau pour trouver la "collection paginee" dominante.
+        const summary = {
+            collections: [],
+            countByKey: {},
+            primaryKey: null,
+            primaryCount: 0,
+            hasAnyCollectionData: false
+        };
+
+        if (Array.isArray(payload)) {
+            const count = payload.length;
+            summary.collections.push({ key: '$root', count });
+            summary.countByKey.$root = count;
+            summary.primaryKey = '$root';
+            summary.primaryCount = count;
+            summary.hasAnyCollectionData = count > 0;
+            return summary;
+        }
+
+        if (!isPlainObject(payload)) {
+            return summary;
+        }
+
+        Object.keys(payload).forEach((key) => {
+            const value = payload[key];
+            if (!Array.isArray(value)) return;
+
+            const count = value.length;
+            summary.collections.push({ key, count });
+            summary.countByKey[key] = count;
+            if (count > 0) {
+                summary.hasAnyCollectionData = true;
+            }
+        });
+
+        if (!summary.collections.length) {
+            return summary;
+        }
+
+        const preferredKeys = ['entities', 'results', 'conversations', 'items', 'records', 'data'];
+        for (let i = 0; i < preferredKeys.length; i += 1) {
+            const preferredKey = preferredKeys[i];
+            if (summary.countByKey[preferredKey] > 0) {
+                summary.primaryKey = preferredKey;
+                summary.primaryCount = summary.countByKey[preferredKey];
+                return summary;
+            }
+        }
+
+        let best = summary.collections[0];
+        for (let i = 1; i < summary.collections.length; i += 1) {
+            if (summary.collections[i].count > best.count) {
+                best = summary.collections[i];
+            }
+        }
+
+        summary.primaryKey = best.key;
+        summary.primaryCount = best.count;
+        return summary;
+    }
+
+    function extractCollectionByKey(payload, key) {
+        if (!key) return null;
+        if (key === '$root' && Array.isArray(payload)) {
+            return payload;
+        }
+
+        if (!isPlainObject(payload)) {
+            return null;
+        }
+
+        return Array.isArray(payload[key]) ? payload[key] : null;
+    }
+
+    function logApiCall(endpoint, args, context) {
+        const functionName = endpoint.apiClassName + '.' + endpoint.methodName;
+        const postContent = extractRequestBodyFromArgs(endpoint, args);
+        const contextInfo = isPlainObject(context) ? context : {};
+
+        console.log('[API Explorer] Appel API', {
+            functionName,
+            httpMethod: endpoint.httpMethod,
+            postContent,
+            context: contextInfo
+        });
+    }
+
+    function buildExecutionSuccessMessage(response, durationMs) {
+        if (isPlainObject(response)) {
+            if (response.mode === 'batch-inputs') {
+                return 'Batch termine en ' + durationMs + ' ms. Succes: ' + response.successCount + '/' + response.totalCalls + '.';
+            }
+
+            if (response.mode === 'post-auto-pagination') {
+                return 'Pagination POST terminee en ' + durationMs + ' ms. Pages appelees: ' + response.totalCalls + '.';
+            }
+        }
+
+        return 'Succes en ' + durationMs + ' ms.';
+    }
+
+    function extractRequestBodyFromArgs(endpoint, args) {
+        if (!endpoint || !Array.isArray(args)) {
+            return null;
+        }
+
+        const firstBodyIndex = endpoint.requiredInputParams.length;
+
+        if (endpoint.requiredParams.includes('body') && typeof args[firstBodyIndex] !== 'undefined') {
+            return args[firstBodyIndex];
+        }
+
+        // Fallback pour les signatures ou le body est dans l'objet options.
+        for (let i = args.length - 1; i >= 0; i -= 1) {
+            const currentArg = args[i];
+            if (isPlainObject(currentArg) && Object.prototype.hasOwnProperty.call(currentArg, 'body')) {
+                return currentArg.body;
+            }
+        }
+
+        const bodyInput = document.getElementById('apiExplorerBodyJson');
+        const bodyText = bodyInput ? bodyInput.value.trim() : '';
+        if (!bodyText) {
+            return null;
+        }
+
+        try {
+            return JSON.parse(bodyText);
+        } catch (_error) {
+            return bodyText;
+        }
+    }
+
+    function readOptionsObject() {
+        const optionsInput = document.getElementById('apiExplorerOptionsJson');
+        const optionsText = optionsInput ? optionsInput.value.trim() : '';
+
+        if (!optionsText) {
+            return null;
+        }
+
+        const value = parseJsonOrThrow(optionsText, 'Options JSON');
+        if (!isPlainObject(value)) {
+            throw new Error('Options JSON doit etre un objet.');
+        }
+
+        return value;
+    }
+
+    function coerceInputValue(rawValue) {
+        // Conversion best-effort pour eviter de tout envoyer en string.
+        const trimmed = String(rawValue).trim();
+
+        if (/^[-]?\d+$/.test(trimmed)) {
+            const asInt = parseInt(trimmed, 10);
+            if (!Number.isNaN(asInt)) return asInt;
+        }
+
+        if (/^[-]?\d+\.\d+$/.test(trimmed)) {
+            const asFloat = parseFloat(trimmed);
+            if (!Number.isNaN(asFloat)) return asFloat;
+        }
+
+        if (trimmed === 'true') return true;
+        if (trimmed === 'false') return false;
+        if (trimmed === 'null') return null;
+
+        if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+            try {
+                return JSON.parse(trimmed);
+            } catch (_error) {
+                return trimmed;
+            }
+        }
+
+        return trimmed;
+    }
+
+    function parseJsonOrThrow(jsonText, sourceLabel) {
+        try {
+            return JSON.parse(jsonText);
+        } catch (_error) {
+            throw new Error(sourceLabel + ' invalide (JSON attendu).');
+        }
+    }
+
+    function validateBatchJsonEditorRealtime(options) {
+        const inputEl = document.getElementById('apiExplorerBatchJson');
+        const statusEl = ensureBatchValidationElement();
+        if (!inputEl || !statusEl) return;
+
+        const raw = inputEl.value.trim();
+        const silentWhenEmpty = Boolean(options && options.silentWhenEmpty);
+
+        inputEl.classList.remove('api-json-valid', 'api-json-invalid');
+
+        if (!raw) {
+            statusEl.className = 'small text-muted';
+            statusEl.textContent = silentWhenEmpty
+                ? 'JSON lot: en attente de saisie.'
+                : 'JSON lot vide.';
+            return;
+        }
+
+        try {
+            const parsed = JSON.parse(raw);
+            if (!Array.isArray(parsed)) {
+                throw new Error('Le JSON doit etre un tableau d objets.');
+            }
+
+            if (!parsed.every((item) => isPlainObject(item))) {
+                throw new Error('Chaque element du tableau doit etre un objet.');
+            }
+
+            inputEl.classList.add('api-json-valid');
+            statusEl.className = 'small text-success';
+            statusEl.textContent = 'JSON valide (' + parsed.length + ' ligne(s)).';
+        } catch (error) {
+            inputEl.classList.add('api-json-invalid');
+            statusEl.className = 'small text-danger';
+            statusEl.textContent = 'JSON invalide: ' + (error && error.message ? error.message : 'erreur de syntaxe');
+        }
+    }
+
+    function rebuildProjectionAutocompletePaths() {
+        ensureProjectionSuggestionDataList();
+        clearProjectionAutocompleteDebounce();
+        if (state.lastResponse === null || typeof state.lastResponse === 'undefined') {
+            state.projectionAutocompletePaths = [];
+            state.currentProjectionSuggestions = [];
+            setProjectionSuggestionList([], null);
+            return;
+        }
+
+        state.projectionAutocompletePaths = buildProjectionAutocompletePaths(state.lastResponse);
+        refreshProjectionAutocompleteSuggestions();
+    }
+
+    function scheduleProjectionAutocompleteRefresh() {
+        clearProjectionAutocompleteDebounce();
+        state.projectionAutocompleteDebounceId = setTimeout(() => {
+            state.projectionAutocompleteDebounceId = null;
+            refreshProjectionAutocompleteSuggestions();
+        }, PROJECTION_AUTOCOMPLETE_DEBOUNCE_MS);
+    }
+
+    function clearProjectionAutocompleteDebounce() {
+        if (state.projectionAutocompleteDebounceId !== null) {
+            clearTimeout(state.projectionAutocompleteDebounceId);
+            state.projectionAutocompleteDebounceId = null;
+        }
+    }
+
+    function refreshProjectionAutocompleteSuggestions() {
+        const input = document.getElementById('apiExplorerProjectionPath');
+        if (!input) return;
+
+        const context = getProjectionInputContext(input.value);
+        if (context.activeSegment.length < PROJECTION_AUTOCOMPLETE_MIN_CHARS) {
+            state.currentProjectionSuggestions = [];
+            setProjectionSuggestionList([], context);
+            ensureProjectionInputShowsTail();
+            return;
+        }
+
+        const suggestions = getProjectionSuggestionCandidates(context.query, PROJECTION_AUTOCOMPLETE_LIMIT);
+        state.currentProjectionSuggestions = suggestions;
+        setProjectionSuggestionList(suggestions, context);
+        ensureProjectionInputShowsTail();
+    }
+
+    function onProjectionPathKeyDown(event) {
+        if (!event || event.key !== 'Tab') return;
+        if (!state.currentProjectionSuggestions.length) {
+            clearProjectionAutocompleteDebounce();
+            refreshProjectionAutocompleteSuggestions();
+        }
+        if (!state.currentProjectionSuggestions.length) return;
+
+        event.preventDefault();
+        applyProjectionSuggestion(state.currentProjectionSuggestions[0]);
+    }
+
+    function applyProjectionSuggestion(suggestion) {
+        const input = document.getElementById('apiExplorerProjectionPath');
+        if (!input || !suggestion) return;
+
+        const context = getProjectionInputContext(input.value);
+        input.value = context.prefix + context.leadingWhitespace + suggestion;
+
+        const end = input.value.length;
+        input.setSelectionRange(end, end);
+        ensureProjectionInputShowsTail();
+        refreshProjectionAutocompleteSuggestions();
+    }
+
+    function getProjectionInputContext(rawInput) {
+        const raw = String(rawInput || '');
+        const lastCommaIndex = raw.lastIndexOf(',');
+        const prefix = lastCommaIndex === -1 ? '' : raw.slice(0, lastCommaIndex + 1);
+        const segmentRaw = lastCommaIndex === -1 ? raw : raw.slice(lastCommaIndex + 1);
+        const leadingWhitespaceMatch = segmentRaw.match(/^\s*/);
+        const leadingWhitespace = leadingWhitespaceMatch ? leadingWhitespaceMatch[0] : '';
+        const activeSegment = segmentRaw.trim();
+
+        return {
+            prefix,
+            leadingWhitespace,
+            activeSegment,
+            query: activeSegment.toLowerCase()
+        };
+    }
+
+    function buildProjectionAutocompletePaths(source) {
+        const maxPaths = 1200;
+        const maxDepth = 8;
+        const paths = new Set();
+
+        collectProjectionPathsRecursive(source, '', paths, 0, maxDepth, maxPaths);
+
+        return Array.from(paths).sort((a, b) => {
+            if (a.length !== b.length) return a.length - b.length;
+            return a.localeCompare(b);
+        });
+    }
+
+    function collectProjectionPathsRecursive(current, basePath, paths, depth, maxDepth, maxPaths) {
+        if (paths.size >= maxPaths) return;
+        if (depth > maxDepth) return;
+        if (current === null || typeof current === 'undefined') return;
+
+        if (Array.isArray(current)) {
+            const arrayPath = basePath ? basePath + '[]' : '[]';
+            paths.add(arrayPath);
+
+            if (!current.length) return;
+            const sample = current.find((item) => item !== null && typeof item !== 'undefined');
+            if (typeof sample === 'undefined') return;
+
+            collectProjectionPathsRecursive(sample, arrayPath, paths, depth + 1, maxDepth, maxPaths);
+            return;
+        }
+
+        if (!isPlainObject(current)) {
+            return;
+        }
+
+        const keys = Object.keys(current);
+        for (let i = 0; i < keys.length; i += 1) {
+            if (paths.size >= maxPaths) return;
+            const key = keys[i];
+            const nextPath = basePath ? basePath + '.' + key : key;
+            paths.add(nextPath);
+            collectProjectionPathsRecursive(current[key], nextPath, paths, depth + 1, maxDepth, maxPaths);
+        }
+    }
+
+    function getProjectionSuggestionCandidates(query, limit) {
+        const allPaths = Array.isArray(state.projectionAutocompletePaths) ? state.projectionAutocompletePaths : [];
+        if (!allPaths.length) return [];
+
+        const cappedLimit = Math.max(1, Number(limit) || 40);
+        if (!query) {
+            return allPaths.slice(0, cappedLimit);
+        }
+
+        const startsWithMatches = [];
+        const lowerQuery = String(query).toLowerCase();
+
+        for (let i = 0; i < allPaths.length; i += 1) {
+            const path = allPaths[i];
+            const lowerPath = path.toLowerCase();
+            if (lowerPath.startsWith(lowerQuery)) {
+                startsWithMatches.push(path);
+            }
+        }
+
+        return startsWithMatches.slice(0, cappedLimit);
+    }
+
+    function setProjectionSuggestionList(suggestions, context) {
+        const dataList = ensureProjectionSuggestionDataList();
+        if (!dataList) return;
+
+        const values = Array.isArray(suggestions) ? suggestions : [];
+        const safeContext = context || { prefix: '', leadingWhitespace: '' };
+        const optionsHtml = values.map((tailValue) => {
+            const fullValue = safeContext.prefix + safeContext.leadingWhitespace + tailValue;
+            return '<option value="' + escapeAttribute(fullValue) + '" label="' + escapeAttribute(tailValue) + '"></option>';
+        }).join('');
+
+        // Evite de reconstruire le datalist si la proposition n'a pas change.
+        if (dataList.dataset.signature === optionsHtml) {
+            return;
+        }
+
+        dataList.dataset.signature = optionsHtml;
+        // value = valeur complete (necessaire pour datalist + filtre navigateur)
+        // label = dernier filtre uniquement (lisible en cas de multi-projection "a,b,c")
+        dataList.innerHTML = optionsHtml;
+    }
+
+    function ensureProjectionInputShowsTail() {
+        const input = document.getElementById('apiExplorerProjectionPath');
+        if (!input) return;
+
+        const scrollMargin = 24;
+        const maxScrollLeft = Math.max(0, input.scrollWidth - input.clientWidth);
+        input.scrollLeft = Math.max(0, maxScrollLeft - scrollMargin);
+    }
+
+    // =======================================
+    // Projection JSON et export CSV structure
+    // =======================================
+    async function applyProjection() {
+        // Projection simple: path unique. Projection multiple: "pathA,pathB,...".
+        if (state.lastResponse === null) {
+            setExecutionStatus('Aucune reponse a projeter.', 'warning');
+            return;
+        }
+
+        if (state.isProjectionProcessing) {
+            return;
+        }
+
+        setProjectionProcessingState(true);
+        try {
+            // Laisse le temps au DOM d'appliquer l'etat visuel avant le traitement potentiellement lourd.
+            await waitForUiFrame();
+
+            const input = document.getElementById('apiExplorerProjectionPath');
+            const projectionInput = input ? input.value.trim() : '';
+            const projectionPaths = parseProjectionPaths(projectionInput);
+            const groupByObjectCheckbox = document.getElementById('apiExplorerProjectionGroupByObject');
+            const groupByObject = !groupByObjectCheckbox || Boolean(groupByObjectCheckbox.checked);
+
+            if (!projectionPaths.length) {
+                state.lastProjection = state.lastResponse;
+                renderResponseObject(state.lastProjection);
+                setExecutionStatus('Projection vide: affichage de la reponse complete.', 'info');
+                return;
+            }
+
+            if (projectionPaths.length === 1) {
+                const projected = getValueByPath(state.lastResponse, projectionPaths[0]);
+                if (typeof projected === 'undefined') {
+                    setExecutionStatus('Projection introuvable: ' + projectionPaths[0], 'warning');
+                    return;
+                }
+
+                state.lastProjection = projected;
+                renderResponseObject(projected);
+                setExecutionStatus('Projection appliquee: ' + projectionPaths[0], 'success');
+                return;
+            }
+
+            const multipleProjection = buildMultipleProjectionResult(state.lastResponse, projectionPaths, {
+                groupByObject
+            });
+            if (!multipleProjection.hasData) {
+                setExecutionStatus('Aucune projection valide trouvee pour: ' + projectionPaths.join(', '), 'warning');
+                return;
+            }
+
+            state.lastProjection = multipleProjection.value;
+            renderResponseObject(multipleProjection.value);
+            setExecutionStatus(multipleProjection.message, 'success');
+        } finally {
+            setProjectionProcessingState(false);
+        }
+    }
+
+    function setProjectionProcessingState(isProcessing) {
+        state.isProjectionProcessing = Boolean(isProcessing);
+
+        const button = document.getElementById('apiExplorerApplyProjectionBtn');
+        if (button) {
+            if (!button.dataset.originalLabel) {
+                button.dataset.originalLabel = button.innerHTML;
+            }
+
+            button.disabled = state.isProjectionProcessing;
+            button.innerHTML = state.isProjectionProcessing
+                ? '<i class="fa fa-spinner fa-spin"></i> En cours...'
+                : button.dataset.originalLabel;
+        }
+
+        const responseEl = document.getElementById('apiExplorerResponse');
+        if (responseEl) {
+            responseEl.classList.toggle('api-response-processing', state.isProjectionProcessing);
+        }
+    }
+
+    function waitForUiFrame() {
+        return new Promise((resolve) => {
+            setTimeout(resolve, 0);
+        });
+    }
+
+    function resetProjection() {
+        if (state.lastResponse === null) {
+            setExecutionStatus('Aucune reponse a reinitialiser.', 'warning');
+            return;
+        }
+
+        state.lastProjection = state.lastResponse;
+        renderResponseObject(state.lastProjection);
+        setExecutionStatus('Projection reinitialisee.', 'info');
+    }
+
+    function exportCurrentProjectionToCsv() {
+        const value = state.lastProjection !== null ? state.lastProjection : state.lastResponse;
+
+        if (value === null) {
+            setExecutionStatus('Aucune donnee a exporter.', 'warning');
+            return;
+        }
+
+        const csvText = convertValueToCsv(value);
+        const filename = 'api-explorer-export-' + new Date().toISOString().replace(/[T:.]/g, '-').slice(0, 19) + '.csv';
+
+        downloadTextFile(csvText, filename, 'text/csv;charset=utf-8;');
+        setExecutionStatus('Export CSV genere: ' + filename, 'success');
+    }
+
+    function parseProjectionPaths(rawInput) {
+        if (!rawInput) return [];
+        return String(rawInput)
+            .split(',')
+            .map((item) => item.trim())
+            .filter((item) => item.length > 0);
+    }
+
+    function buildMultipleProjectionResult(source, projectionPaths, options) {
+        const groupByObject = !options || options.groupByObject !== false;
+        const projectionItems = projectionPaths.map((path) => {
+            const tokens = tokenizePath(path);
+            return { path, tokens };
+        });
+
+        if (groupByObject) {
+            const commonRoot = findCommonWildcardRoot(projectionItems);
+            // Si les chemins partagent la meme racine []: on aligne les champs sur les memes lignes.
+            if (commonRoot) {
+                const alignedRows = projectMultiplePathsWithCommonRoot(source, projectionItems, commonRoot);
+                if (alignedRows.length > 0) {
+                    return {
+                        hasData: true,
+                        value: alignedRows,
+                        message: 'Projection multiple appliquee (' + alignedRows.length + ' ligne(s) alignees).'
+                    };
+                }
+            }
+        }
+
+        const fallback = {};
+        let hasData = false;
+        projectionItems.forEach((item) => {
+            const value = getValueByTokens(source, item.tokens);
+            if (typeof value !== 'undefined') {
+                fallback[item.path] = value;
+                hasData = true;
+            }
+        });
+
+        return {
+            hasData,
+            value: fallback,
+            message: 'Projection multiple appliquee (mode map).'
+        };
+    }
+
+    function findCommonWildcardRoot(projectionItems) {
+        // Ex: conversations[].id et conversations[].name => racine commune conversations[].
+        if (!projectionItems || !projectionItems.length) return null;
+        const rootCandidates = collectWildcardRootCandidates(projectionItems[0].tokens);
+        if (!rootCandidates.length) return null;
+
+        const commonCandidates = rootCandidates.filter((candidate) => {
+            return projectionItems.every((item) => doesTokenArrayStartWith(item.tokens, candidate));
+        });
+
+        if (!commonCandidates.length) return null;
+        // Prend la racine commune la plus profonde pour grouper au niveau objet le plus fin.
+        return commonCandidates[commonCandidates.length - 1];
+    }
+
+    function projectMultiplePathsWithCommonRoot(source, projectionItems, rootTokens) {
+        const collectionValue = rootTokens.length ? getValueByTokens(source, rootTokens) : source;
+        const rootCollection = Array.isArray(collectionValue) ? collectionValue : [];
+
+        if (!rootCollection.length) {
+            return [];
+        }
+
+        const rows = [];
+        for (let rowIndex = 0; rowIndex < rootCollection.length; rowIndex += 1) {
+            const rootItem = rootCollection[rowIndex];
+            const row = {};
+            let hasAnyValue = false;
+
+            for (let i = 0; i < projectionItems.length; i += 1) {
+                const item = projectionItems[i];
+                const relativeTokens = item.tokens.slice(rootTokens.length);
+                const projectedValue = getValueByTokens(rootItem, relativeTokens);
+
+                if (typeof projectedValue !== 'undefined') {
+                    row[item.path] = projectedValue;
+                    hasAnyValue = true;
+                } else {
+                    row[item.path] = '';
+                }
+            }
+
+            if (hasAnyValue) {
+                rows.push(row);
+            }
+        }
+
+        return rows;
+    }
+
+    function collectWildcardRootCandidates(tokens) {
+        if (!Array.isArray(tokens) || !tokens.length) return [];
+
+        const roots = [];
+        for (let i = 0; i < tokens.length; i += 1) {
+            if (tokens[i] === ARRAY_WILDCARD_TOKEN) {
+                roots.push(tokens.slice(0, i + 1));
+            }
+        }
+
+        return roots;
+    }
+
+    function doesTokenArrayStartWith(tokens, prefix) {
+        if (!Array.isArray(tokens) || !Array.isArray(prefix)) return false;
+        if (prefix.length > tokens.length) return false;
+
+        for (let i = 0; i < prefix.length; i += 1) {
+            if (tokens[i] !== prefix[i]) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    function areTokenArraysEqual(left, right) {
+        if (!Array.isArray(left) || !Array.isArray(right)) return false;
+        if (left.length !== right.length) return false;
+
+        for (let i = 0; i < left.length; i += 1) {
+            if (left[i] !== right[i]) return false;
+        }
+
+        return true;
+    }
+
+    function convertValueToCsv(value) {
+        // Conversion generique: objets -> colonnes aplaties, primitives -> colonne "value".
+        const rows = normalizeRowsForCsv(value);
+
+        const headers = [];
+        rows.forEach((row) => {
+            Object.keys(row).forEach((key) => {
+                if (!headers.includes(key)) headers.push(key);
+            });
+        });
+
+        if (!headers.length) {
+            headers.push('value');
+        }
+
+        const lines = [];
+        lines.push(headers.map(csvEscape).join(','));
+
+        rows.forEach((row) => {
+            const line = headers.map((header) => csvEscape(row[header])).join(',');
+            lines.push(line);
+        });
+
+        return lines.join('\n');
+    }
+
+    function normalizeRowsForCsv(value) {
+        if (Array.isArray(value)) {
+            if (!value.length) return [];
+
+            if (value.every((entry) => isPlainObject(entry))) {
+                return value.map((entry) => flattenObject(entry));
+            }
+
+            return value.map((entry) => ({ value: serializeCell(entry) }));
+        }
+
+        if (isPlainObject(value)) {
+            return [flattenObject(value)];
+        }
+
+        return [{ value: serializeCell(value) }];
+    }
+
+    function flattenObject(obj, prefix, target) {
+        // Aplatissement en notation "dot" (a.b.c) pour export CSV.
+        const output = target || {};
+        const rootPrefix = prefix || '';
+
+        Object.keys(obj || {}).forEach((key) => {
+            const value = obj[key];
+            const nextKey = rootPrefix ? rootPrefix + '.' + key : key;
+
+            if (isPlainObject(value)) {
+                flattenObject(value, nextKey, output);
+                return;
+            }
+
+            if (Array.isArray(value)) {
+                output[nextKey] = JSON.stringify(value);
+                return;
+            }
+
+            output[nextKey] = value;
+        });
+
+        return output;
+    }
+
+    function csvEscape(value) {
+        if (value === null || typeof value === 'undefined') return '';
+
+        const text = String(value);
+        if (/[",\n\r]/.test(text)) {
+            return '"' + text.replace(/"/g, '""') + '"';
+        }
+
+        return text;
+    }
+
+    function serializeCell(value) {
+        if (value === null || typeof value === 'undefined') return '';
+        if (typeof value === 'object') return JSON.stringify(value);
+        return value;
+    }
+
+    function downloadTextFile(content, fileName, mimeType) {
+        const blob = new Blob([content], { type: mimeType || 'text/plain;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = fileName;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+
+    function getValueByPath(source, path) {
+        const tokens = tokenizePath(path);
+        if (!tokens.length) {
+            return typeof path === 'string' && path.trim() ? undefined : source;
+        }
+
+        return getValueByTokens(source, tokens);
+    }
+
+    function getValueByTokens(source, tokens) {
+        if (!Array.isArray(tokens) || !tokens.length) {
+            return source;
+        }
+
+        // Le parcours maintient une liste de candidats pour supporter le wildcard [].
+        let currentValues = [source];
+
+        for (let i = 0; i < tokens.length; i += 1) {
+            const token = tokens[i];
+            const nextValues = [];
+
+            currentValues.forEach((current) => {
+                if (current === null || typeof current === 'undefined') {
+                    return;
+                }
+
+                if (token === ARRAY_WILDCARD_TOKEN) {
+                    if (Array.isArray(current)) {
+                        nextValues.push.apply(nextValues, current);
+                    }
+                    return;
+                }
+
+                const nextValue = current[token];
+                if (typeof nextValue !== 'undefined') {
+                    nextValues.push(nextValue);
+                }
+            });
+
+            if (!nextValues.length) {
+                return undefined;
+            }
+
+            currentValues = nextValues;
+        }
+
+        return currentValues.length === 1 ? currentValues[0] : currentValues;
+    }
+
+    function tokenizePath(path) {
+        // Supporte: a.b[0].c, a["b"], a[*], a[].
+        const rawPath = String(path || '').trim();
+        if (!rawPath) return [];
+
+        const tokens = [];
+        const regex = /([^[.\]]+)|\[(\d+|\*|"[^"]+"|'[^']*')?\]/g;
+
+        let match;
+        while ((match = regex.exec(rawPath)) !== null) {
+            if (match[1]) {
+                tokens.push(match[1]);
+                continue;
+            }
+
+            if (match[0] === '[]' || match[0] === '[*]') {
+                tokens.push(ARRAY_WILDCARD_TOKEN);
+                continue;
+            }
+
+            if (typeof match[2] !== 'undefined') {
+                const rawToken = match[2];
+                if (/^\d+$/.test(rawToken)) {
+                    tokens.push(parseInt(rawToken, 10));
+                } else if (rawToken === '*') {
+                    tokens.push(ARRAY_WILDCARD_TOKEN);
+                } else {
+                    tokens.push(rawToken.slice(1, -1));
+                }
+            }
+        }
+
+        return tokens;
+    }
+
+    // ============================================
+    // Viewer JSON (affichage colore + expand/collapse)
+    // ============================================
+    function renderResponseObject(value) {
+        const responseEl = document.getElementById('apiExplorerResponse');
+        if (!responseEl) return;
+
+        const statsSource = resolveStatsPayload(value);
+        // Les stats sont calculees sur la reponse "brute" quand une projection est active.
+        updateResponseStats(statsSource);
+
+        try {
+            responseEl.innerHTML = '';
+            responseEl.classList.add('api-json-viewer-active');
+            responseEl.appendChild(createJsonNode(value, null, true, 0));
+        } catch (_error) {
+            let text;
+            try {
+                text = JSON.stringify(value, null, 2);
+            } catch (_innerError) {
+                text = String(value);
+            }
+            renderResponseText(text, { preserveStats: true });
+        }
+    }
+
+    function renderResponseText(text, options) {
+        const responseEl = document.getElementById('apiExplorerResponse');
+        if (responseEl) {
+            responseEl.classList.remove('api-json-viewer-active');
+            responseEl.textContent = String(text);
+        }
+
+        if (options && options.preserveStats) {
+            return;
+        }
+
+        updateResponseStats(null);
+    }
+
+    function createJsonNode(value, key, isLast, depth) {
+        // Rendu recursif JSON avec collapse/expand (arbre).
+        const node = document.createElement('div');
+        node.className = 'json-node';
+
+        if (isCompositeValue(value)) {
+            node.classList.add('json-composite');
+
+            const isArray = Array.isArray(value);
+            const openBracket = isArray ? '[' : '{';
+            const closeBracket = isArray ? ']' : '}';
+            const entries = getCompositeEntries(value);
+
+            const openLine = createJsonLine(depth);
+            openLine.classList.add('json-open');
+            openLine.appendChild(createJsonToggle(entries.length > 0));
+            appendJsonKey(openLine, key);
+
+            if (!entries.length) {
+                openLine.appendChild(createSpan('json-punctuation', openBracket + closeBracket + (isLast ? '' : ',')));
+                node.appendChild(openLine);
+                return node;
+            }
+
+            openLine.appendChild(createSpan('json-punctuation', openBracket));
+            const summaryText = ' ... ' + closeBracket + (isLast ? '' : ',') + ' (' + entries.length + (isArray ? ' items)' : ' champs)');
+            openLine.appendChild(createSpan('json-summary', summaryText));
+            node.appendChild(openLine);
+
+            const children = document.createElement('div');
+            children.className = 'json-children';
+            entries.forEach((entry, index) => {
+                const childNode = createJsonNode(entry.value, entry.key, index === entries.length - 1, depth + 1);
+                children.appendChild(childNode);
+            });
+            node.appendChild(children);
+
+            const closeLine = createJsonLine(depth);
+            closeLine.className = 'json-line json-close';
+            closeLine.appendChild(createJsonToggle(false));
+            closeLine.appendChild(createSpan('json-punctuation', closeBracket + (isLast ? '' : ',')));
+            node.appendChild(closeLine);
+
+            return node;
+        }
+
+        const primitiveLine = createJsonLine(depth);
+        primitiveLine.appendChild(createJsonToggle(false));
+        appendJsonKey(primitiveLine, key);
+        primitiveLine.appendChild(createSpan(getPrimitiveCssClass(value), formatPrimitiveValue(value)));
+        primitiveLine.appendChild(createSpan('json-punctuation', isLast ? '' : ','));
+        node.appendChild(primitiveLine);
+
+        return node;
+    }
+
+    function createJsonLine(depth) {
+        const line = document.createElement('div');
+        line.className = 'json-line';
+        line.style.paddingLeft = (depth * 16) + 'px';
+        return line;
+    }
+
+    function createJsonToggle(hasChildren) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'json-toggle' + (hasChildren ? '' : ' json-toggle-empty');
+        button.textContent = hasChildren ? '-' : '+';
+        return button;
+    }
+
+    function appendJsonKey(line, key) {
+        if (key === null || typeof key === 'undefined') return;
+        line.appendChild(createSpan('json-key', JSON.stringify(String(key))));
+        line.appendChild(createSpan('json-punctuation', ': '));
+    }
+
+    function createSpan(className, text) {
+        const span = document.createElement('span');
+        span.className = className || '';
+        span.textContent = text;
+        return span;
+    }
+
+    function isCompositeValue(value) {
+        return value !== null && typeof value === 'object';
+    }
+
+    function getCompositeEntries(value) {
+        if (Array.isArray(value)) {
+            return value.map((item) => ({ key: null, value: item }));
+        }
+
+        return Object.keys(value).map((propName) => ({
+            key: propName,
+            value: value[propName]
+        }));
+    }
+
+    function formatPrimitiveValue(value) {
+        if (typeof value === 'string') return JSON.stringify(value);
+        if (typeof value === 'number' || typeof value === 'bigint') return String(value);
+        if (typeof value === 'boolean') return String(value);
+        if (value === null) return 'null';
+        if (typeof value === 'undefined') return 'undefined';
+        return String(value);
+    }
+
+    function getPrimitiveCssClass(value) {
+        if (typeof value === 'string') return 'json-string';
+        if (typeof value === 'number' || typeof value === 'bigint') return 'json-number';
+        if (typeof value === 'boolean') return 'json-boolean';
+        if (value === null || typeof value === 'undefined') return 'json-null';
+        return 'json-string';
+    }
+
+    function normalizeError(error) {
+        if (!error) {
+            return {
+                message: 'Erreur inconnue'
+            };
+        }
+
+        return {
+            message: error.message || 'Erreur inconnue',
+            status: error.status || null,
+            code: error.code || null,
+            stack: error.stack || null,
+            details: typeof error.body !== 'undefined' ? error.body : null
+        };
+    }
+
+    // ==========================
+    // Stats reponse / pagination
+    // ==========================
+    function resolveStatsPayload(fallbackPayload) {
+        const executionMeta = state.lastExecutionMeta;
+        if (isPlainObject(executionMeta)) {
+            if (executionMeta.mode === 'post-auto-pagination' && isPlainObject(executionMeta.paging)) {
+                return executionMeta.paging;
+            }
+
+            if (executionMeta.mode === 'batch-inputs' && isPlainObject(executionMeta.paging)) {
+                return executionMeta.paging;
+            }
+        }
+
+        return state.lastResponse !== null ? state.lastResponse : fallbackPayload;
+    }
+
+    function updateResponseStats(payload) {
+        const statsEl = document.getElementById('apiExplorerResponseStats');
+        if (!statsEl) return;
+
+        const stats = extractResponseStats(payload);
+        const totalHitsText = typeof stats.totalHits === 'number' ? String(stats.totalHits) : '-';
+        const pageNumberText = typeof stats.pageNumber === 'number' ? String(stats.pageNumber) : '-';
+        const pageCountText = typeof stats.pageCount === 'number' ? String(stats.pageCount) : '-';
+
+        statsEl.textContent = 'totalHits: ' + totalHitsText + ' | page: ' + pageNumberText + ' / ' + pageCountText;
+    }
+
+    function extractResponseStats(payload) {
+        // Heuristique tolerant aux structures Genesys Cloud heterogenes.
+        if (!payload) {
+            return { totalHits: null, pageNumber: null, pageCount: null };
+        }
+
+        if (isPlainObject(payload) && isPlainObject(payload.paging)) {
+            return normalizeStatsObject(payload.paging);
+        }
+
+        if (isPlainObject(payload)) {
+            return normalizeStatsObject(payload);
+        }
+
+        if (Array.isArray(payload) && payload.length > 0) {
+            for (let i = payload.length - 1; i >= 0; i -= 1) {
+                const item = payload[i];
+                if (isPlainObject(item)) {
+                    const fromItem = normalizeStatsObject(item);
+                    if (hasAnyStat(fromItem)) {
+                        return fromItem;
+                    }
+                }
+            }
+        }
+
+        return { totalHits: null, pageNumber: null, pageCount: null };
+    }
+
+    function normalizeStatsObject(source) {
+        const containers = collectStatsContainers(source);
+
+        const totalHits = findNumericValue(containers, ['totalHits', 'total', 'totalCount', 'totalRecords', 'count']);
+        const pageNumber = findNumericValue(containers, ['pageNumber', 'page', 'currentPage']);
+        let pageCount = findNumericValue(containers, ['pageCount', 'totalPages', 'pages']);
+
+        if (pageCount === null) {
+            // Fallback: calcul pageCount a partir de totalHits/pageSize si absent.
+            const pageSize = findNumericValue(containers, ['pageSize', 'size', 'perPage']);
+            if (totalHits !== null && pageSize !== null && pageSize > 0) {
+                pageCount = Math.ceil(totalHits / pageSize);
+            }
+        }
+
+        return { totalHits, pageNumber, pageCount };
+    }
+
+    function collectStatsContainers(source) {
+        const containers = [];
+        if (!isPlainObject(source)) return containers;
+
+        containers.push(source);
+        ['result', 'results', 'meta', 'pagination', 'paging'].forEach((key) => {
+            if (isPlainObject(source[key])) {
+                containers.push(source[key]);
+            }
+        });
+
+        return containers;
+    }
+
+    function findNumericValue(containers, candidateKeys) {
+        for (let i = 0; i < containers.length; i += 1) {
+            const container = containers[i];
+            for (let j = 0; j < candidateKeys.length; j += 1) {
+                const key = candidateKeys[j];
+                if (Object.prototype.hasOwnProperty.call(container, key)) {
+                    const parsed = parseNumericValue(container[key]);
+                    if (parsed !== null) {
+                        return parsed;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    function parseNumericValue(value) {
+        const numeric = Number(value);
+        if (Number.isFinite(numeric)) return numeric;
+        return null;
+    }
+
+    function hasAnyStat(stats) {
+        return typeof stats.totalHits === 'number' || typeof stats.pageNumber === 'number' || typeof stats.pageCount === 'number';
+    }
+
+    function setExecutionStatus(message, level) {
+        const statusEl = document.getElementById('apiExplorerExecutionStatus');
+        if (!statusEl) return;
+
+        statusEl.className = '';
+        statusEl.textContent = message || '';
+
+        const cssClass = {
+            info: 'text-info',
+            success: 'text-success',
+            warning: 'text-warning',
+            danger: 'text-danger'
+        }[level || 'info'];
+
+        if (cssClass) {
+            statusEl.classList.add(cssClass);
+        }
+    }
+
+    function setCatalogInfo(message) {
+        const infoEl = document.getElementById('apiExplorerCatalogInfo');
+        if (infoEl) {
+            infoEl.textContent = message || '';
+        }
+    }
+
+    // ==========================
+    // Favoris et persistance
+    // ==========================
+    function loadFavoritesFromCookie() {
+        // Persistance simple (cookie) pour rester autonome sans backend.
+        const cookieValue = getCookieValue(FAVORITES_COOKIE_NAME);
+        if (!cookieValue) {
+            state.favorites = new Set();
+            return;
+        }
+
+        try {
+            const parsed = JSON.parse(decodeURIComponent(cookieValue));
+            if (Array.isArray(parsed)) {
+                state.favorites = new Set(parsed.filter((id) => typeof id === 'string' && id.trim().length > 0));
+            } else {
+                state.favorites = new Set();
+            }
+        } catch (_error) {
+            state.favorites = new Set();
+        }
+    }
+
+    function pruneUnknownFavorites() {
+        // Nettoie les favoris devenus obsoletes apres evolution SDK/catalogue.
+        const knownIds = new Set(state.catalog.map((item) => item.id));
+        let changed = false;
+
+        Array.from(state.favorites).forEach((favoriteId) => {
+            if (!knownIds.has(favoriteId)) {
+                state.favorites.delete(favoriteId);
+                changed = true;
+            }
+        });
+
+        if (changed) {
+            saveFavoritesToCookie();
+        }
+    }
+
+    function saveFavoritesToCookie() {
+        const serialized = encodeURIComponent(JSON.stringify(Array.from(state.favorites)));
+        const maxAge = FAVORITES_COOKIE_TTL_DAYS * 24 * 60 * 60;
+        document.cookie = FAVORITES_COOKIE_NAME + '=' + serialized + '; max-age=' + maxAge + '; path=/; SameSite=Lax';
+    }
+
+    function getCookieValue(cookieName) {
+        const parts = String(document.cookie || '').split(';');
+        for (let i = 0; i < parts.length; i += 1) {
+            const part = parts[i].trim();
+            if (!part) continue;
+
+            const equalIndex = part.indexOf('=');
+            if (equalIndex === -1) continue;
+
+            const name = part.substring(0, equalIndex);
+            const value = part.substring(equalIndex + 1);
+            if (name === cookieName) {
+                return value;
+            }
+        }
+
+        return null;
+    }
+
+    function getMethodLabelClass(httpMethod) {
+        const map = {
+            GET: 'label-primary',
+            POST: 'label-success',
+            PATCH: 'label-warning',
+            DELETE: 'label-danger',
+            PUT: 'label-info'
+        };
+
+        return map[httpMethod] || 'label-default';
+    }
+
+    function isPlainObject(value) {
+        return Boolean(value) && Object.prototype.toString.call(value) === '[object Object]';
+    }
+
+    function escapeHtml(value) {
+        return String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function escapeAttribute(value) {
+        return escapeHtml(value);
+    }
+})();

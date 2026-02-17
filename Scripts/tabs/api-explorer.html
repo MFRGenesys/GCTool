@@ -1,0 +1,116 @@
+<div class="box box-primary" id="apiExplorerRoot">
+  <div class="box-header with-border">
+    <h3 class="box-title">
+      <i class="fa fa-code"></i> API Explorer Genesys Cloud
+    </h3>
+  </div>
+
+  <div class="box-body">
+    <div class="api-explorer-layout">
+      <div class="api-left-panel">
+        <div class="form-group">
+          <label for="apiExplorerSearchInput">Filtre textuel</label>
+          <input id="apiExplorerSearchInput" type="text" class="form-control" placeholder="Filtrer par categorie, methode, route..." />
+        </div>
+
+        <div class="api-method-filters">
+          <label class="checkbox-inline"><input type="checkbox" class="api-method-filter" value="GET" checked> GET</label>
+          <label class="checkbox-inline"><input type="checkbox" class="api-method-filter" value="POST" checked> POST</label>
+          <label class="checkbox-inline"><input type="checkbox" class="api-method-filter" value="PATCH" checked> PATCH</label>
+          <label class="checkbox-inline"><input type="checkbox" class="api-method-filter" value="DELETE" checked> DELETE</label>
+          <label class="checkbox-inline"><input type="checkbox" class="api-method-filter" value="PUT" checked> PUT</label>
+        </div>
+
+        <div class="well well-sm api-favorites-box">
+          <strong><i class="fa fa-star"></i> Favoris</strong>
+          <div id="apiExplorerFavoritesList" class="api-favorites-list"></div>
+        </div>
+
+        <div id="apiExplorerCatalogInfo" class="small text-muted" style="margin-bottom:8px;"></div>
+        <div id="apiExplorerCatalog" class="api-catalog"></div>
+      </div>
+
+      <div class="api-main-panel">
+        <div id="apiExplorerEmptyState" class="alert alert-info" style="margin-bottom:0;">
+          Selectionnez une API dans le menu de gauche pour afficher ses parametres et executer l'appel.
+        </div>
+
+        <div id="apiExplorerWorkbench" style="display:none;">
+          <div class="well well-sm">
+            <strong id="apiExplorerSelectedName">API</strong>
+            <div style="margin-top:6px;">
+              <span id="apiExplorerSelectedMethod" class="label label-primary api-badge-method">GET</span>
+              <code id="apiExplorerSelectedPath">/api/v2/...</code>
+            </div>
+            <div id="apiExplorerSelectedClass" class="small text-muted" style="margin-top:5px;"></div>
+          </div>
+
+          <div class="row">
+            <div class="col-md-6">
+              <h5>Parametres requis</h5>
+              <div class="btn-group btn-group-xs" style="margin-bottom:8px;">
+                <button id="apiExplorerModeFieldsBtn" type="button" class="btn btn-default active">Mode champs</button>
+                <button id="apiExplorerModeBatchBtn" type="button" class="btn btn-default">Mode lot JSON</button>
+              </div>
+              <div id="apiExplorerParamsForm"></div>
+              <div id="apiExplorerBatchPanel" style="display:none;">
+                <div class="small text-muted" style="margin-bottom:6px;">
+                  JSON attendu: tableau d'objets avec les parametres requis. Optionnel: <code>body</code> et <code>options</code>.
+                </div>
+                <textarea id="apiExplorerBatchJson" class="form-control" rows="8" placeholder='[{"id":"..."}]' spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off"></textarea>
+                <div id="apiExplorerBatchJsonValidation" class="small text-muted" style="margin-top:6px;">
+                  JSON lot: en attente de saisie.
+                </div>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <div class="form-group">
+                <label for="apiExplorerBodyJson">Body JSON (POST/PATCH/PUT)</label>
+                <textarea id="apiExplorerBodyJson" class="form-control" rows="7" placeholder='{"key":"value"}'></textarea>
+              </div>
+              <div class="form-group">
+                <label for="apiExplorerOptionsJson">Options JSON (params optionnels / query)</label>
+                <textarea id="apiExplorerOptionsJson" class="form-control" rows="6" placeholder='{"pageSize":25,"pageNumber":1}'></textarea>
+              </div>
+              <div class="checkbox" style="margin-top:6px;">
+                <label>
+                  <input id="apiExplorerPostAutoPaging" type="checkbox">
+                  Pagination auto pour POST (appel page par page)
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <button id="apiExplorerExecuteBtn" class="btn btn-primary">
+              <i class="fa fa-play"></i> Executer
+            </button>
+            <span id="apiExplorerExecutionStatus" class="text-muted" style="margin-left:10px;"></span>
+          </div>
+
+          <div class="panel panel-default" style="margin-bottom:0;">
+            <div class="panel-heading">
+              <strong>Traitement de la reponse</strong>
+              <span id="apiExplorerResponseStats" class="small text-muted" style="margin-left:10px;">
+                totalHits: - | page: - / -
+              </span>
+            </div>
+            <div class="panel-body">
+              <div class="api-inline-tools" style="margin-bottom:10px;">
+                <input id="apiExplorerProjectionPath" type="text" class="form-control" style="max-width:460px;" placeholder="Projection JSON (ex: entities[].id)" list="apiExplorerProjectionSuggestions" autocomplete="off" spellcheck="false" />
+                <datalist id="apiExplorerProjectionSuggestions"></datalist>
+                <label class="checkbox-inline" style="margin-top:6px;">
+                  <input id="apiExplorerProjectionGroupByObject" type="checkbox" checked> groupe par objet
+                </label>
+                <button id="apiExplorerApplyProjectionBtn" class="btn btn-default">Afficher projection</button>
+                <button id="apiExplorerResetProjectionBtn" class="btn btn-default">Reinitialiser</button>
+                <button id="apiExplorerExportCsvBtn" class="btn btn-success">Exporter CSV</button>
+              </div>
+              <div id="apiExplorerResponse" class="api-response">Aucune reponse pour le moment.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

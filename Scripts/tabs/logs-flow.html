@@ -2,8 +2,49 @@
 <div class="box box-primary" id="logsFlowRoot">
   <div class="box-header with-border">
     <h3 class="box-title">
-      <i class="fa fa-exchange"></i> Flux Logs v1.03
+      <i class="fa fa-exchange"></i> Flux Logs v1.05
     </h3>
+    <!-- ================= Menus groupés ================= -->
+    <div id="logsMenusToolbar" class="box-tools pull-left" Style="left: 200px;">
+      <!-- Menu 1 : Chargement de données -->
+      <div class="btn-group dropdown" id="menuDataGroup">
+          <button class="btn btn-sm dropdown-toggle" type="button" data-toggle="dropdown">
+            <i class="fa fa-database"></i> Chargement de données <span class="caret"></span>
+          </button>
+          <ul class="dropdown-menu" style="width:300px">
+            <li><a href="#" id="menuImportCsv"><i class="fa fa-file-text-o"></i> Chargement des interactions depuis CSV</a></li>
+            <li><a href="#" id="menuLoadDataOpen"><i class="fa fa-cloud-download"></i> Chargement des Interactions par API</a></li>
+            <li class="divider"></li>
+            <li><a href="#" id="menuBuildFromLocal"><i class="fa fa-database"></i> Gérer Data</a></li>
+            <!-- <li><a href="#" id="menuLocalExport"><i class="fa fa-download"></i> Export données locales (IndexedDB)</a></li>
+            <li><a href="#" id="menuLocalImport"><i class="fa fa-upload"></i> Import JSON (auto : IDB/Genesys)</a></li>
+            <li><a href="#" id="menuLocalErase"><i class="fa fa-trash"></i> Effacer données locales</a></li> -->
+          </ul>
+        </div>
+
+        <!-- Menu 2 : Gestion du graphe -->
+      <div class="btn-group dropdown" id="menuGraphGroup">
+          <button class="btn btn-sm dropdown-toggle" type="button" data-toggle="dropdown">
+            <i class="fa fa-project-diagram"></i> Gestion du graphe <span class="caret"></span>
+          </button>
+          <ul class="dropdown-menu" style="width:300px">
+            <li><a href="#" id="menuBuildFromLocal"><i class="fa fa-play"></i> Construire depuis données locales</a></li>
+            <li><a href="#" id="menuImportExcel"><i class="fa fa-file-excel-o"></i> Import depuis Excel</a></li>
+            <li class="divider"></li>
+            <li><a href="#" id="menuGraphExport"><i class="fa fa-download"></i> Export graph JSON</a></li>
+            <li><a href="#" id="menuGraphImport"><i class="fa fa-upload"></i> Import graph JSON</a></li>
+            <li><a href="#" id="menuGraphErase"><i class="fa fa-trash"></i> RAZ graph</a></li>
+          </ul>
+        </div>
+
+        <!-- Inputs fichiers cachés (utilisés par le JS) -->
+        <input id="menuCsvFile" type="file" accept=".csv" style="display:none" />
+        <input id="menuGraphImportFile" type="file" accept="application/json" style="display:none" />
+        <input id="menuLocalImportFile" type="file" accept="application/json" style="display:none" />
+        <input id="menuExcelFile" type="file" accept=".xlsx,.xls,.csv" style="display:none" />
+      </div>
+    <!-- ========================================================== -->
+<!-- 
     <div class="box-tools pull-left" Style="left: 200px;">
         <button id="loadDataBtn" class="btn btn-sm btn-info" title="Charger des interactions">
         <i class="fa fa-cloud-download"></i> Load Data
@@ -42,7 +83,7 @@
       </button>
       <button id="clearDiagramBtn" class="btn btn-sm btn-danger" title="Vider le diagramme">
         <i class="fa fa-trash"></i>
-      </button>
+      </button> -->
 
     </div>
   </div>
@@ -110,6 +151,8 @@
         <div class="form-group">
           <label>Label</label>
           <input id="logBoxLabel" type="text" class="form-control" placeholder="Nom affiché sur la boîte" required>
+          <label>Description</label>
+          <input id="logBoxDescription" type="text" class="form-control" placeholder="Sous texte">
         </div>
         <div class="form-group">
           <label>Point de passage (ex: <code>MEN[101]</code> ou <code>IVR1[0001]</code>)</label>
@@ -173,6 +216,12 @@
           <label>DNIS (optionnel)</label>
           <input id="ldDnis" type="text" class="form-control" placeholder="Ex: 33123456789">
         </div>
+        <div class="checkbox" style="margin-top:8px;">
+          <label>
+            <input id="ldCreateMissing" type="checkbox" checked>
+            Créer automatiquement les points de passage manquants
+          </label>
+        </div>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-default" data-dismiss="modal">Annuler</button>
@@ -183,6 +232,57 @@
     </div>
   </div>
 </div>
+
+
+<!-- Modal Import Excel (feuille + mapping colonnes) -->
+<div class="modal fade" id="excelImportModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <button type="button" class="close" data-dismiss="modal">&times;</button>
+        <h4 class="modal-title"><i class="fa fa-file-excel-o"></i> Import Excel</h4>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Feuille à importer</label>
+          <select id="xlsSheetSelect" class="form-control"></select>
+        </div>
+        <div id="xlsMappingSection" style="display:none;">
+          <div class="form-group">
+            <label>Colonne “Point de passage”</label>
+            <select id="xlsWpCol" class="form-control"></select>
+            <small class="text-muted">Ex: <code>Number</code>, <code>WAYPOINT</code>…</small>
+          </div>
+          <div class="form-group">
+            <label>Colonne “Titre (Label)”</label>
+            <select id="xlsLabelCol" class="form-control"></select>
+            <small class="text-muted">Ex: <code>LOG_CALL_X</code>, <code>TITRE</code>, <code>LABEL</code>, …</small>
+          </div>
+          <div class="form-group">
+            <label>Colonne “Description (détail)”</label>
+            <select id="xlsDescrCol" class="form-control"></select>
+            <small class="text-muted">Ex: <code>DESC</code>, <code>DESCRIPTION</code>…</small>
+          </div>
+          <div id="xlsPreview" class="well well-sm" style="display:none; max-height:160px; overflow:auto; white-space:pre-wrap;"></div>
+        </div>
+        <div class="checkbox" style="margin-top:8px;">
+          <label>
+            <input id="ldCreateMissing" type="checkbox" checked>
+            Créer automatiquement les points de passage manquants
+          </label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="excelImportCancelBtn" type="button" class="btn btn-default" data-dismiss="modal">Annuler</button>
+        <button id="excelImportConfirmBtn" type="button" class="btn btn-primary" disabled>
+          <i class="fa fa-check"></i> Importer
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
 
 
 <!-- [JOBS-UI] Modal sélection de jobs locaux -->
@@ -214,25 +314,20 @@
             <tbody id="ldJobsTbody"></tbody>
           </table>
         </div>
+        <div class="checkbox" style="margin-top:8px;">
+          <label>
+            <input id="ldCreateMissing" type="checkbox" checked>
+            Créer automatiquement les points de passage manquants
+          </label>
+        </div>
       </div>
       <div class="modal-footer">
         <button id="ldJobsUseBtn" class="btn btn-primary"><i class="fa fa-play"></i> Utiliser</button>
         <button id="ldJobsDeleteBtn" class="btn btn-danger pull-left"><i class="fa fa-trash"></i> Supprimer</button>
+        <button id="ldJobsExportBtn" class="btn btn-warning pull-left" style="left: 200px"><i class="fa fa-download"></i> Exporter</button>
+        <button id="menuLocalImport" class="btn btn-success pull-left" style="left: 400px"><i class="fa fa-upload"></i> Importer</button>
         <button class="btn btn-default" data-dismiss="modal">Fermer</button>
       </div>
-    </div>
-  </div>
-</div>
-
-<div class="panel panel-default" style="margin-top:10px">
-  <div class="panel-heading"><strong>Import Excel (Waypoints)</strong></div>
-  <div class="panel-body">
-    <button id="excelImportBtn" class="btn btn-sm btn-default">
-      <i class="fa fa-file-excel-o"></i> Importer Excel
-    </button>
-    <input id="excelImportFile" type="file" accept=".xlsx,.xls,.csv" style="display:none">
-    <div class="text-muted" style="margin-top:6px;font-size:12px">
-      Colonnes attendues : <code>Number</code> (point de passage), <code>LOG_CALL_X</code> (label)
     </div>
   </div>
 </div>
