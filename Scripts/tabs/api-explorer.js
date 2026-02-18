@@ -2,11 +2,6 @@
  * api-explorer.js
  * Explorateur dynamique des APIs Genesys Cloud via la librairie SDK deja chargee.
  *
- * Architecture preparee pour une evolution batch:
- * - construction de lot d'entrees
- * - execution en boucle
- * - agregation/projection
- * - export CSV
  */
 
 (function apiExplorerModule() {
@@ -33,7 +28,9 @@
         projectionAutocompletePaths: [],
         currentProjectionSuggestions: [],
         projectionAutocompleteDebounceId: null,
-        isProjectionProcessing: false
+        isProjectionProcessing: false,
+        isLeftPanelCollapsed: false,
+        isRequestPanelCollapsed: false
     };
 
     const batchScaffold = {
@@ -77,6 +74,7 @@
         buildCatalog();
         pruneUnknownFavorites();
         renderCatalog();
+        applyPanelLayoutState();
 
         console.log('[API Explorer] Module initialise.');
     }
@@ -108,6 +106,16 @@
         const executeBtn = document.getElementById('apiExplorerExecuteBtn');
         if (executeBtn) {
             executeBtn.addEventListener('click', executeSelectedEndpoint);
+        }
+
+        const toggleLeftPanelBtn = document.getElementById('apiExplorerToggleLeftPanelBtn');
+        if (toggleLeftPanelBtn) {
+            toggleLeftPanelBtn.addEventListener('click', toggleLeftPanelCollapse);
+        }
+
+        const toggleRequestPanelBtn = document.getElementById('apiExplorerToggleRequestPanelBtn');
+        if (toggleRequestPanelBtn) {
+            toggleRequestPanelBtn.addEventListener('click', toggleRequestPanelCollapse);
         }
 
         const modeFieldsBtn = document.getElementById('apiExplorerModeFieldsBtn');
@@ -142,7 +150,18 @@
 
         const exportCsvBtn = document.getElementById('apiExplorerExportCsvBtn');
         if (exportCsvBtn) {
-            exportCsvBtn.addEventListener('click', exportCurrentProjectionToCsv);
+            exportCsvBtn.addEventListener('click', (event) => {
+                if (event) event.preventDefault();
+                exportCurrentProjectionToCsv();
+            });
+        }
+
+        const exportJsonBtn = document.getElementById('apiExplorerExportJsonBtn');
+        if (exportJsonBtn) {
+            exportJsonBtn.addEventListener('click', (event) => {
+                if (event) event.preventDefault();
+                exportCurrentProjectionToJson();
+            });
         }
 
         const responseViewer = document.getElementById('apiExplorerResponse');
@@ -158,6 +177,8 @@
             projectionPathInput.addEventListener('focus', refreshProjectionAutocompleteSuggestions);
             projectionPathInput.addEventListener('keydown', onProjectionPathKeyDown);
         }
+
+        applyPanelLayoutState();
     }
 
     function ensureBatchValidationElement() {
@@ -238,6 +259,42 @@
 
         if (paramsForm) paramsForm.style.display = targetMode === 'fields' ? 'block' : 'none';
         if (batchPanel) batchPanel.style.display = targetMode === 'batch' ? 'block' : 'none';
+    }
+
+    function toggleLeftPanelCollapse() {
+        state.isLeftPanelCollapsed = !state.isLeftPanelCollapsed;
+        applyPanelLayoutState();
+    }
+
+    function toggleRequestPanelCollapse() {
+        state.isRequestPanelCollapsed = !state.isRequestPanelCollapsed;
+        applyPanelLayoutState();
+    }
+
+    function applyPanelLayoutState() {
+        const root = document.getElementById('apiExplorerRoot');
+        if (!root) return;
+
+        root.classList.toggle('api-left-collapsed', state.isLeftPanelCollapsed);
+        root.classList.toggle('api-request-collapsed', state.isRequestPanelCollapsed);
+
+        const leftPanelBtn = document.getElementById('apiExplorerToggleLeftPanelBtn');
+        if (leftPanelBtn) {
+            const iconClass = state.isLeftPanelCollapsed ? 'fa-angle-double-right' : 'fa-angle-double-left';
+            leftPanelBtn.innerHTML = '<i class="fa ' + iconClass + '"></i>';
+            leftPanelBtn.title = state.isLeftPanelCollapsed ? 'Afficher le panneau API' : 'Replier le panneau API';
+            leftPanelBtn.setAttribute('aria-label', leftPanelBtn.title);
+        }
+
+        const requestPanelBtn = document.getElementById('apiExplorerToggleRequestPanelBtn');
+        if (requestPanelBtn) {
+            const iconClass = state.isRequestPanelCollapsed ? 'fa-chevron-down' : 'fa-chevron-up';
+            requestPanelBtn.innerHTML = '<i class="fa ' + iconClass + '"></i>';
+            requestPanelBtn.title = state.isRequestPanelCollapsed
+                ? 'Afficher les parametres de requete'
+                : 'Replier les parametres de requete';
+            requestPanelBtn.setAttribute('aria-label', requestPanelBtn.title);
+        }
     }
 
     function allowsBatchMode(endpoint) {
@@ -1765,7 +1822,7 @@
 
     function getProjectionInputContext(rawInput) {
         const raw = String(rawInput || '');
-        const lastCommaIndex = raw.lastIndexOf(',');
+        const lastCommaIndex = findLastTopLevelCommaIndex(raw);
         const prefix = lastCommaIndex === -1 ? '' : raw.slice(0, lastCommaIndex + 1);
         const segmentRaw = lastCommaIndex === -1 ? raw : raw.slice(lastCommaIndex + 1);
         const leadingWhitespaceMatch = segmentRaw.match(/^\s*/);
@@ -1778,6 +1835,54 @@
             activeSegment,
             query: activeSegment.toLowerCase()
         };
+    }
+
+    function findLastTopLevelCommaIndex(rawInput) {
+        const text = String(rawInput || '');
+        let bracketDepth = 0;
+        let braceDepth = 0;
+        let parenDepth = 0;
+        let quote = null;
+        let escaped = false;
+        let lastCommaIndex = -1;
+
+        for (let i = 0; i < text.length; i += 1) {
+            const ch = text[i];
+
+            if (escaped) {
+                escaped = false;
+                continue;
+            }
+
+            if (ch === '\\') {
+                escaped = true;
+                continue;
+            }
+
+            if (quote) {
+                if (ch === quote) {
+                    quote = null;
+                }
+                continue;
+            }
+
+            if (ch === '"' || ch === '\'') {
+                quote = ch;
+                continue;
+            }
+
+            if (ch === '[') bracketDepth += 1;
+            else if (ch === ']') bracketDepth = Math.max(0, bracketDepth - 1);
+            else if (ch === '{') braceDepth += 1;
+            else if (ch === '}') braceDepth = Math.max(0, braceDepth - 1);
+            else if (ch === '(') parenDepth += 1;
+            else if (ch === ')') parenDepth = Math.max(0, parenDepth - 1);
+            else if (ch === ',' && bracketDepth === 0 && braceDepth === 0 && parenDepth === 0) {
+                lastCommaIndex = i;
+            }
+        }
+
+        return lastCommaIndex;
     }
 
     function buildProjectionAutocompletePaths(source) {
@@ -1911,7 +2016,7 @@
             }
 
             if (projectionPaths.length === 1) {
-                const projected = getValueByPath(state.lastResponse, projectionPaths[0]);
+                const projected = evaluateProjectionExpression(state.lastResponse, projectionPaths[0]);
                 if (typeof projected === 'undefined') {
                     setExecutionStatus('Projection introuvable: ' + projectionPaths[0], 'warning');
                     return;
@@ -1992,20 +2097,151 @@
         setExecutionStatus('Export CSV genere: ' + filename, 'success');
     }
 
+    function exportCurrentProjectionToJson() {
+        const value = state.lastProjection !== null ? state.lastProjection : state.lastResponse;
+
+        if (value === null) {
+            setExecutionStatus('Aucune donnee a exporter.', 'warning');
+            return;
+        }
+
+        let jsonText;
+        try {
+            jsonText = JSON.stringify(value, null, 2);
+        } catch (_error) {
+            setExecutionStatus('Export JSON impossible: donnees non serialisables.', 'danger');
+            return;
+        }
+
+        const filename = 'api-explorer-export-' + new Date().toISOString().replace(/[T:.]/g, '-').slice(0, 19) + '.json';
+        downloadTextFile(jsonText, filename, 'application/json;charset=utf-8;');
+        setExecutionStatus('Export JSON genere: ' + filename, 'success');
+    }
+
     function parseProjectionPaths(rawInput) {
         if (!rawInput) return [];
-        return String(rawInput)
-            .split(',')
+        return splitByTopLevelComma(String(rawInput))
             .map((item) => item.trim())
             .filter((item) => item.length > 0);
     }
 
+    function splitByTopLevelComma(rawInput) {
+        const text = String(rawInput || '');
+        const segments = [];
+        let current = '';
+        let bracketDepth = 0;
+        let braceDepth = 0;
+        let parenDepth = 0;
+        let quote = null;
+        let escaped = false;
+
+        for (let i = 0; i < text.length; i += 1) {
+            const ch = text[i];
+
+            if (escaped) {
+                current += ch;
+                escaped = false;
+                continue;
+            }
+
+            if (ch === '\\') {
+                current += ch;
+                escaped = true;
+                continue;
+            }
+
+            if (quote) {
+                current += ch;
+                if (ch === quote) {
+                    quote = null;
+                }
+                continue;
+            }
+
+            if (ch === '"' || ch === '\'') {
+                quote = ch;
+                current += ch;
+                continue;
+            }
+
+            if (ch === '[') bracketDepth += 1;
+            else if (ch === ']') bracketDepth = Math.max(0, bracketDepth - 1);
+            else if (ch === '{') braceDepth += 1;
+            else if (ch === '}') braceDepth = Math.max(0, braceDepth - 1);
+            else if (ch === '(') parenDepth += 1;
+            else if (ch === ')') parenDepth = Math.max(0, parenDepth - 1);
+
+            if (ch === ',' && bracketDepth === 0 && braceDepth === 0 && parenDepth === 0) {
+                segments.push(current);
+                current = '';
+                continue;
+            }
+
+            current += ch;
+        }
+
+        segments.push(current);
+        return segments;
+    }
+
+    function evaluateProjectionExpression(source, expression) {
+        const item = createProjectionItem(expression);
+        return evaluateProjectionItem(source, item);
+    }
+
+    function evaluateProjectionItem(source, projectionItem) {
+        if (!projectionItem) return undefined;
+
+        if (projectionItem.kind === 'jsonpath') {
+            return evaluateJsonPathSteps(source, projectionItem.steps);
+        }
+
+        return getValueByTokens(source, projectionItem.tokens);
+    }
+
+    function createProjectionItem(path) {
+        const normalizedPath = String(path || '').trim();
+        if (!normalizedPath) {
+            return {
+                kind: 'legacy',
+                path: normalizedPath,
+                tokens: []
+            };
+        }
+
+        if (isJsonPathExpression(normalizedPath)) {
+            const jsonPathInfo = parseJsonPathForProjection(normalizedPath);
+            if (jsonPathInfo) {
+                return {
+                    kind: 'jsonpath',
+                    path: normalizedPath,
+                    tokens: jsonPathInfo.tokens,
+                    steps: jsonPathInfo.steps
+                };
+            }
+
+            return {
+                kind: 'jsonpath',
+                path: normalizedPath,
+                tokens: [],
+                steps: null
+            };
+        }
+
+        return {
+            kind: 'legacy',
+            path: normalizedPath,
+            tokens: tokenizePath(normalizedPath)
+        };
+    }
+
+    function isJsonPathExpression(path) {
+        return String(path || '').trim().startsWith('$');
+    }
+
     function buildMultipleProjectionResult(source, projectionPaths, options) {
         const groupByObject = !options || options.groupByObject !== false;
-        const projectionItems = projectionPaths.map((path) => {
-            const tokens = tokenizePath(path);
-            return { path, tokens };
-        });
+        const projectionItems = projectionPaths.map((path) => createProjectionItem(path));
 
         if (groupByObject) {
             const commonRoot = findCommonWildcardRoot(projectionItems);
@@ -2025,7 +2261,7 @@
         const fallback = {};
         let hasData = false;
         projectionItems.forEach((item) => {
-            const value = getValueByTokens(source, item.tokens);
+            const value = evaluateProjectionItem(source, item);
             if (typeof value !== 'undefined') {
                 fallback[item.path] = value;
                 hasData = true;
@@ -2113,6 +2349,294 @@
         }
 
         return true;
+    }
+
+    function parseJsonPathForProjection(expression) {
+        const raw = String(expression || '').trim();
+        if (!raw.startsWith('$')) return null;
+
+        const steps = [];
+        let index = 1;
+        let unsupported = false;
+
+        while (index < raw.length) {
+            const ch = raw[index];
+            if (/\s/.test(ch)) {
+                index += 1;
+                continue;
+            }
+
+            if (ch === '.') {
+                if (raw[index + 1] === '.') {
+                    index += 2;
+                    const deepToken = readJsonPathDotToken(raw, index);
+                    if (!deepToken) {
+                        unsupported = true;
+                        break;
+                    }
+                    index = deepToken.nextIndex;
+                    if (deepToken.token === '*') {
+                        steps.push({ type: 'deep-wildcard' });
+                    } else {
+                        steps.push({ type: 'deep-child', key: deepToken.token });
+                    }
+                    continue;
+                }
+
+                index += 1;
+                const dotToken = readJsonPathDotToken(raw, index);
+                if (!dotToken) {
+                    unsupported = true;
+                    break;
+                }
+                index = dotToken.nextIndex;
+                if (dotToken.token === '*') {
+                    steps.push({ type: 'wildcard' });
+                } else {
+                    steps.push({ type: 'child', key: dotToken.token });
+                }
+                continue;
+            }
+
+            if (ch === '[') {
+                const bracketToken = readJsonPathBracketToken(raw, index);
+                if (!bracketToken) {
+                    unsupported = true;
+                    break;
+                }
+                index = bracketToken.nextIndex;
+                steps.push(bracketToken.step);
+                continue;
+            }
+
+            unsupported = true;
+            break;
+        }
+
+        if (unsupported) {
+            return null;
+        }
+
+        const canGroup = steps.every((step) => step.type === 'child' || step.type === 'index' || step.type === 'wildcard');
+        const tokens = canGroup ? jsonPathStepsToTokens(steps) : [];
+
+        return {
+            steps,
+            tokens
+        };
+    }
+
+    function readJsonPathDotToken(source, startIndex) {
+        if (startIndex >= source.length) return null;
+        if (source[startIndex] === '*') {
+            return { token: '*', nextIndex: startIndex + 1 };
+        }
+
+        let index = startIndex;
+        while (index < source.length) {
+            const ch = source[index];
+            if (ch === '.' || ch === '[' || /\s/.test(ch)) {
+                break;
+            }
+            index += 1;
+        }
+
+        if (index === startIndex) return null;
+        return {
+            token: source.slice(startIndex, index),
+            nextIndex: index
+        };
+    }
+
+    function readJsonPathBracketToken(source, startIndex) {
+        if (source[startIndex] !== '[') return null;
+        let index = startIndex + 1;
+
+        while (index < source.length && /\s/.test(source[index])) index += 1;
+        if (index >= source.length) return null;
+
+        const first = source[index];
+        if (first === '\'' || first === '"') {
+            const parsed = readQuotedString(source, index);
+            if (!parsed) return null;
+            index = parsed.nextIndex;
+            while (index < source.length && /\s/.test(source[index])) index += 1;
+            if (source[index] !== ']') return null;
+            return {
+                step: { type: 'child', key: parsed.value },
+                nextIndex: index + 1
+            };
+        }
+
+        if (first === '*') {
+            index += 1;
+            while (index < source.length && /\s/.test(source[index])) index += 1;
+            if (source[index] !== ']') return null;
+            return {
+                step: { type: 'wildcard' },
+                nextIndex: index + 1
+            };
+        }
+
+        const numberMatch = source.slice(index).match(/^-?\d+/);
+        if (numberMatch) {
+            index += numberMatch[0].length;
+            while (index < source.length && /\s/.test(source[index])) index += 1;
+            if (source[index] !== ']') return null;
+            return {
+                step: { type: 'index', index: parseInt(numberMatch[0], 10) },
+                nextIndex: index + 1
+            };
+        }
+
+        return null;
+    }
+
+    function readQuotedString(source, quoteIndex) {
+        const quote = source[quoteIndex];
+        let value = '';
+        let escaped = false;
+
+        for (let i = quoteIndex + 1; i < source.length; i += 1) {
+            const ch = source[i];
+            if (escaped) {
+                value += ch;
+                escaped = false;
+                continue;
+            }
+
+            if (ch === '\\') {
+                escaped = true;
+                continue;
+            }
+
+            if (ch === quote) {
+                return {
+                    value,
+                    nextIndex: i + 1
+                };
+            }
+
+            value += ch;
+        }
+
+        return null;
+    }
+
+    function jsonPathStepsToTokens(steps) {
+        const tokens = [];
+        for (let i = 0; i < steps.length; i += 1) {
+            const step = steps[i];
+            if (step.type === 'child') {
+                tokens.push(step.key);
+            } else if (step.type === 'index') {
+                tokens.push(step.index);
+            } else if (step.type === 'wildcard') {
+                tokens.push(ARRAY_WILDCARD_TOKEN);
+            } else {
+                return [];
+            }
+        }
+        return tokens;
+    }
+
+    function evaluateJsonPathSteps(source, steps) {
+        if (!Array.isArray(steps)) {
+            return undefined;
+        }
+
+        let current = [source];
+
+        for (let i = 0; i < steps.length; i += 1) {
+            const step = steps[i];
+            const next = [];
+
+            current.forEach((node) => {
+                if (typeof node === 'undefined' || node === null) {
+                    return;
+                }
+
+                if (step.type === 'child') {
+                    if (Object.prototype.hasOwnProperty.call(node, step.key)) {
+                        next.push(node[step.key]);
+                    }
+                    return;
+                }
+
+                if (step.type === 'index') {
+                    if (Array.isArray(node) && step.index >= 0 && step.index < node.length) {
+                        next.push(node[step.index]);
+                    }
+                    return;
+                }
+
+                if (step.type === 'wildcard') {
+                    if (Array.isArray(node)) {
+                        next.push.apply(next, node);
+                        return;
+                    }
+                    if (isPlainObject(node)) {
+                        const objectValues = Object.keys(node).map((key) => node[key]);
+                        next.push.apply(next, objectValues);
+                    }
+                    return;
+                }
+
+                if (step.type === 'deep-child') {
+                    collectDeepChildValues(node, step.key, next);
+                    return;
+                }
+
+                if (step.type === 'deep-wildcard') {
+                    collectDeepWildcardValues(node, next);
+                }
+            });
+
+            if (!next.length) {
+                return undefined;
+            }
+            current = next;
+        }
+
+        return current.length === 1 ? current[0] : current;
+    }
+
+    function collectDeepChildValues(node, key, output) {
+        if (node === null || typeof node === 'undefined') return;
+
+        if (isPlainObject(node)) {
+            if (Object.prototype.hasOwnProperty.call(node, key)) {
+                output.push(node[key]);
+            }
+            Object.keys(node).forEach((childKey) => {
+                collectDeepChildValues(node[childKey], key, output);
+            });
+            return;
+        }
+
+        if (Array.isArray(node)) {
+            node.forEach((item) => collectDeepChildValues(item, key, output));
+        }
+    }
+
+    function collectDeepWildcardValues(node, output) {
+        if (node === null || typeof node === 'undefined') return;
+
+        if (Array.isArray(node)) {
+            node.forEach((item) => {
+                output.push(item);
+                collectDeepWildcardValues(item, output);
+            });
+            return;
+        }
+
+        if (isPlainObject(node)) {
+            Object.keys(node).forEach((key) => {
+                const value = node[key];
+                output.push(value);
+                collectDeepWildcardValues(value, output);
+            });
+        }
     }
 
     function areTokenArraysEqual(left, right) {

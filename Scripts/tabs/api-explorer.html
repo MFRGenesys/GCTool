@@ -8,26 +8,144 @@
   <div class="box-body">
     <div class="api-explorer-layout">
       <div class="api-left-panel">
-        <div class="form-group">
-          <label for="apiExplorerSearchInput">Filtre textuel</label>
-          <input id="apiExplorerSearchInput" type="text" class="form-control" placeholder="Filtrer par categorie, methode, route..." />
+        <div class="api-panel-header">
+          <strong class="api-panel-title">Liste API</strong>
+          <button id="apiExplorerToggleLeftPanelBtn" type="button" class="api-panel-toggle" title="Replier le panneau API" aria-label="Replier le panneau API">
+            <i class="fa fa-angle-double-left"></i>
+          </button>
         </div>
 
-        <div class="api-method-filters">
-          <label class="checkbox-inline"><input type="checkbox" class="api-method-filter" value="GET" checked> GET</label>
-          <label class="checkbox-inline"><input type="checkbox" class="api-method-filter" value="POST" checked> POST</label>
-          <label class="checkbox-inline"><input type="checkbox" class="api-method-filter" value="PATCH" checked> PATCH</label>
-          <label class="checkbox-inline"><input type="checkbox" class="api-method-filter" value="DELETE" checked> DELETE</label>
-          <label class="checkbox-inline"><input type="checkbox" class="api-method-filter" value="PUT" checked> PUT</label>
-        </div>
+        <div id="apiExplorerLeftPanelBody" class="api-left-panel-body">
+          <div class="form-group">
+            <label for="apiExplorerSearchInput">Filtre textuel</label>
+            <input id="apiExplorerSearchInput" type="text" class="form-control" placeholder="Filtrer par categorie, methode, route..." />
+          </div>
 
-        <div class="well well-sm api-favorites-box">
-          <strong><i class="fa fa-star"></i> Favoris</strong>
-          <div id="apiExplorerFavoritesList" class="api-favorites-list"></div>
-        </div>
+          <div class="api-method-filters">
+            <label class="checkbox-inline"><input type="checkbox" class="api-method-filter" value="GET" checked> GET</label>
+            <label class="checkbox-inline"><input type="checkbox" class="api-method-filter" value="POST" checked> POST</label>
+            <label class="checkbox-inline"><input type="checkbox" class="api-method-filter" value="PATCH" checked> PATCH</label>
+            <label class="checkbox-inline"><input type="checkbox" class="api-method-filter" value="DELETE" checked> DELETE</label>
+            <label class="checkbox-inline"><input type="checkbox" class="api-method-filter" value="PUT" checked> PUT</label>
+          </div>
 
-        <div id="apiExplorerCatalogInfo" class="small text-muted" style="margin-bottom:8px;"></div>
-        <div id="apiExplorerCatalog" class="api-catalog"></div>
+          <div class="well well-sm api-favorites-box">
+            <strong><i class="fa fa-star"></i> Favoris</strong>
+            <div id="apiExplorerFavoritesList" class="api-favorites-list"></div>
+          </div>
+
+          <div id="apiExplorerCatalogInfo" class="small text-muted" style="margin-bottom:8px;"></div>
+          <div id="apiExplorerCatalog" class="api-catalog"></div>
+
+          <div class="panel panel-default api-jsonpath-help">
+            <div class="panel-heading">
+              <strong><i class="fa fa-book"></i> Aide JSONPath</strong>
+            </div>
+            <div class="panel-body api-jsonpath-help-body">
+              <div class="small text-muted" style="margin-bottom:6px;">
+                JSON d'exemple utilise dans les expressions ci-dessous:
+              </div>
+              <pre class="api-jsonpath-sample">{
+  "results": [
+    {
+      "conversationId": "c-001",
+      "participants": [
+        { "participantId": "p-101", "participantName": "Mobile Number, France", "purpose": "external" },
+        { "participantId": "p-102", "participantName": "TEL_3639", "purpose": "ivr" }
+      ],
+      "queue": { "id": "q-01", "name": "Support" }
+    },
+    {
+      "conversationId": "c-002",
+      "participants": [
+        { "participantId": "p-201", "participantName": "Secure_Core_Model", "purpose": "botflow" }
+      ],
+      "queue": { "id": "q-02", "name": "Sales" }
+    }
+  ],
+  "pageNumber": 1,
+  "pageCount": 2,
+  "totalHits": 3
+}</pre>
+
+              <div class="api-jsonpath-legend">
+                <div class="api-jsonpath-item">
+                  <code>$</code>
+                  <div class="small"><strong>Role:</strong> Racine du JSON.</div>
+                  <div class="small"><strong>Exemple:</strong> <code>$</code> retourne tout l'objet.</div>
+                </div>
+
+                <div class="api-jsonpath-item">
+                  <code>$.results</code>
+                  <div class="small"><strong>Role:</strong> Acces direct a une propriete (notation point).</div>
+                  <div class="small"><strong>Exemple:</strong> retourne le tableau des conversations.</div>
+                </div>
+
+                <div class="api-jsonpath-item">
+                  <code>$['results'][0]['queue']['name']</code>
+                  <div class="small"><strong>Role:</strong> Acces par notation crochet (utile si cle complexe).</div>
+                  <div class="small"><strong>Exemple:</strong> retourne <code>"Support"</code>.</div>
+                </div>
+
+                <div class="api-jsonpath-item">
+                  <code>$.results[0]</code>
+                  <div class="small"><strong>Role:</strong> Index d'un tableau (0 = premier element).</div>
+                  <div class="small"><strong>Exemple:</strong> retourne la conversation <code>c-001</code>.</div>
+                </div>
+
+                <div class="api-jsonpath-item">
+                  <code>$.results[*]</code>
+                  <div class="small"><strong>Role:</strong> Wildcard sur tableau (tous les elements).</div>
+                  <div class="small"><strong>Exemple:</strong> retourne toutes les conversations.</div>
+                </div>
+
+                <div class="api-jsonpath-item">
+                  <code>$.results[*].conversationId</code>
+                  <div class="small"><strong>Role:</strong> Projection d'un champ sur tous les elements.</div>
+                  <div class="small"><strong>Exemple:</strong> <code>["c-001", "c-002"]</code>.</div>
+                </div>
+
+                <div class="api-jsonpath-item">
+                  <code>$.results[*].participants[*].participantId</code>
+                  <div class="small"><strong>Role:</strong> Wildcards imbriques sur plusieurs niveaux.</div>
+                  <div class="small"><strong>Exemple:</strong> <code>["p-101", "p-102", "p-201"]</code>.</div>
+                </div>
+
+                <div class="api-jsonpath-item">
+                  <code>$..participantId</code>
+                  <div class="small"><strong>Role:</strong> Recherche recursive d'une cle partout dans le JSON.</div>
+                  <div class="small"><strong>Exemple:</strong> retrouve tous les <code>participantId</code> meme en profondeur.</div>
+                </div>
+
+                <div class="api-jsonpath-item">
+                  <code>$..*</code>
+                  <div class="small"><strong>Role:</strong> Tous les descendants (recursive wildcard).</div>
+                  <div class="small"><strong>Exemple:</strong> retourne toutes les valeurs descendantes.</div>
+                </div>
+
+                <div class="api-jsonpath-item">
+                  <code>$.results[?(@.queue.name == 'Support')].conversationId</code>
+                  <div class="small"><strong>Role:</strong> Select particular children using logical expression (filtre logique).</div>
+                  <div class="small"><strong>Exemple:</strong> retourne uniquement les conversations de la queue <code>Support</code>, ici <code>["c-001"]</code>.</div>
+                </div>
+
+                <div class="api-jsonpath-item">
+                  <code>$.results[*].conversationId, $.results[*].queue.name</code>
+                  <div class="small"><strong>Role:</strong> Multi-filtres dans gcTool (separes par virgule).</div>
+                  <div class="small"><strong>Exemple:</strong> combine deux projections en une vue.</div>
+                </div>
+              </div>
+
+              <div class="small text-warning api-jsonpath-warning">
+                Dans cette version gcTool: slices <code>[start:end]</code> et unions <code>[0,2]</code> non pris en charge.
+              </div>
+              <div class="small text-muted api-jsonpath-source">
+                Sources: <a href="https://datatracker.ietf.org/doc/html/rfc9535" target="_blank" rel="noopener noreferrer">IETF RFC 9535</a>
+                | <a href="https://jsonpath-plus.github.io/JSONPath/docs/ts/" target="_blank" rel="noopener noreferrer">JSONPath Plus</a>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div class="api-main-panel">
@@ -45,47 +163,59 @@
             <div id="apiExplorerSelectedClass" class="small text-muted" style="margin-top:5px;"></div>
           </div>
 
-          <div class="row">
-            <div class="col-md-6">
-              <h5>Parametres requis</h5>
-              <div class="btn-group btn-group-xs" style="margin-bottom:8px;">
-                <button id="apiExplorerModeFieldsBtn" type="button" class="btn btn-default active">Mode champs</button>
-                <button id="apiExplorerModeBatchBtn" type="button" class="btn btn-default">Mode lot JSON</button>
-              </div>
-              <div id="apiExplorerParamsForm"></div>
-              <div id="apiExplorerBatchPanel" style="display:none;">
-                <div class="small text-muted" style="margin-bottom:6px;">
-                  JSON attendu: tableau d'objets avec les parametres requis. Optionnel: <code>body</code> et <code>options</code>.
-                </div>
-                <textarea id="apiExplorerBatchJson" class="form-control" rows="8" placeholder='[{"id":"..."}]' spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off"></textarea>
-                <div id="apiExplorerBatchJsonValidation" class="small text-muted" style="margin-top:6px;">
-                  JSON lot: en attente de saisie.
-                </div>
+          <div id="apiExplorerRequestPanel" class="panel panel-default api-request-panel">
+            <div class="panel-heading">
+              <div class="api-panel-header api-panel-header-inline">
+                <strong class="api-panel-title">Parametres de la requete</strong>
+                <button id="apiExplorerToggleRequestPanelBtn" type="button" class="api-panel-toggle" title="Replier les parametres de requete" aria-label="Replier les parametres de requete">
+                  <i class="fa fa-chevron-up"></i>
+                </button>
               </div>
             </div>
-            <div class="col-md-6">
-              <div class="form-group">
-                <label for="apiExplorerBodyJson">Body JSON (POST/PATCH/PUT)</label>
-                <textarea id="apiExplorerBodyJson" class="form-control" rows="7" placeholder='{"key":"value"}'></textarea>
+            <div id="apiExplorerRequestPanelBody" class="panel-body">
+              <div class="row">
+                <div class="col-md-6">
+                  <h5>Parametres requis</h5>
+                  <div class="btn-group btn-group-xs" style="margin-bottom:8px;">
+                    <button id="apiExplorerModeFieldsBtn" type="button" class="btn btn-default active">Mode champs</button>
+                    <button id="apiExplorerModeBatchBtn" type="button" class="btn btn-default">Mode lot JSON</button>
+                  </div>
+                  <div id="apiExplorerParamsForm"></div>
+                  <div id="apiExplorerBatchPanel" style="display:none;">
+                    <div class="small text-muted" style="margin-bottom:6px;">
+                      JSON attendu: tableau d'objets avec les parametres requis. Optionnel: <code>body</code> et <code>options</code>.
+                    </div>
+                    <textarea id="apiExplorerBatchJson" class="form-control" rows="8" placeholder='[{"id":"..."}]' spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off"></textarea>
+                    <div id="apiExplorerBatchJsonValidation" class="small text-muted" style="margin-top:6px;">
+                      JSON lot: en attente de saisie.
+                    </div>
+                  </div>
+                </div>
+                <div class="col-md-6">
+                  <div class="form-group">
+                    <label for="apiExplorerBodyJson">Body JSON (POST/PATCH/PUT)</label>
+                    <textarea id="apiExplorerBodyJson" class="form-control" rows="7" placeholder='{"key":"value"}'></textarea>
+                  </div>
+                  <div class="form-group">
+                    <label for="apiExplorerOptionsJson">Options JSON (params optionnels / query)</label>
+                    <textarea id="apiExplorerOptionsJson" class="form-control" rows="6" placeholder='{"pageSize":25,"pageNumber":1}'></textarea>
+                  </div>
+                  <div class="checkbox" style="margin-top:6px;">
+                    <label>
+                      <input id="apiExplorerPostAutoPaging" type="checkbox">
+                      Pagination auto pour POST (appel page par page)
+                    </label>
+                  </div>
+                </div>
               </div>
-              <div class="form-group">
-                <label for="apiExplorerOptionsJson">Options JSON (params optionnels / query)</label>
-                <textarea id="apiExplorerOptionsJson" class="form-control" rows="6" placeholder='{"pageSize":25,"pageNumber":1}'></textarea>
-              </div>
-              <div class="checkbox" style="margin-top:6px;">
-                <label>
-                  <input id="apiExplorerPostAutoPaging" type="checkbox">
-                  Pagination auto pour POST (appel page par page)
-                </label>
-              </div>
-            </div>
-          </div>
 
-          <div class="form-group">
-            <button id="apiExplorerExecuteBtn" class="btn btn-primary">
-              <i class="fa fa-play"></i> Executer
-            </button>
-            <span id="apiExplorerExecutionStatus" class="text-muted" style="margin-left:10px;"></span>
+              <div class="form-group" style="margin-top:10px; margin-bottom:0;">
+                <button id="apiExplorerExecuteBtn" class="btn btn-primary">
+                  <i class="fa fa-play"></i> Executer
+                </button>
+                <span id="apiExplorerExecutionStatus" class="text-muted" style="margin-left:10px;"></span>
+              </div>
+            </div>
           </div>
 
           <div class="panel panel-default" style="margin-bottom:0;">
@@ -104,7 +234,15 @@
                 </label>
                 <button id="apiExplorerApplyProjectionBtn" class="btn btn-default">Afficher projection</button>
                 <button id="apiExplorerResetProjectionBtn" class="btn btn-default">Reinitialiser</button>
-                <button id="apiExplorerExportCsvBtn" class="btn btn-success">Exporter CSV</button>
+                <div class="btn-group">
+                  <button type="button" class="btn btn-success dropdown-toggle" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                    Exporter <span class="caret"></span>
+                  </button>
+                  <ul class="dropdown-menu dropdown-menu-right">
+                    <li><a id="apiExplorerExportCsvBtn" href="#">Exporter CSV</a></li>
+                    <li><a id="apiExplorerExportJsonBtn" href="#">Exporter JSON</a></li>
+                  </ul>
+                </div>
               </div>
               <div id="apiExplorerResponse" class="api-response">Aucune reponse pour le moment.</div>
             </div>
