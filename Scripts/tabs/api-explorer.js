@@ -12,6 +12,12 @@
     const PROJECTION_AUTOCOMPLETE_DEBOUNCE_MS = 140;
     const PROJECTION_AUTOCOMPLETE_MIN_CHARS = 2;
     const PROJECTION_AUTOCOMPLETE_LIMIT = 20;
+    const API_RATE_LIMIT_MAX_PER_MINUTE = 300;
+    const API_RATE_LIMIT_WINDOW_MS = 60 * 1000;
+    const API_RATE_LIMIT_RETRY_FALLBACK_MS = 10 * 1000;
+    const API_RATE_LIMIT_MAX_RETRIES = 2;
+    const RESPONSE_TAB_LIMIT = 5;
+    const NODE_VIEW_AUTO_TEXT_THRESHOLD_BYTES = 1024 * 1024;
 
     const state = {
         // Etat runtime uniquement (pas de persistance locale, sauf favoris via cookie).
@@ -30,7 +36,13 @@
         projectionAutocompleteDebounceId: null,
         isProjectionProcessing: false,
         isLeftPanelCollapsed: false,
-        isRequestPanelCollapsed: false
+        isLeftListCollapsed: false,
+        isJsonPathHelpCollapsed: true,
+        isRequestPanelCollapsed: false,
+        responseTabs: [],
+        activeResponseTabId: null,
+        nextResponseTabSequence: 1,
+        requestTimestamps: []
     };
 
     const batchScaffold = {
@@ -74,6 +86,7 @@
         buildCatalog();
         pruneUnknownFavorites();
         renderCatalog();
+        renderResponseTabs();
         applyPanelLayoutState();
 
         console.log('[API Explorer] Module initialise.');
@@ -105,12 +118,33 @@
 
         const executeBtn = document.getElementById('apiExplorerExecuteBtn');
         if (executeBtn) {
-            executeBtn.addEventListener('click', executeSelectedEndpoint);
+            executeBtn.addEventListener('click', (event) => {
+                if (event) event.preventDefault();
+                executeSelectedEndpoint({ targetTabMode: 'current' });
+            });
+        }
+
+        const executeNewTabBtn = document.getElementById('apiExplorerExecuteNewTabBtn');
+        if (executeNewTabBtn) {
+            executeNewTabBtn.addEventListener('click', (event) => {
+                if (event) event.preventDefault();
+                executeSelectedEndpoint({ targetTabMode: 'new' });
+            });
         }
 
         const toggleLeftPanelBtn = document.getElementById('apiExplorerToggleLeftPanelBtn');
         if (toggleLeftPanelBtn) {
             toggleLeftPanelBtn.addEventListener('click', toggleLeftPanelCollapse);
+        }
+
+        const toggleLeftListBtn = document.getElementById('apiExplorerToggleLeftListBtn');
+        if (toggleLeftListBtn) {
+            toggleLeftListBtn.addEventListener('click', toggleLeftListCollapse);
+        }
+
+        const toggleJsonPathHelpBtn = document.getElementById('apiExplorerToggleJsonPathHelpBtn');
+        if (toggleJsonPathHelpBtn) {
+            toggleJsonPathHelpBtn.addEventListener('click', toggleJsonPathHelpCollapse);
         }
 
         const toggleRequestPanelBtn = document.getElementById('apiExplorerToggleRequestPanelBtn');
@@ -169,6 +203,11 @@
             responseViewer.addEventListener('click', onResponseViewerClicked);
         }
 
+        const responseTabs = document.getElementById('apiExplorerResponseTabs');
+        if (responseTabs) {
+            responseTabs.addEventListener('click', onResponseTabsClicked);
+        }
+
         const projectionPathInput = document.getElementById('apiExplorerProjectionPath');
         if (projectionPathInput) {
             projectionPathInput.setAttribute('spellcheck', 'false');
@@ -176,6 +215,11 @@
             projectionPathInput.addEventListener('input', scheduleProjectionAutocompleteRefresh);
             projectionPathInput.addEventListener('focus', refreshProjectionAutocompleteSuggestions);
             projectionPathInput.addEventListener('keydown', onProjectionPathKeyDown);
+        }
+
+        const nodeViewSwitch = document.getElementById('apiExplorerResponseNodeViewSwitch');
+        if (nodeViewSwitch) {
+            nodeViewSwitch.addEventListener('change', onResponseNodeViewSwitchChanged);
         }
 
         applyPanelLayoutState();
@@ -266,6 +310,20 @@
         applyPanelLayoutState();
     }
 
+    function toggleLeftListCollapse() {
+        state.isLeftListCollapsed = !state.isLeftListCollapsed;
+        if (state.isLeftListCollapsed) {
+            // Si on replie la liste, on affiche automatiquement l'aide.
+            state.isJsonPathHelpCollapsed = false;
+        }
+        applyPanelLayoutState();
+    }
+
+    function toggleJsonPathHelpCollapse() {
+        state.isJsonPathHelpCollapsed = !state.isJsonPathHelpCollapsed;
+        applyPanelLayoutState();
+    }
+
     function toggleRequestPanelCollapse() {
         state.isRequestPanelCollapsed = !state.isRequestPanelCollapsed;
         applyPanelLayoutState();
@@ -276,6 +334,8 @@
         if (!root) return;
 
         root.classList.toggle('api-left-collapsed', state.isLeftPanelCollapsed);
+        root.classList.toggle('api-left-list-collapsed', state.isLeftListCollapsed);
+        root.classList.toggle('api-jsonpath-help-collapsed', state.isJsonPathHelpCollapsed);
         root.classList.toggle('api-request-collapsed', state.isRequestPanelCollapsed);
 
         const leftPanelBtn = document.getElementById('apiExplorerToggleLeftPanelBtn');
@@ -284,6 +344,26 @@
             leftPanelBtn.innerHTML = '<i class="fa ' + iconClass + '"></i>';
             leftPanelBtn.title = state.isLeftPanelCollapsed ? 'Afficher le panneau API' : 'Replier le panneau API';
             leftPanelBtn.setAttribute('aria-label', leftPanelBtn.title);
+        }
+
+        const leftListBtn = document.getElementById('apiExplorerToggleLeftListBtn');
+        if (leftListBtn) {
+            const iconClass = state.isLeftListCollapsed ? 'fa-chevron-down' : 'fa-chevron-up';
+            leftListBtn.innerHTML = '<i class="fa ' + iconClass + '"></i>';
+            leftListBtn.title = state.isLeftListCollapsed
+                ? 'Afficher la liste API'
+                : 'Replier la liste API (afficher l aide)';
+            leftListBtn.setAttribute('aria-label', leftListBtn.title);
+        }
+
+        const jsonPathHelpBtn = document.getElementById('apiExplorerToggleJsonPathHelpBtn');
+        if (jsonPathHelpBtn) {
+            const iconClass = state.isJsonPathHelpCollapsed ? 'fa-chevron-down' : 'fa-chevron-up';
+            jsonPathHelpBtn.innerHTML = '<i class="fa ' + iconClass + '"></i>';
+            jsonPathHelpBtn.title = state.isJsonPathHelpCollapsed
+                ? 'Afficher l aide JSONPath'
+                : 'Replier l aide JSONPath';
+            jsonPathHelpBtn.setAttribute('aria-label', jsonPathHelpBtn.title);
         }
 
         const requestPanelBtn = document.getElementById('apiExplorerToggleRequestPanelBtn');
@@ -741,14 +821,17 @@
         state.projectionAutocompletePaths = [];
         state.currentProjectionSuggestions = [];
         clearProjectionAutocompleteDebounce();
+        state.activeResponseTabId = null;
 
         renderCatalog();
+        renderResponseTabs();
         renderWorkbench(endpoint);
     }
 
-    function renderWorkbench(endpoint) {
+    function renderWorkbench(endpoint, options) {
         const emptyState = document.getElementById('apiExplorerEmptyState');
         const workbench = document.getElementById('apiExplorerWorkbench');
+        const preserveResponseState = Boolean(options && options.preserveResponseState);
 
         if (emptyState) emptyState.style.display = 'none';
         if (workbench) workbench.style.display = 'block';
@@ -794,12 +877,14 @@
         }
 
         const projectionPathInput = document.getElementById('apiExplorerProjectionPath');
-        if (projectionPathInput) projectionPathInput.value = '';
+        if (projectionPathInput && !preserveResponseState) projectionPathInput.value = '';
         refreshProjectionAutocompleteSuggestions();
 
-        setExecutionStatus('Pret a executer.', 'info');
-        updateResponseStats(null);
-        renderResponseText('Aucune reponse pour le moment.');
+        if (!preserveResponseState) {
+            setExecutionStatus('Pret a executer.', 'info');
+            updateResponseStats(null);
+            renderResponseText('Aucune reponse pour le moment.');
+        }
     }
 
     function renderRequiredParams(endpoint) {
@@ -821,6 +906,316 @@
                 </div>
             `;
         }).join('');
+    }
+
+    function onResponseTabsClicked(event) {
+        const tabLink = event.target.closest('[data-response-tab-id]');
+        if (!tabLink) return;
+
+        event.preventDefault();
+        const tabId = tabLink.getAttribute('data-response-tab-id');
+        if (!tabId) return;
+
+        activateResponseTab(tabId);
+    }
+
+    function renderResponseTabs() {
+        const container = document.getElementById('apiExplorerResponseTabsContainer');
+        const tabsEl = document.getElementById('apiExplorerResponseTabs');
+        if (!container || !tabsEl) return;
+
+        if (!state.responseTabs.length) {
+            container.style.display = 'none';
+            tabsEl.innerHTML = '';
+            return;
+        }
+
+        container.style.display = 'block';
+        tabsEl.innerHTML = state.responseTabs.map((tab) => {
+            const isActive = tab.id === state.activeResponseTabId;
+            const methodClass = getMethodLabelClass(tab.httpMethod || 'UNKNOWN');
+            const title = tab.title || '(sans titre)';
+            return `
+                <li class="${isActive ? 'active' : ''}">
+                    <a href="#" data-response-tab-id="${escapeAttribute(tab.id)}" title="${escapeAttribute(title)}">
+                        <span class="label ${methodClass}">${escapeHtml(tab.httpMethod || 'N/A')}</span>
+                        <span class="api-response-tab-title">${escapeHtml(title)}</span>
+                    </a>
+                </li>
+            `;
+        }).join('');
+    }
+
+    function createResponseTab(endpoint) {
+        const tabId = 'responseTab_' + state.nextResponseTabSequence;
+        state.nextResponseTabSequence += 1;
+
+        const tab = {
+            id: tabId,
+            endpointId: endpoint.id,
+            httpMethod: endpoint.httpMethod,
+            methodName: endpoint.methodName,
+            title: endpoint.methodName,
+            response: null,
+            projection: null,
+            executionMeta: null,
+            viewMode: null,
+            context: null,
+            statusMessage: '',
+            statusLevel: 'info',
+            createdAt: Date.now()
+        };
+
+        state.responseTabs.push(tab);
+        while (state.responseTabs.length > RESPONSE_TAB_LIMIT) {
+            const removed = state.responseTabs.shift();
+            if (removed && removed.id === state.activeResponseTabId) {
+                state.activeResponseTabId = null;
+            }
+        }
+
+        return tab;
+    }
+
+    function getTabById(tabId) {
+        return state.responseTabs.find((tab) => tab.id === tabId) || null;
+    }
+
+    function getActiveResponseTab() {
+        if (!state.activeResponseTabId) return null;
+        return getTabById(state.activeResponseTabId);
+    }
+
+    function resolveExecutionTargetTab(endpoint, targetTabMode) {
+        if (targetTabMode !== 'new') {
+            const activeTab = getActiveResponseTab();
+            if (activeTab) {
+                return activeTab;
+            }
+        }
+
+        return createResponseTab(endpoint);
+    }
+
+    function captureCurrentRequestContext(endpoint) {
+        const requiredParamValues = {};
+        endpoint.requiredInputParams.forEach((paramName) => {
+            const inputEl = document.getElementById(buildRequiredInputId(paramName));
+            requiredParamValues[paramName] = inputEl ? inputEl.value : '';
+        });
+
+        const bodyInput = document.getElementById('apiExplorerBodyJson');
+        const optionsInput = document.getElementById('apiExplorerOptionsJson');
+        const batchInput = document.getElementById('apiExplorerBatchJson');
+        const autoPagingCb = document.getElementById('apiExplorerPostAutoPaging');
+        const projectionInput = document.getElementById('apiExplorerProjectionPath');
+        const groupByObjectCb = document.getElementById('apiExplorerProjectionGroupByObject');
+
+        return {
+            endpointId: endpoint.id,
+            inputMode: state.inputMode,
+            requiredParamValues,
+            bodyJson: bodyInput ? bodyInput.value : '',
+            optionsJson: optionsInput ? optionsInput.value : '',
+            batchJson: batchInput ? batchInput.value : '',
+            postAutoPaging: Boolean(autoPagingCb && autoPagingCb.checked),
+            projectionPath: projectionInput ? projectionInput.value : '',
+            groupByObject: !groupByObjectCb || Boolean(groupByObjectCb.checked)
+        };
+    }
+
+    function applyRequestContext(endpoint, context) {
+        if (!context) return;
+
+        const requiredParamValues = isPlainObject(context.requiredParamValues) ? context.requiredParamValues : {};
+        endpoint.requiredInputParams.forEach((paramName) => {
+            const inputEl = document.getElementById(buildRequiredInputId(paramName));
+            if (!inputEl) return;
+            if (Object.prototype.hasOwnProperty.call(requiredParamValues, paramName)) {
+                inputEl.value = String(requiredParamValues[paramName]);
+            }
+        });
+
+        const bodyInput = document.getElementById('apiExplorerBodyJson');
+        if (bodyInput && typeof context.bodyJson === 'string') {
+            bodyInput.value = context.bodyJson;
+        }
+
+        const optionsInput = document.getElementById('apiExplorerOptionsJson');
+        if (optionsInput && typeof context.optionsJson === 'string') {
+            optionsInput.value = context.optionsJson;
+        }
+
+        const batchInput = document.getElementById('apiExplorerBatchJson');
+        if (batchInput && typeof context.batchJson === 'string') {
+            batchInput.value = context.batchJson;
+            validateBatchJsonEditorRealtime({ silentWhenEmpty: true });
+        }
+
+        const autoPagingCb = document.getElementById('apiExplorerPostAutoPaging');
+        if (autoPagingCb && !autoPagingCb.disabled) {
+            autoPagingCb.checked = Boolean(context.postAutoPaging);
+        }
+
+        if (context.inputMode) {
+            switchInputMode(context.inputMode);
+        }
+
+        const projectionInput = document.getElementById('apiExplorerProjectionPath');
+        if (projectionInput && typeof context.projectionPath === 'string') {
+            projectionInput.value = context.projectionPath;
+        }
+
+        const groupByObjectCb = document.getElementById('apiExplorerProjectionGroupByObject');
+        if (groupByObjectCb) {
+            groupByObjectCb.checked = context.groupByObject !== false;
+        }
+    }
+
+    function openExecutionResultInTab(options) {
+        const endpoint = options.endpoint;
+        const targetTabMode = options.targetTabMode === 'new' ? 'new' : 'current';
+        const tab = resolveExecutionTargetTab(endpoint, targetTabMode);
+
+        tab.endpointId = endpoint.id;
+        tab.httpMethod = endpoint.httpMethod;
+        tab.methodName = endpoint.methodName;
+        tab.title = endpoint.methodName;
+        tab.response = options.response;
+        tab.projection = options.projection;
+        tab.executionMeta = options.executionMeta;
+        // Nouveau resultat => retour au mode auto (NODE < 1 Mo, texte brut > 1 Mo).
+        tab.viewMode = null;
+        tab.context = captureCurrentRequestContext(endpoint);
+        tab.statusMessage = options.statusMessage || '';
+        tab.statusLevel = options.statusLevel || 'info';
+
+        activateResponseTab(tab.id);
+    }
+
+    function updateActiveTabFromCurrentState() {
+        const tab = getActiveResponseTab();
+        const endpoint = getSelectedEndpoint();
+        if (!tab || !endpoint) return;
+
+        tab.endpointId = endpoint.id;
+        tab.httpMethod = endpoint.httpMethod;
+        tab.methodName = endpoint.methodName;
+        tab.title = endpoint.methodName;
+        tab.response = state.lastResponse;
+        tab.projection = state.lastProjection;
+        tab.executionMeta = state.lastExecutionMeta;
+        tab.context = captureCurrentRequestContext(endpoint);
+
+        renderResponseTabs();
+    }
+
+    function activateResponseTab(tabId) {
+        const tab = getTabById(tabId);
+        if (!tab) return;
+
+        state.activeResponseTabId = tab.id;
+
+        const endpoint = state.catalog.find((item) => item.id === tab.endpointId) || null;
+        if (endpoint) {
+            state.selectedEndpointId = endpoint.id;
+            renderCatalog();
+            renderWorkbench(endpoint, { preserveResponseState: true });
+            applyRequestContext(endpoint, tab.context);
+        }
+
+        state.lastResponse = tab.response;
+        state.lastProjection = typeof tab.projection === 'undefined' ? tab.response : tab.projection;
+        state.lastExecutionMeta = tab.executionMeta || null;
+        rebuildProjectionAutocompletePaths();
+
+        if (state.lastProjection !== null && typeof state.lastProjection !== 'undefined') {
+            renderResponseObject(state.lastProjection);
+        } else if (state.lastResponse !== null && typeof state.lastResponse !== 'undefined') {
+            renderResponseObject(state.lastResponse);
+        } else {
+            renderResponseText('Aucune reponse pour cet onglet.');
+        }
+
+        if (tab.statusMessage) {
+            setExecutionStatus(tab.statusMessage, tab.statusLevel || 'info');
+        }
+
+        renderResponseTabs();
+    }
+
+    function onResponseNodeViewSwitchChanged(event) {
+        const switchEl = event && event.target ? event.target : document.getElementById('apiExplorerResponseNodeViewSwitch');
+        if (!switchEl) return;
+
+        const activeTab = getActiveResponseTab();
+        if (activeTab) {
+            activeTab.viewMode = switchEl.checked ? 'node' : 'text';
+        }
+
+        const payload = getCurrentRenderableResponsePayload();
+        if (payload === null || typeof payload === 'undefined') {
+            updateResponseRenderControls({
+                hasPayload: false
+            });
+            return;
+        }
+
+        renderResponseObject(payload);
+    }
+
+    function getCurrentRenderableResponsePayload() {
+        if (state.lastProjection !== null && typeof state.lastProjection !== 'undefined') {
+            return state.lastProjection;
+        }
+
+        return state.lastResponse;
+    }
+
+    function resolveResponseRenderMode(bytes) {
+        const activeTab = getActiveResponseTab();
+        if (activeTab && (activeTab.viewMode === 'node' || activeTab.viewMode === 'text')) {
+            return activeTab.viewMode;
+        }
+
+        if (typeof bytes === 'number' && bytes > NODE_VIEW_AUTO_TEXT_THRESHOLD_BYTES) {
+            return 'text';
+        }
+
+        return 'node';
+    }
+
+    function updateResponseRenderControls(options) {
+        const switchEl = document.getElementById('apiExplorerResponseNodeViewSwitch');
+        const hintEl = document.getElementById('apiExplorerResponseRenderHint');
+        if (!switchEl || !hintEl) return;
+
+        const hasPayload = Boolean(options && options.hasPayload);
+        if (!hasPayload) {
+            switchEl.checked = false;
+            switchEl.disabled = true;
+            hintEl.textContent = '';
+            return;
+        }
+
+        const mode = options.mode === 'text' ? 'text' : 'node';
+        const bytes = typeof options.bytes === 'number' ? options.bytes : null;
+        const thresholdExceeded = bytes !== null && bytes > NODE_VIEW_AUTO_TEXT_THRESHOLD_BYTES;
+
+        switchEl.disabled = false;
+        switchEl.checked = mode === 'node';
+
+        if (thresholdExceeded && mode === 'text') {
+            hintEl.textContent = 'Affichage texte brut automatique (>1 Mo). La vision NODE peut augmenter fortement la consommation memoire et ralentir l onglet.';
+            return;
+        }
+
+        if (thresholdExceeded && mode === 'node') {
+            hintEl.textContent = 'Vision NODE active sur une reponse >1 Mo: risque de forte consommation memoire.';
+            return;
+        }
+
+        hintEl.textContent = '';
     }
 
     function configureBatchInputForEndpoint(endpoint) {
@@ -859,7 +1254,8 @@
     // =========================
     // Execution des appels API
     // =========================
-    async function executeSelectedEndpoint() {
+    async function executeSelectedEndpoint(options) {
+        const targetTabMode = options && options.targetTabMode === 'new' ? 'new' : 'current';
         const endpoint = state.catalog.find((item) => item.id === state.selectedEndpointId);
         if (!endpoint) {
             setExecutionStatus('Selectionnez une API a executer.', 'warning');
@@ -880,22 +1276,30 @@
             const response = normalizeExecutionResultForDisplay(executionResult);
             console.log(`Response Global : `, response);
             const duration = Date.now() - startedAt;
+            const executionMeta = isPlainObject(executionResult) ? executionResult : null;
+            const successMessage = buildExecutionSuccessMessage(executionResult, duration);
 
-            state.lastResponse = response;
-            state.lastProjection = response;
-            state.lastExecutionMeta = isPlainObject(executionResult) ? executionResult : null;
-            rebuildProjectionAutocompletePaths();
-
-            renderResponseObject(response);
-            setExecutionStatus(buildExecutionSuccessMessage(executionResult, duration), 'success');
+            openExecutionResultInTab({
+                targetTabMode,
+                endpoint,
+                response,
+                projection: response,
+                executionMeta,
+                statusMessage: successMessage,
+                statusLevel: 'success'
+            });
         } catch (error) {
             const normalizedError = normalizeError(error);
-            state.lastResponse = normalizedError;
-            state.lastProjection = normalizedError;
-            state.lastExecutionMeta = null;
-            rebuildProjectionAutocompletePaths();
-            renderResponseObject(normalizedError);
-            setExecutionStatus('Erreur: ' + (error && error.message ? error.message : 'Execution impossible'), 'danger');
+            const errorMessage = 'Erreur: ' + (error && error.message ? error.message : 'Execution impossible');
+            openExecutionResultInTab({
+                targetTabMode,
+                endpoint,
+                response: normalizedError,
+                projection: normalizedError,
+                executionMeta: null,
+                statusMessage: errorMessage,
+                statusLevel: 'danger'
+            });
             console.error('[API Explorer] Erreur execution', error);
         }
     }
@@ -911,8 +1315,122 @@
         }
 
         const args = buildInvocationArgs(endpoint);
-        logApiCall(endpoint, args, { executionMode: 'single' });
-        return instance[endpoint.methodName].apply(instance, args);
+        //logApiCall(endpoint, args, { executionMode: 'single' });
+        return invokeEndpointWithRateLimit(endpoint, instance, args, {
+            mode: 'single',
+            label: 'appel unique'
+        });
+    }
+
+    async function invokeEndpointWithRateLimit(endpoint, instance, args, waitContext) {
+        let attempts = 0;
+        while (attempts <= API_RATE_LIMIT_MAX_RETRIES) {
+            attempts += 1;
+            await waitForApiRateWindow(waitContext);
+
+            try {
+                const response = await instance[endpoint.methodName].apply(instance, args);
+                state.requestTimestamps.push(Date.now());
+                trimRequestTimestamps();
+                return response;
+            } catch (error) {
+                if (!isRateLimitError(error) || attempts > API_RATE_LIMIT_MAX_RETRIES) {
+                    throw error;
+                }
+
+                const waitMs = extractRetryAfterMs(error) || API_RATE_LIMIT_RETRY_FALLBACK_MS;
+                setExecutionStatus(buildRateLimitWaitMessage(waitMs, waitContext, 'Rate limit detecte (429).'), 'warning');
+                await sleep(waitMs);
+            }
+        }
+
+        throw new Error('Execution interrompue apres plusieurs erreurs de rate limit.');
+    }
+
+    async function waitForApiRateWindow(waitContext) {
+        while (true) {
+            trimRequestTimestamps();
+            if (state.requestTimestamps.length < API_RATE_LIMIT_MAX_PER_MINUTE) {
+                return;
+            }
+
+            const now = Date.now();
+            const oldestTs = state.requestTimestamps[0];
+            const waitMs = Math.max(250, API_RATE_LIMIT_WINDOW_MS - (now - oldestTs) + 50);
+            setExecutionStatus(buildRateLimitWaitMessage(waitMs, waitContext, 'Attente limite 300 appels/min.'), 'warning');
+            await sleep(waitMs);
+        }
+    }
+
+    function trimRequestTimestamps() {
+        const minTimestamp = Date.now() - API_RATE_LIMIT_WINDOW_MS;
+        while (state.requestTimestamps.length && state.requestTimestamps[0] < minTimestamp) {
+            state.requestTimestamps.shift();
+        }
+    }
+
+    function isRateLimitError(error) {
+        if (!error) return false;
+        if (Number(error.status) === 429) return true;
+
+        let asText = '';
+        if (typeof error.message === 'string') asText += ' ' + error.message;
+        if (typeof error.code === 'string') asText += ' ' + error.code;
+        if (isPlainObject(error.body)) {
+            if (typeof error.body.code === 'string') asText += ' ' + error.body.code;
+            if (typeof error.body.message === 'string') asText += ' ' + error.body.message;
+        }
+
+        const normalized = asText.toLowerCase();
+        return normalized.includes('rate') || normalized.includes('too many') || normalized.includes('429');
+    }
+
+    function extractRetryAfterMs(error) {
+        if (!error) return null;
+
+        const headers = error.headers || error.header || null;
+        if (!headers) return null;
+
+        const retryAfterRaw = headers['retry-after'] || headers['Retry-After'] || headers.retryAfter || headers.RetryAfter;
+        if (typeof retryAfterRaw === 'undefined' || retryAfterRaw === null) return null;
+
+        const retryAfterSeconds = Number(retryAfterRaw);
+        if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0) {
+            return Math.floor(retryAfterSeconds * 1000);
+        }
+
+        const retryDateMs = Date.parse(String(retryAfterRaw));
+        if (Number.isFinite(retryDateMs)) {
+            const delta = retryDateMs - Date.now();
+            if (delta > 0) return delta;
+        }
+
+        return null;
+    }
+
+    function buildRateLimitWaitMessage(waitMs, waitContext, prefix) {
+        const safePrefix = prefix || 'Attente rate limit.';
+        const seconds = Math.max(1, Math.ceil(waitMs / 1000));
+        const progressLabel = buildWaitProgressLabel(waitContext);
+        return safePrefix + ' Pause ' + seconds + 's' + (progressLabel ? ' (' + progressLabel + ')' : '');
+    }
+
+    function buildWaitProgressLabel(waitContext) {
+        if (!waitContext || !isPlainObject(waitContext)) return '';
+
+        if (typeof waitContext.current === 'number') {
+            if (typeof waitContext.total === 'number' && waitContext.total > 0) {
+                return waitContext.current + ' / ' + waitContext.total + ' ' + (waitContext.unit || '');
+            }
+            return String(waitContext.current) + (waitContext.unit ? ' ' + waitContext.unit : '');
+        }
+
+        return waitContext.label || '';
+    }
+
+    function sleep(durationMs) {
+        const safeMs = Math.max(0, Number(durationMs) || 0);
+        return new Promise((resolve) => setTimeout(resolve, safeMs));
     }
 
     async function executeBatchByJsonInputs(endpoint, instance) {
@@ -941,11 +1459,16 @@
             try {
                 const parts = buildInvocationPartsFromBatchItem(endpoint, item, baseBody, baseOptions);
                 const args = buildInvocationArgsFromParts(endpoint, parts);
-                logApiCall(endpoint, args, { executionMode: 'batch', batchIndex: i + 1 });
+                //logApiCall(endpoint, args, { executionMode: 'batch', batchIndex: i + 1 });
 
                 //await requestFreshAccessTokenForBatchCall(i + 1, batchItems.length);
                 // Code d'origine (sans refresh token par appel):
-                const response = await instance[endpoint.methodName].apply(instance, args);
+                const response = await invokeEndpointWithRateLimit(endpoint, instance, args, {
+                    mode: 'batch',
+                    current: i + 1,
+                    total: batchItems.length,
+                    unit: 'requete'
+                });
                 const stats = extractResponseStats(response);
                 if (typeof stats.totalHits === 'number') {
                     totalHitsSum += stats.totalHits;
@@ -1070,9 +1593,14 @@
                 optionsObject: iterationParts.optionsObject
             });
             const args = buildInvocationArgsFromParts(endpoint, iterationParts);
-            logApiCall(endpoint, args, { executionMode: 'post-auto-pagination', pageNumber: currentPage });
+            //logApiCall(endpoint, args, { executionMode: 'post-auto-pagination', pageNumber: currentPage });
 
-            const response = await instance[endpoint.methodName].apply(instance, args);
+            const response = await invokeEndpointWithRateLimit(endpoint, instance, args, {
+                mode: 'post-pagination',
+                current: currentPage,
+                total: pageCount,
+                unit: 'page'
+            });
             responses.push(response);
 
             const stats = extractResponseStats(response);
@@ -2011,6 +2539,7 @@
             if (!projectionPaths.length) {
                 state.lastProjection = state.lastResponse;
                 renderResponseObject(state.lastProjection);
+                updateActiveTabFromCurrentState();
                 setExecutionStatus('Projection vide: affichage de la reponse complete.', 'info');
                 return;
             }
@@ -2024,6 +2553,7 @@
 
                 state.lastProjection = projected;
                 renderResponseObject(projected);
+                updateActiveTabFromCurrentState();
                 setExecutionStatus('Projection appliquee: ' + projectionPaths[0], 'success');
                 return;
             }
@@ -2038,6 +2568,7 @@
 
             state.lastProjection = multipleProjection.value;
             renderResponseObject(multipleProjection.value);
+            updateActiveTabFromCurrentState();
             setExecutionStatus(multipleProjection.message, 'success');
         } finally {
             setProjectionProcessingState(false);
@@ -2079,6 +2610,7 @@
 
         state.lastProjection = state.lastResponse;
         renderResponseObject(state.lastProjection);
+        updateActiveTabFromCurrentState();
         setExecutionStatus('Projection reinitialisee.', 'info');
     }
 
@@ -2844,9 +3376,22 @@
         const statsSource = resolveStatsPayload(value);
         // Les stats sont calculees sur la reponse "brute" quand une projection est active.
         updateResponseStats(statsSource);
+        const bytes = updateResponseSize(value);
+        const renderMode = resolveResponseRenderMode(bytes);
+        updateResponseRenderControls({
+            hasPayload: true,
+            mode: renderMode,
+            bytes
+        });
 
         try {
-            responseEl.innerHTML = '';
+            if (renderMode === 'text') {
+                const textPayload = JSON.stringify(value, null, 2);
+                renderResponseText(textPayload, { preserveStats: true, preserveResponseSize: true, preserveRenderControls: true });
+                return;
+            }
+
+            clearResponseViewerDom(responseEl);
             responseEl.classList.add('api-json-viewer-active');
             responseEl.appendChild(createJsonNode(value, null, true, 0));
         } catch (_error) {
@@ -2856,22 +3401,44 @@
             } catch (_innerError) {
                 text = String(value);
             }
-            renderResponseText(text, { preserveStats: true });
+            renderResponseText(text, { preserveStats: true, preserveResponseSize: true, preserveRenderControls: true });
         }
     }
 
     function renderResponseText(text, options) {
         const responseEl = document.getElementById('apiExplorerResponse');
         if (responseEl) {
+            clearResponseViewerDom(responseEl);
             responseEl.classList.remove('api-json-viewer-active');
             responseEl.textContent = String(text);
         }
 
-        if (options && options.preserveStats) {
-            return;
+        const preserveStats = Boolean(options && options.preserveStats);
+        const preserveResponseSize = Boolean(options && options.preserveResponseSize);
+        const preserveRenderControls = Boolean(options && options.preserveRenderControls);
+
+        if (!preserveStats) {
+            updateResponseStats(null);
         }
 
-        updateResponseStats(null);
+        if (!preserveResponseSize) {
+            updateResponseSize(null);
+        }
+
+        if (!preserveRenderControls) {
+            updateResponseRenderControls({ hasPayload: false });
+        }
+    }
+
+    function clearResponseViewerDom(responseEl) {
+        if (!responseEl) return;
+
+        const jsonNodes = responseEl.querySelectorAll('.json-node');
+        jsonNodes.forEach((node) => {
+            node.replaceChildren();
+        });
+
+        responseEl.replaceChildren();
     }
 
     function createJsonNode(value, key, isLast, depth) {
@@ -3034,6 +3601,63 @@
         const pageCountText = typeof stats.pageCount === 'number' ? String(stats.pageCount) : '-';
 
         statsEl.textContent = 'totalHits: ' + totalHitsText + ' | page: ' + pageNumberText + ' / ' + pageCountText;
+    }
+
+    function updateResponseSize(payload) {
+        const sizeEl = document.getElementById('apiExplorerResponseSize');
+        if (!sizeEl) return null;
+
+        if (payload === null || typeof payload === 'undefined') {
+            sizeEl.textContent = 'Taille reponse: -';
+            return null;
+        }
+
+        const bytes = computePayloadSizeBytes(payload);
+        if (bytes === null) {
+            sizeEl.textContent = 'Taille reponse: inconnue';
+            return null;
+        }
+
+        const kiloBytes = bytes / 1024;
+        sizeEl.textContent = 'Taille reponse: ' + formatNumberForDisplay(kiloBytes, 2) + ' Ko (' + bytes + ' octets)';
+        return bytes;
+    }
+
+    function computePayloadSizeBytes(payload) {
+        try {
+            if (typeof payload === 'string') {
+                return computeUtf8ByteLength(payload);
+            }
+
+            const asJson = JSON.stringify(payload);
+            if (typeof asJson !== 'string') return null;
+            return computeUtf8ByteLength(asJson);
+        } catch (_error) {
+            try {
+                return computeUtf8ByteLength(String(payload));
+            } catch (_innerError) {
+                return null;
+            }
+        }
+    }
+
+    function computeUtf8ByteLength(text) {
+        const source = String(text || '');
+        if (typeof TextEncoder !== 'undefined') {
+            return new TextEncoder().encode(source).length;
+        }
+
+        try {
+            return new Blob([source]).size;
+        } catch (_error) {
+            return source.length;
+        }
+    }
+
+    function formatNumberForDisplay(value, decimals) {
+        const numeric = Number(value);
+        if (!Number.isFinite(numeric)) return '-';
+        return numeric.toFixed(decimals);
     }
 
     function extractResponseStats(payload) {

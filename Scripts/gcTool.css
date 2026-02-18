@@ -1639,6 +1639,12 @@ display: inline-block;
   width: 100%;
 }
 
+#apiExplorerRoot .api-panel-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
 #apiExplorerRoot .api-panel-title {
   font-weight: 600;
 }
@@ -1699,6 +1705,14 @@ display: inline-block;
   justify-content: center;
 }
 
+#apiExplorerRoot.api-left-collapsed #apiExplorerToggleLeftListBtn {
+  display: none;
+}
+
+#apiExplorerRoot.api-left-list-collapsed #apiExplorerLeftListSection {
+  display: none;
+}
+
 #apiExplorerRoot .api-request-panel {
   margin-bottom: 10px;
 }
@@ -1740,6 +1754,10 @@ display: inline-block;
   overflow: auto;
   padding: 10px;
   background: #fcfcfc;
+}
+
+#apiExplorerRoot.api-jsonpath-help-collapsed #apiExplorerJsonPathHelpBody {
+  display: none;
 }
 
 #apiExplorerRoot .api-jsonpath-sample {
@@ -1916,12 +1934,117 @@ display: inline-block;
   white-space: normal;
 }
 
+#apiExplorerRoot .api-response-tabs-container {
+  margin-bottom: 8px;
+}
+
+#apiExplorerRoot .api-response-tabs {
+  border-bottom: 1px solid #d9e0e7;
+}
+
+#apiExplorerRoot .api-response-tabs > li > a {
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+#apiExplorerRoot .api-response-tabs > li > a .label {
+  margin-right: 6px;
+}
+
+#apiExplorerRoot .api-response-tab-title {
+  display: inline-block;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
 #apiExplorerRoot .api-response.api-response-processing {
   background: #3a3f45;
   opacity: 0.72;
   filter: grayscale(30%);
   pointer-events: none;
   transition: opacity 0.16s ease, background-color 0.16s ease, filter 0.16s ease;
+}
+
+#apiExplorerRoot .api-response-size {
+  margin-top: 6px;
+}
+
+#apiExplorerRoot .api-response-meta {
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+#apiExplorerRoot .api-response-view-switch {
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  user-select: none;
+}
+
+#apiExplorerRoot .api-response-view-switch-label {
+  font-size: 12px;
+  color: #66737f;
+}
+
+#apiExplorerRoot .api-switch {
+  position: relative;
+  width: 42px;
+  height: 22px;
+  margin: 0;
+}
+
+#apiExplorerRoot .api-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+#apiExplorerRoot .api-switch-slider {
+  position: absolute;
+  cursor: pointer;
+  inset: 0;
+  background-color: #c8d1db;
+  border-radius: 999px;
+  transition: background-color 0.2s ease;
+}
+
+#apiExplorerRoot .api-switch-slider:before {
+  content: '';
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  left: 3px;
+  top: 3px;
+  background-color: #fff;
+  border-radius: 50%;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  transition: transform 0.2s ease;
+}
+
+#apiExplorerRoot .api-switch input:checked + .api-switch-slider {
+  background-color: #3c8dbc;
+}
+
+#apiExplorerRoot .api-switch input:checked + .api-switch-slider:before {
+  transform: translateX(20px);
+}
+
+#apiExplorerRoot .api-switch input:disabled + .api-switch-slider {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+#apiExplorerRoot .api-response-render-hint {
+  margin-top: 4px;
+  min-height: 16px;
 }
 
 #apiExplorerRoot .json-line {

@@ -10,38 +10,50 @@
       <div class="api-left-panel">
         <div class="api-panel-header">
           <strong class="api-panel-title">Liste API</strong>
-          <button id="apiExplorerToggleLeftPanelBtn" type="button" class="api-panel-toggle" title="Replier le panneau API" aria-label="Replier le panneau API">
-            <i class="fa fa-angle-double-left"></i>
-          </button>
+          <div class="api-panel-actions">
+            <button id="apiExplorerToggleLeftListBtn" type="button" class="api-panel-toggle" title="Replier la liste API (afficher l aide)" aria-label="Replier la liste API">
+              <i class="fa fa-chevron-up"></i>
+            </button>
+            <button id="apiExplorerToggleLeftPanelBtn" type="button" class="api-panel-toggle" title="Replier le panneau API" aria-label="Replier le panneau API">
+              <i class="fa fa-angle-double-left"></i>
+            </button>
+          </div>
         </div>
 
         <div id="apiExplorerLeftPanelBody" class="api-left-panel-body">
-          <div class="form-group">
-            <label for="apiExplorerSearchInput">Filtre textuel</label>
-            <input id="apiExplorerSearchInput" type="text" class="form-control" placeholder="Filtrer par categorie, methode, route..." />
-          </div>
+          <div id="apiExplorerLeftListSection">
+            <div class="form-group">
+              <label for="apiExplorerSearchInput">Filtre textuel</label>
+              <input id="apiExplorerSearchInput" type="text" class="form-control" placeholder="Filtrer par categorie, methode, route..." />
+            </div>
 
-          <div class="api-method-filters">
-            <label class="checkbox-inline"><input type="checkbox" class="api-method-filter" value="GET" checked> GET</label>
-            <label class="checkbox-inline"><input type="checkbox" class="api-method-filter" value="POST" checked> POST</label>
-            <label class="checkbox-inline"><input type="checkbox" class="api-method-filter" value="PATCH" checked> PATCH</label>
-            <label class="checkbox-inline"><input type="checkbox" class="api-method-filter" value="DELETE" checked> DELETE</label>
-            <label class="checkbox-inline"><input type="checkbox" class="api-method-filter" value="PUT" checked> PUT</label>
-          </div>
+            <div class="api-method-filters">
+              <label class="checkbox-inline"><input type="checkbox" class="api-method-filter" value="GET" checked> GET</label>
+              <label class="checkbox-inline"><input type="checkbox" class="api-method-filter" value="POST" checked> POST</label>
+              <label class="checkbox-inline"><input type="checkbox" class="api-method-filter" value="PATCH" checked> PATCH</label>
+              <label class="checkbox-inline"><input type="checkbox" class="api-method-filter" value="DELETE" checked> DELETE</label>
+              <label class="checkbox-inline"><input type="checkbox" class="api-method-filter" value="PUT" checked> PUT</label>
+            </div>
 
-          <div class="well well-sm api-favorites-box">
-            <strong><i class="fa fa-star"></i> Favoris</strong>
-            <div id="apiExplorerFavoritesList" class="api-favorites-list"></div>
-          </div>
+            <div class="well well-sm api-favorites-box">
+              <strong><i class="fa fa-star"></i> Favoris</strong>
+              <div id="apiExplorerFavoritesList" class="api-favorites-list"></div>
+            </div>
 
-          <div id="apiExplorerCatalogInfo" class="small text-muted" style="margin-bottom:8px;"></div>
-          <div id="apiExplorerCatalog" class="api-catalog"></div>
+            <div id="apiExplorerCatalogInfo" class="small text-muted" style="margin-bottom:8px;"></div>
+            <div id="apiExplorerCatalog" class="api-catalog"></div>
+          </div>
 
           <div class="panel panel-default api-jsonpath-help">
             <div class="panel-heading">
-              <strong><i class="fa fa-book"></i> Aide JSONPath</strong>
+              <div class="api-panel-header api-panel-header-inline">
+                <strong><i class="fa fa-book"></i> Aide JSONPath</strong>
+                <button id="apiExplorerToggleJsonPathHelpBtn" type="button" class="api-panel-toggle" title="Afficher l aide JSONPath" aria-label="Afficher l aide JSONPath">
+                  <i class="fa fa-chevron-down"></i>
+                </button>
+              </div>
             </div>
-            <div class="panel-body api-jsonpath-help-body">
+            <div id="apiExplorerJsonPathHelpBody" class="panel-body api-jsonpath-help-body">
               <div class="small text-muted" style="margin-bottom:6px;">
                 JSON d'exemple utilise dans les expressions ci-dessous:
               </div>
@@ -210,9 +222,18 @@
               </div>
 
               <div class="form-group" style="margin-top:10px; margin-bottom:0;">
-                <button id="apiExplorerExecuteBtn" class="btn btn-primary">
-                  <i class="fa fa-play"></i> Executer
-                </button>
+                <div class="btn-group">
+                  <button id="apiExplorerExecuteBtn" class="btn btn-primary" type="button">
+                    <i class="fa fa-play"></i> Executer
+                  </button>
+                  <button type="button" class="btn btn-primary dropdown-toggle" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" title="Options d execution">
+                    <span class="caret"></span>
+                    <span class="sr-only">Options</span>
+                  </button>
+                  <ul class="dropdown-menu">
+                    <li><a id="apiExplorerExecuteNewTabBtn" href="#"><i class="fa fa-plus-square-o"></i> Executer dans un nouvel onglet</a></li>
+                  </ul>
+                </div>
                 <span id="apiExplorerExecutionStatus" class="text-muted" style="margin-left:10px;"></span>
               </div>
             </div>
@@ -226,17 +247,24 @@
               </span>
             </div>
             <div class="panel-body">
+              <div id="apiExplorerResponseTabsContainer" class="api-response-tabs-container" style="display:none;">
+                <ul id="apiExplorerResponseTabs" class="nav nav-tabs api-response-tabs"></ul>
+              </div>
               <div class="api-inline-tools" style="margin-bottom:10px;">
                 <input id="apiExplorerProjectionPath" type="text" class="form-control" style="max-width:460px;" placeholder="Projection JSON (ex: entities[].id)" list="apiExplorerProjectionSuggestions" autocomplete="off" spellcheck="false" />
                 <datalist id="apiExplorerProjectionSuggestions"></datalist>
                 <label class="checkbox-inline" style="margin-top:6px;">
                   <input id="apiExplorerProjectionGroupByObject" type="checkbox" checked> groupe par objet
                 </label>
-                <button id="apiExplorerApplyProjectionBtn" class="btn btn-default">Afficher projection</button>
-                <button id="apiExplorerResetProjectionBtn" class="btn btn-default">Reinitialiser</button>
+                <button id="apiExplorerApplyProjectionBtn" class="btn btn-default" type="button" title="Filter">
+                  <i class="fa fa-filter"></i>
+                </button>
+                <button id="apiExplorerResetProjectionBtn" class="btn btn-default" type="button" title="Filter-circle-xmark">
+                  <i class="fa fa-filter-circle-xmark"></i>
+                </button>
                 <div class="btn-group">
-                  <button type="button" class="btn btn-success dropdown-toggle" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
-                    Exporter <span class="caret"></span>
+                  <button type="button" class="btn btn-success dropdown-toggle" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" title="File-export">
+                    <i class="fa fa-file-export"></i> <span class="caret"></span>
                   </button>
                   <ul class="dropdown-menu dropdown-menu-right">
                     <li><a id="apiExplorerExportCsvBtn" href="#">Exporter CSV</a></li>
@@ -245,6 +273,18 @@
                 </div>
               </div>
               <div id="apiExplorerResponse" class="api-response">Aucune reponse pour le moment.</div>
+              <div class="api-response-meta">
+                <div id="apiExplorerResponseSize" class="small text-muted api-response-size">Taille reponse: -</div>
+                <div class="api-response-view-switch">
+                  <span class="api-response-view-switch-label">Texte</span>
+                  <label class="api-switch" title="Basculer entre texte brut et vision NODE">
+                    <input id="apiExplorerResponseNodeViewSwitch" type="checkbox" checked disabled>
+                    <span class="api-switch-slider"></span>
+                  </label>
+                  <span class="api-response-view-switch-label">NODE</span>
+                </div>
+              </div>
+              <div id="apiExplorerResponseRenderHint" class="small text-warning api-response-render-hint"></div>
             </div>
           </div>
         </div>
