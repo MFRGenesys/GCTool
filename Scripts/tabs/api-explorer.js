@@ -1519,8 +1519,8 @@
             ? platformClient.ApiClient.instance
             : null;
 
-        if (!apiClient || typeof apiClient.loginImplicitGrant !== 'function') {
-            console.warn('[API Explorer] Refresh token batch ignore: ApiClient/loginImplicitGrant indisponible.');
+        if (!apiClient) {
+            console.warn('[API Explorer] Refresh token batch ignore: ApiClient indisponible.');
             return;
         }
 
@@ -1537,13 +1537,28 @@
         const redirectForLogin = typeof redirectURL !== 'undefined' && redirectURL
             ? redirectURL
             : (window.location.origin + window.location.pathname);
+        const preferredAuthMode = typeof selectedAuthMode !== 'undefined' && selectedAuthMode === 'pkce'
+            ? 'pkce'
+            : 'implicit';
 
         console.log('[API Explorer] Refresh token avant appel batch', {
             batchIndex,
-            totalCalls
+            totalCalls,
+            authMode: preferredAuthMode
         });
+        if (preferredAuthMode === 'pkce' && typeof apiClient.loginPKCEGrant === 'function') {
+            await apiClient.loginPKCEGrant(selectedOrgConfig.clientId, redirectForLogin, {
+                state: 'gctool-batch-refresh'
+            });
+            return;
+        }
 
-        await apiClient.loginImplicitGrant(selectedOrgConfig.clientId, redirectForLogin);
+        if (typeof apiClient.loginImplicitGrant === 'function') {
+            await apiClient.loginImplicitGrant(selectedOrgConfig.clientId, redirectForLogin);
+            return;
+        }
+
+        console.warn('[API Explorer] Refresh token batch ignore: aucun mode OAuth compatible.');
     }
 
     async function executePostAutoPaging(endpoint, instance) {

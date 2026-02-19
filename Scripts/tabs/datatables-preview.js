@@ -1,4 +1,4 @@
-
+﻿
 /**
  * Affichage de l'aperçu des 10 premières lignes d'une DataTable
  */
@@ -518,9 +518,6 @@ function toggleDataTablePreview(datatableId, datatableName, headerElement) {
         return;
     }
     
-    // Fermer tous les autres aperçus ouverts
-    closeAllDataTablePreviews();
-    
     // Afficher l'aperçu pour cette DataTable
     showDataTablePreviewInList(datatableId, datatableName, previewContainer, headerElement);
 }
@@ -552,9 +549,7 @@ function showDataTablePreviewInList(datatableId, datatableName, container, icon)
             schema: dataTableSchema
             });
             const previewRows = allRows.slice(0, 5);
-            console.log(`DEBUG columnOrder = ${dataTableSchema.schema}`)
             const columnOrder = getSchemaOrderedColumns(dataTableSchema.schema);
-            console.log(`DEBUG columnOrder = ${columnOrder}`)
             displayPreviewInListWithOrder(previewRows, datatableName, allRows.length, container, datatableId, columnOrder);
             
             //icon.className = 'fa fa-eye-slash preview-icon';
@@ -593,7 +588,6 @@ function displayPreviewInListWithOrder(rows, datatableName, totalRows, container
     if (orderedColumns && orderedColumns.length > 0) {
         displayColumns = orderedColumns.slice(0, 10); // Limiter à 4 pour la liste
     } else {
-        console.log(`DEBUG ordered column vide`);
         const allColumns = Object.keys(rows[0]);
         displayColumns = allColumns.slice(0, 10).map(name => ({ name, displayOrder: 0, type: 'string' }));
     }

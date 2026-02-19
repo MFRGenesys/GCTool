@@ -1,4 +1,4 @@
-
+﻿
 
 //############################        START CONFIG        #############################
 
@@ -71,39 +71,51 @@ function loadExistingConfiguration(datatableId) {
 
 
 // Sauvegarde de la configuration - Version mise à jour
-function saveConfiguration() {
-    const datatableId = document.getElementById('datatableSelector').value;
-    if (!datatableId) {
-        alert('Veuillez sélectionner une DataTable');
+function saveConfiguration(datatableId) {
+    const resolvedDatatableId = datatableId;
+    if (!resolvedDatatableId) {
+        alert('Erreur interne: DataTable introuvable pour la sauvegarde.');
         return;
     }
-    
+
+    const scopeRoot = document.getElementById(`config-${resolvedDatatableId}`) || document.getElementById('columnsConfig');
+    if (!scopeRoot) {
+        alert('Erreur interne: zone de configuration introuvable.');
+        return;
+    }
+
     const configuration = {
-        datatableId: datatableId,
+        datatableId: resolvedDatatableId,
         columns: {}
     };
-    
-    document.querySelectorAll('.column-type').forEach(select => {
+
+    let hasErrors = false;
+
+    scopeRoot.querySelectorAll('.column-type').forEach(select => {
+        if (hasErrors) {
+            return;
+        }
+
         const columnName = select.getAttribute('data-column');
         const columnType = select.value;
-        
+
         if (columnType) {
             configuration.columns[columnName] = { type: columnType };
             
             if (columnType === 'liaison') {
-                const liaisonTarget = document.querySelector(`.liaison-target[data-column="${columnName}"]`);
+                const liaisonTarget = scopeRoot.querySelector(`.liaison-target[data-column="${columnName}"]`);
                 if (liaisonTarget && liaisonTarget.value) {
                     configuration.columns[columnName].liaisonTarget = liaisonTarget.value;
                 }
             } else if (columnType === 'liaison_auto') {
-                const liaisonAutoColumn = document.querySelector(`.liaison-auto-column[data-column="${columnName}"]`);
+                const liaisonAutoColumn = scopeRoot.querySelector(`.liaison-auto-column[data-column="${columnName}"]`);
                 if (liaisonAutoColumn && liaisonAutoColumn.value) {
                     configuration.columns[columnName].liaisonAutoColumn = liaisonAutoColumn.value;
                 }
             } else if (columnType === 'liste') {
-                const listeTextarea = document.querySelector(`.liste-values[data-column="${columnName}"]`);
-                const allowNullCheckbox = document.querySelector(`.liste-allow-null[data-column="${columnName}"]`);
-                const ignoreCaseCheckbox = document.querySelector(`.liste-ignore-case[data-column="${columnName}"]`);
+                const listeTextarea = scopeRoot.querySelector(`.liste-values[data-column="${columnName}"]`);
+                const allowNullCheckbox = scopeRoot.querySelector(`.liste-allow-null[data-column="${columnName}"]`);
+                const ignoreCaseCheckbox = scopeRoot.querySelector(`.liste-ignore-case[data-column="${columnName}"]`);
                 if (listeTextarea && listeTextarea.value.trim()) {
                     const values = parseListeValues(listeTextarea.value);
                     if (values.length > 0) {
@@ -115,16 +127,18 @@ function saveConfiguration() {
                     } else {
                         alert(`Veuillez saisir au moins une valeur pour la colonne "${columnName}"`);
                         listeTextarea.focus();
+                        hasErrors = true;
                         return;
                     }
                 } else {
                     alert(`Veuillez configurer les valeurs possibles pour la colonne "${columnName}"`);
+                    hasErrors = true;
                     return;
                 }
             } else if (columnType === 'regex') {
-                const regexInput = document.querySelector(`.regex-pattern[data-column="${columnName}"]`);
-                const descriptionInput = document.querySelector(`.regex-description[data-column="${columnName}"]`);
-                const allowNullCheckbox = document.querySelector(`.regex-allow-null[data-column="${columnName}"]`);
+                const regexInput = scopeRoot.querySelector(`.regex-pattern[data-column="${columnName}"]`);
+                const descriptionInput = scopeRoot.querySelector(`.regex-description[data-column="${columnName}"]`);
+                const allowNullCheckbox = scopeRoot.querySelector(`.regex-allow-null[data-column="${columnName}"]`);
                 
                 if (regexInput && regexInput.value.trim()) {
                     const pattern = regexInput.value.trim();
@@ -149,9 +163,13 @@ function saveConfiguration() {
             }
         }
     });
+
+    if (hasErrors) {
+        return;
+    }
     
     // Sauvegarder dans les configurations et les cookies
-    dataTableConfigurations[datatableId] = configuration;
+    dataTableConfigurations[resolvedDatatableId] = configuration;
     saveConfigurationsToCookie();
     
     alert('✅ Configuration sauvegardée avec succès !');
@@ -159,7 +177,7 @@ function saveConfiguration() {
     // Rafraîchir l'affichage des DataTables
     displayDataTables();
     
-    console.log('💾 Configuration sauvegardée pour:', datatableId);
+    console.log('💾 Configuration sauvegardée pour:', resolvedDatatableId);
 }
 
 
@@ -680,8 +698,9 @@ let tempLiaisonMapping = {};
 let mappingDisplayed = false;
 
 // Fonction pour afficher/masquer la section de gestion du mapping
-function toggleMappingDisplay() {
+function toggleMappingDisplay(triggerElement) {
     const mappingDiv = document.getElementById('mappingManagement');
+    const toggleBtn = triggerElement || document.getElementById('toggleMappingBtn');
     
     if (!mappingDisplayed) {
         // Copier le mapping actuel dans la version temporaire
@@ -697,13 +716,17 @@ function toggleMappingDisplay() {
         mappingDisplayed = true;
         
         // Changer le texte du bouton
-        event.target.innerHTML = '<i class="fa fa-times"></i> Fermer';
+        if (toggleBtn) {
+            toggleBtn.innerHTML = '<i class="fa fa-times"></i> Fermer';
+        }
     } else {
         mappingDiv.style.display = 'none';
         mappingDisplayed = false;
         
         // Restaurer le texte du bouton
-        event.target.innerHTML = '<i class="fa fa-cog"></i> Gérer le Mapping';
+        if (toggleBtn) {
+            toggleBtn.innerHTML = '<i class="fa fa-cog"></i> Gérer le Mapping';
+        }
     }
 }
 
@@ -749,14 +772,18 @@ function displayCurrentMapping() {
                     <small class="text-muted">(${datatableId})</small>
                 </div>
                 <div class="col-md-2 text-right">
-                    <button type="button" class="btn-remove-mapping" onclick="removeMappingKey('${key}')" 
+                    <button type="button" class="btn-remove-mapping"
                             title="Supprimer ce mapping">
                         <i class="fa fa-trash"></i>
                     </button>
                 </div>
             </div>
         `;
-        
+        const removeBtn = mappingRow.querySelector('.btn-remove-mapping');
+        if (removeBtn) {
+            removeBtn.addEventListener('click', () => removeMappingKey(key));
+        }
+
         mappingList.appendChild(mappingRow);
     });
 }
@@ -782,7 +809,7 @@ function addNewMapping() {
         return;
     }
     
-    // Vérifier si la clé existe déjà
+    // Vérifier si la clé existe déjà 
     if (tempLiaisonMapping[newKey]) {
         if (!confirm(`La valeur "${newKey}" existe déjà. Voulez-vous la remplacer ?`)) {
             return;
@@ -835,7 +862,7 @@ function saveMappingConfiguration() {
     alert('Configuration du mapping sauvegardée avec succès !');
     
     // Fermer la section de gestion
-    toggleMappingDisplay();
+    toggleMappingDisplay(document.getElementById('toggleMappingBtn'));
     
     console.log('Mapping sauvegardé:', LIAISON_MAPPING);
 }

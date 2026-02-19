@@ -1,4 +1,4 @@
-/**
+﻿/**
  * datatables-config.js
  * Gestion des DataTables et de leur configuration
  * Auteur: PS Genesys - Matthieu FRYS
@@ -85,6 +85,79 @@ function populateDataTableSelectors() {
     setupDataTableSelector();
 }
 
+const QUICK_REGEX_EXAMPLES = [
+    {
+        label: '^\\d+$',
+        pattern: '^\\d+$',
+        description: 'Nombres entiers uniquement'
+    },
+    {
+        label: '^\\d{1,3}$',
+        pattern: '^\\d{1,3}$',
+        description: 'Nombre entre 0 et 999'
+    },
+    {
+        label: '^(\\+33)[0-9]{9}$',
+        pattern: '^(\\+33)[0-9]{9}$',
+        description: 'Numero de tel en +33'
+    }
+];
+
+const QUICK_LIST_EXAMPLES = [
+    {
+        label: 'TRUE;FALSE',
+        values: 'TRUE;FALSE',
+        ignoreCase: true,
+        description: '(casse ignoree)'
+    },
+    {
+        label: 'DISSUASION;DISTRIBUTION',
+        values: 'DISSUASION;DISTRIBUTION',
+        ignoreCase: false,
+        description: ''
+    },
+    {
+        label: 'MOTIF;MENU;ACCUEIL;ROUTAGE',
+        values: 'MOTIF;MENU;ACCUEIL;ROUTAGE',
+        ignoreCase: false,
+        description: ''
+    }
+];
+
+function buildRegexQuickExamplesHtml() {
+    return `
+        <div class="regex-quick-examples" style="margin-top: 8px;">
+            <small class="text-muted"><strong>Exemples cliquables:</strong></small><br>
+            ${QUICK_REGEX_EXAMPLES.map((item) => `
+                <button type="button"
+                        class="btn btn-default btn-xs regex-example-btn"
+                        data-pattern="${item.pattern}"
+                        data-description="${item.description}"
+                        style="margin: 2px 4px 2px 0;">
+                    ${item.label}
+                </button>
+            `).join('')}
+        </div>
+    `;
+}
+
+function buildListQuickExamplesHtml() {
+    return `
+        <div class="liste-quick-examples" style="margin-top: 8px;">
+            <small class="text-muted"><strong>Exemples cliquables:</strong></small><br>
+            ${QUICK_LIST_EXAMPLES.map((item) => `
+                <button type="button"
+                        class="btn btn-default btn-xs liste-example-btn"
+                        data-values="${item.values}"
+                        data-ignore-case="${item.ignoreCase ? 'true' : 'false'}"
+                        style="margin: 2px 4px 2px 0;">
+                    ${item.label}${item.description ? ` ${item.description}` : ''}
+                </button>
+            `).join('')}
+        </div>
+    `;
+}
+
 // Affichage de la configuration des colonnes
 function displayColumnsConfiguration(datatableId, properties) {
     
@@ -150,6 +223,7 @@ function displayColumnsConfiguration(datatableId, properties) {
                                 <i class="fa fa-check-square-o"></i> Ignorer la casse
                             </label>
                         </div>
+                        ${buildListQuickExamplesHtml()}
                         <small class="text-muted">
                             <i class="fa fa-info-circle"></i> 
                             Séparez chaque valeur par un point-virgule (;). Les espaces en début/fin seront supprimés automatiquement.
@@ -177,6 +251,7 @@ function displayColumnsConfiguration(datatableId, properties) {
                             </label>
                         </div>
                         
+                        ${buildRegexQuickExamplesHtml()}
                         <small class="text-muted">
                             <i class="fa fa-info-circle"></i> 
                             Utilisez les expressions régulières JavaScript standard. Exemples :<br>
@@ -210,7 +285,7 @@ function displayColumnsConfiguration(datatableId, properties) {
                                 <input type="text" class="form-control regex-test-input" data-column="${columnName}" 
                                        placeholder="Saisissez une valeur de test...">
                                 <span class="input-group-btn">
-                                    <button class="btn btn-primary" type="button" onclick="testRegexPattern('${columnName}')">
+                                    <button class="btn btn-primary" type="button" onclick="testRegexPattern('${columnName}', this)">
                                         <i class="fa fa-play"></i> Tester
                                     </button>
                                 </span>
@@ -242,7 +317,7 @@ function displayColumnsConfigurationInList(datatableId, properties,icon) {
         configDiv.innerHTML = `                
                 <h5>Configuration des colonnes :</h5>
                 <div id="columnsList"></div>
-                <button type="button" class="btn btn-primary" onclick="saveConfiguration()">Enregistrer Configuration</button>
+                <button type="button" class="btn btn-primary" onclick="saveConfiguration('${datatableId}')">Enregistrer Configuration</button>
                 `
         columnsDiv = configDiv.querySelector(`#columnsList`);
     }
@@ -303,6 +378,7 @@ function displayColumnsConfigurationInList(datatableId, properties,icon) {
                                 <i class="fa fa-check-square-o"></i> Ignorer la casse
                             </label>
                         </div>
+                        ${buildListQuickExamplesHtml()}
                         <small class="text-muted">
                             <i class="fa fa-info-circle"></i> 
                             Séparez chaque valeur par un point-virgule (;). Les espaces en début/fin seront supprimés automatiquement.
@@ -330,6 +406,7 @@ function displayColumnsConfigurationInList(datatableId, properties,icon) {
                             </label>
                         </div>
                         
+                        ${buildRegexQuickExamplesHtml()}
                         <small class="text-muted">
                             <i class="fa fa-info-circle"></i> 
                             Utilisez les expressions régulières JavaScript standard. Exemples :<br>
@@ -363,7 +440,7 @@ function displayColumnsConfigurationInList(datatableId, properties,icon) {
                                 <input type="text" class="form-control regex-test-input" data-column="${columnName}" 
                                        placeholder="Saisissez une valeur de test...">
                                 <span class="input-group-btn">
-                                    <button class="btn btn-primary" type="button" onclick="testRegexPattern('${columnName}')">
+                                    <button class="btn btn-primary" type="button" onclick="testRegexPattern('${columnName}', this)">
                                         <i class="fa fa-play"></i> Tester
                                     </button>
                                 </span>
@@ -394,31 +471,49 @@ function displayColumnsConfigurationInList(datatableId, properties,icon) {
 // Configuration des événements pour les types de colonnes
 function setupColumnTypeEvents() {
     if (typeof $ === 'undefined') {
-        // Version vanilla JavaScript
         document.querySelectorAll('.column-type').forEach(select => {
             select.addEventListener('change', handleColumnTypeChange);
         });
+        document.querySelectorAll('.regex-example-btn').forEach(button => {
+            if (button.dataset.boundRegexExample !== '1') {
+                button.addEventListener('click', applyRegexExample);
+                button.dataset.boundRegexExample = '1';
+            }
+        });
+        document.querySelectorAll('.liste-example-btn').forEach(button => {
+            if (button.dataset.boundListeExample !== '1') {
+                button.addEventListener('click', applyListeExample);
+                button.dataset.boundListeExample = '1';
+            }
+        });
     } else {
-        // Version jQuery
         $('.column-type').off('change').on('change', handleColumnTypeChange);
+        $(document)
+            .off('click.dtRegexExample', '.regex-example-btn')
+            .on('click.dtRegexExample', '.regex-example-btn', applyRegexExample);
+        $(document)
+            .off('click.dtListeExample', '.liste-example-btn')
+            .on('click.dtListeExample', '.liste-example-btn', applyListeExample);
     }
 }
 
-// Gestion du changement de type de colonne - Version mise à jour
+// Gestion du changement de type de colonne
 function handleColumnTypeChange(event) {
     const select = event.target;
     const columnName = select.getAttribute('data-column');
     const selectedType = select.value;
-    
-    const liaisonSelect = document.querySelector(`.liaison-target[data-column="${columnName}"]`);
-    const liaisonAutoColumn = document.querySelector(`.liaison-auto-column[data-column="${columnName}"]`);
-    const liaisonAutoInfo = document.querySelector(`.liaison-auto-info[data-column="${columnName}"]`);
-    const listeContainer = document.querySelector(`.liste-values-container[data-column="${columnName}"]`);
-    const listePreview = document.querySelector(`.liste-preview[data-column="${columnName}"]`);
-    const regexContainer = document.querySelector(`.regex-container[data-column="${columnName}"]`);
-    const regexTester = document.querySelector(`.regex-tester[data-column="${columnName}"]`);
-    
-    // Masquer tous les sélecteurs
+
+    const scopeRoot = select.closest('.column-config') || document;
+    const queryInScope = (selector) => scopeRoot.querySelector(selector);
+
+    const liaisonSelect = queryInScope(`.liaison-target[data-column="${columnName}"]`) || queryInScope('.liaison-target');
+    const liaisonAutoColumn = queryInScope(`.liaison-auto-column[data-column="${columnName}"]`) || queryInScope('.liaison-auto-column');
+    const liaisonAutoInfo = queryInScope(`.liaison-auto-info[data-column="${columnName}"]`) || queryInScope('.liaison-auto-info');
+    const listeContainer = queryInScope(`.liste-values-container[data-column="${columnName}"]`) || queryInScope('.liste-values-container');
+    const listePreview = queryInScope(`.liste-preview[data-column="${columnName}"]`) || queryInScope('.liste-preview');
+    const regexContainer = queryInScope(`.regex-container[data-column="${columnName}"]`) || queryInScope('.regex-container');
+    const regexTester = queryInScope(`.regex-tester[data-column="${columnName}"]`) || queryInScope('.regex-tester');
+
     if (liaisonSelect) liaisonSelect.style.display = 'none';
     if (liaisonAutoColumn) liaisonAutoColumn.style.display = 'none';
     if (liaisonAutoInfo) liaisonAutoInfo.style.display = 'none';
@@ -426,8 +521,7 @@ function handleColumnTypeChange(event) {
     if (listePreview) listePreview.style.display = 'none';
     if (regexContainer) regexContainer.style.display = 'none';
     if (regexTester) regexTester.style.display = 'none';
-    
-    // Afficher le bon sélecteur selon le type
+
     if (selectedType === 'liaison' && liaisonSelect) {
         liaisonSelect.style.display = 'block';
     } else if (selectedType === 'liaison_auto') {
@@ -436,89 +530,132 @@ function handleColumnTypeChange(event) {
     } else if (selectedType === 'liste') {
         if (listeContainer) listeContainer.style.display = 'block';
         if (listePreview) listePreview.style.display = 'block';
-        setupListePreview(columnName);
+        setupListePreview(columnName, scopeRoot);
     } else if (selectedType === 'regex') {
         if (regexContainer) regexContainer.style.display = 'block';
         if (regexTester) regexTester.style.display = 'block';
-        setupRegexEvents(columnName);
+        setupRegexEvents(columnName, scopeRoot);
+    }
+}
+
+function applyRegexExample(event) {
+    event.preventDefault();
+    const trigger = event.currentTarget || event.target;
+    const scopeRoot = trigger.closest('.column-config') || document;
+    const pattern = trigger.getAttribute('data-pattern') || '';
+    const description = trigger.getAttribute('data-description') || '';
+
+    const regexInput = scopeRoot.querySelector('.regex-pattern');
+    const descriptionInput = scopeRoot.querySelector('.regex-description');
+
+    if (regexInput) {
+        regexInput.value = pattern;
+        regexInput.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    if (descriptionInput && (!descriptionInput.value || !descriptionInput.value.trim())) {
+        descriptionInput.value = description;
+    }
+}
+
+function applyListeExample(event) {
+    event.preventDefault();
+    const trigger = event.currentTarget || event.target;
+    const scopeRoot = trigger.closest('.column-config') || document;
+    const values = trigger.getAttribute('data-values') || '';
+    const ignoreCase = trigger.getAttribute('data-ignore-case') === 'true';
+
+    const listeTextarea = scopeRoot.querySelector('.liste-values');
+    const ignoreCaseCheckbox = scopeRoot.querySelector('.liste-ignore-case');
+
+    if (listeTextarea) {
+        listeTextarea.value = values;
+        listeTextarea.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+
+    if (ignoreCaseCheckbox) {
+        ignoreCaseCheckbox.checked = ignoreCase;
+        ignoreCaseCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
     }
 }
 
 // Configuration des événements pour les expressions régulières
-function setupRegexEvents(columnName) {
-    const regexInput = document.querySelector(`.regex-pattern[data-column="${columnName}"]`);
-    const testInput = document.querySelector(`.regex-test-input[data-column="${columnName}"]`);
-    
-    if (regexInput) {
+function setupRegexEvents(columnName, scopeRoot) {
+    const root = scopeRoot || document;
+    const regexInput = root.querySelector(`.regex-pattern[data-column="${columnName}"]`) || root.querySelector('.regex-pattern');
+    const testInput = root.querySelector(`.regex-test-input[data-column="${columnName}"]`) || root.querySelector('.regex-test-input');
+
+    if (regexInput && regexInput.dataset.boundRegexEvents !== '1') {
         regexInput.addEventListener('input', function() {
-            // Auto-test si il y a une valeur de test
             if (testInput && testInput.value) {
-                testRegexPattern(columnName);
+                testRegexPattern(columnName, root);
             }
         });
+        regexInput.dataset.boundRegexEvents = '1';
     }
-    
-    if (testInput) {
+
+    if (testInput && testInput.dataset.boundRegexEvents !== '1') {
         testInput.addEventListener('input', function() {
-            // Auto-test si il y a un pattern
             if (regexInput && regexInput.value) {
-                testRegexPattern(columnName);
+                testRegexPattern(columnName, root);
             }
         });
-        
+
         testInput.addEventListener('keypress', function(e) {
             if (e.key === 'Enter') {
-                testRegexPattern(columnName);
+                testRegexPattern(columnName, root);
             }
         });
+        testInput.dataset.boundRegexEvents = '1';
     }
 }
 
 // Configuration de l'aperçu en temps réel pour les listes
-function setupListePreview(columnName) {
-    const listeTextarea = document.querySelector(`.liste-values[data-column="${columnName}"]`);
-    const allowNullCheckbox = document.querySelector(`.liste-allow-null[data-column="${columnName}"]`);
-    const ignoreCaseCheckbox = document.querySelector(`.liste-ignore-case[data-column="${columnName}"]`);
-    const previewValuesSpan = document.querySelector(`.liste-preview[data-column="${columnName}"] .preview-values`);
-    const previewNullSpan = document.querySelector(`.liste-preview[data-column="${columnName}"] .preview-null-policy`);
-    const ignoreCaseSpan = document.querySelector(`.liste-preview[data-column="${columnName}"] .preview-case-policy`);
-    
+function setupListePreview(columnName, scopeRoot) {
+    const root = scopeRoot || document;
+    const listeTextarea = root.querySelector(`.liste-values[data-column="${columnName}"]`) || root.querySelector('.liste-values');
+    const allowNullCheckbox = root.querySelector(`.liste-allow-null[data-column="${columnName}"]`) || root.querySelector('.liste-allow-null');
+    const ignoreCaseCheckbox = root.querySelector(`.liste-ignore-case[data-column="${columnName}"]`) || root.querySelector('.liste-ignore-case');
+    const listePreviewRoot = root.querySelector(`.liste-preview[data-column="${columnName}"]`) || root.querySelector('.liste-preview');
+    const previewValuesSpan = listePreviewRoot ? listePreviewRoot.querySelector('.preview-values') : null;
+    const previewNullSpan = listePreviewRoot ? listePreviewRoot.querySelector('.preview-null-policy') : null;
+    const ignoreCaseSpan = listePreviewRoot ? listePreviewRoot.querySelector('.preview-case-policy') : null;
+
     function updatePreview() {
         if (previewValuesSpan && previewNullSpan) {
-            // Mise à jour des valeurs
             const values = parseListeValues(listeTextarea ? listeTextarea.value : '');
             if (values.length > 0) {
                 previewValuesSpan.innerHTML = values.map(v => `<span class="badge badge-info">${v}</span>`).join(' ');
             } else {
                 previewValuesSpan.textContent = 'Aucune valeur';
             }
-            
-            // Mise à jour de la politique null
+
             const allowNull = allowNullCheckbox ? allowNullCheckbox.checked : false;
-            previewNullSpan.innerHTML = allowNull ? 
-                '<span class="badge badge-success">Autorisées</span>' : 
-                '<span class="badge badge-danger">Interdites</span>';
-                
-            // Mise à jour de la casse
-            const ignoreCase = ignoreCaseCheckbox ? ignoreCaseCheckbox.checked : false;
-            ignoreCaseSpan.innerHTML = ignoreCase ? 
-                '<span class="badge badge-success">Casse Ignorée</span>' : 
-                '<span class="badge badge-danger">Casse Importante</span>';
+            previewNullSpan.innerHTML = allowNull
+                ? '<span class="badge badge-success">Autorisées</span>'
+                : '<span class="badge badge-danger">Interdites</span>';
+
+            const ignoreCaseValue = ignoreCaseCheckbox ? ignoreCaseCheckbox.checked : false;
+            ignoreCaseSpan.innerHTML = ignoreCaseValue
+                ? '<span class="badge badge-success">Casse Ignorée</span>'
+                : '<span class="badge badge-danger">Casse Importante</span>';
         }
     }
-    
-    if (listeTextarea) {
+
+    if (listeTextarea && listeTextarea.dataset.boundListePreview !== '1') {
         listeTextarea.addEventListener('input', updatePreview);
+        listeTextarea.dataset.boundListePreview = '1';
     }
-    
-    if (allowNullCheckbox) {
+
+    if (allowNullCheckbox && allowNullCheckbox.dataset.boundListePreview !== '1') {
         allowNullCheckbox.addEventListener('change', updatePreview);
+        allowNullCheckbox.dataset.boundListePreview = '1';
     }
-    
-    if (ignoreCaseCheckbox) {
+
+    if (ignoreCaseCheckbox && ignoreCaseCheckbox.dataset.boundListePreview !== '1') {
         ignoreCaseCheckbox.addEventListener('change', updatePreview);
+        ignoreCaseCheckbox.dataset.boundListePreview = '1';
     }
-    // Déclencher l'événement initial
+
     updatePreview();
 }
 
@@ -590,7 +727,7 @@ function displayDataTables() {
                 <!-- L'aperçu sera inséré ici -->
                 <h5>Configuration des colonnes :</h5>
                 <div id="columnsList"></div>
-                <button type="button" class="btn btn-primary" onclick="saveConfiguration()">Enregistrer Configuration</button>
+                <button type="button" class="btn btn-primary" onclick="saveConfiguration('${dataTable.id}')">Enregistrer Configuration</button>
             </div>
         `;
         
@@ -1187,10 +1324,14 @@ function hideValidationLoading() {
 }
 
 // Testeur d'expression régulière en temps réel
-function testRegexPattern(columnName) {
-    const regexInput = document.querySelector(`.regex-pattern[data-column="${columnName}"]`);
-    const testInput = document.querySelector(`.regex-test-input[data-column="${columnName}"]`);
-    const resultDiv = document.querySelector(`.regex-test-result[data-column="${columnName}"]`);
+function testRegexPattern(columnName, triggerElement) {
+    const scopeRoot = (triggerElement && typeof triggerElement.closest === 'function')
+        ? triggerElement.closest('.column-config')
+        : null;
+    const root = scopeRoot || document;
+    const regexInput = root.querySelector(`.regex-pattern[data-column="${columnName}"]`) || root.querySelector('.regex-pattern');
+    const testInput = root.querySelector(`.regex-test-input[data-column="${columnName}"]`) || root.querySelector('.regex-test-input');
+    const resultDiv = root.querySelector(`.regex-test-result[data-column="${columnName}"]`) || root.querySelector('.regex-test-result');
     
     if (!regexInput || !testInput || !resultDiv) return;
     
@@ -1365,3 +1506,4 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 });
+

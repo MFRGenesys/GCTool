@@ -202,8 +202,12 @@ function getColumnDetails(columnConfig) {
 function getReferenceValueForColumn(dataTableId, columnName) {
     try {
         // Vérifier si on a déjà des données en cache pour cette DataTable
-        if (typeof dataTableRowsCache !== 'undefined' && dataTableRowsCache[dataTableId]) {
-            const rows = dataTableRowsCache[dataTableId];
+        if (typeof liaisonDataCache !== 'undefined'
+            && liaisonDataCache
+            && typeof liaisonDataCache.has === 'function'
+            && liaisonDataCache.has(dataTableId)) {
+            const rows = liaisonDataCache.get(dataTableId);
+            if (!Array.isArray(rows)) return null;
             
             // Parcourir les lignes pour trouver une valeur non vide dans cette colonne
             for (let row of rows) {
@@ -246,11 +250,14 @@ function getFirstValueFromColumn(dataTableId, columnName) {
  */
 async function getReferenceValueForColumnAsync(dataTableId, columnName) {
     try {
-        const data = await cacheDataTableRows(dataTableId)
+        if (typeof getDataTableRowsWithCache !== 'function') {
+            return null;
+        }
+        const rows = await getDataTableRowsWithCache(dataTableId);
         
-        if (data.entities && data.entities.length > 0) {
+        if (rows && rows.length > 0) {
             // Chercher la première valeur non vide dans cette colonne
-            for (let row of data.entities) {
+            for (let row of rows) {
                 if (row[columnName] && row[columnName].toString().trim() !== '') {
                     return row[columnName].toString().trim();
                 }

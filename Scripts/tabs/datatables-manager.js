@@ -1,43 +1,52 @@
-
 // Cache pour optimiser les validations de liaisons
 let liaisonDataCache = new Map();
-let liaisonPromiseCache = new Map(); // Cache de la promesse pour que si la DT est déjà demandée on attende la première réponse
 
 // Fonction pour récupérer les données d'une DataTable avec cache
 async function getDataTableRowsWithCache(datatableId) {
-    if (liaisonPromiseCache.has(datatableId)) {
-        //console.log(`⏳ Attente de la promesse en cours pour DataTable: ${datatableId}`);
-        return liaisonPromiseCache.get(datatableId);
+    if (!datatableId) {
+        return [];
     }
     if (liaisonDataCache.has(datatableId)) {
-        //console.log(`📂 Utilisation du cache pour DataTable: ${datatableId}`);
+        console.log(`Récupération des données de la DT `,datatableId,` déjà en cache.`)
         return liaisonDataCache.get(datatableId);
     }
-    
-    console.log(`🔄 Chargement des données pour DataTable: ${datatableId}`);
-    // Créer et cacher la promesse
-    const dataPromise = getAllDataTableRows(datatableId)
-        .then((rows) => {
-            // Mettre les données en cache une fois récupérées
-            liaisonDataCache.set(datatableId, rows);
-            console.log(`✅ ${rows.length} lignes mises en cache pour: ${datatableId}`);
-            console.log(`📋 Aperçu des données pour ${datatableId}:`, rows.slice(0, 5));
-            return rows;
-        })
+
+    console.log(`Chargement des donnees pour DataTable: ${datatableId}`);
+    // Charger toutes les pages une seule fois et reutiliser le resultat ensuite.
+    const dataPromise = (async () => {
+        let allRows = [];
+        let pageNumber = 1;
+        const pageSize = 100;
+
+        while (true) {
+            const opts = {
+                pageSize: pageSize,
+                pageNumber: pageNumber,
+                showbrief: false
+            };
+
+            const data = await architectApi.getFlowsDatatableRows(datatableId, opts);
+            const entities = Array.isArray(data && data.entities) ? data.entities : [];
+            allRows = allRows.concat(entities);
+
+            const pageCount = (data && typeof data.pageCount === "number") ? data.pageCount : pageNumber;
+            if (pageNumber >= pageCount) {
+                break;
+            }
+
+            pageNumber += 1;
+        }
+
+        liaisonDataCache.set(datatableId, allRows);
+        console.log(`Lignes mises en cache pour ${datatableId}:`, allRows.length);
+        return allRows;
+    })()
         .catch((error) => {
-            console.error(`❌ Erreur lors du chargement de ${datatableId}:`, error);
-            // Supprimer la promesse du cache en cas d'erreur
-            liaisonPromiseCache.delete(datatableId);
+            console.error(`Erreur lors du chargement de ${datatableId}:`, error);
             throw error;
         })
         .finally(() => {
-            // Supprimer la promesse du cache une fois terminée (succès ou échec)
-            liaisonPromiseCache.delete(datatableId);
         });
-    
-    // Mettre la promesse en cache
-    liaisonPromiseCache.set(datatableId, dataPromise);
-        
     return dataPromise;
 }
 
@@ -145,14 +154,12 @@ function getSchemaOrderedColumns(schema) {
         return [];
     }
     
-        console.log(`DEBUG getSchemaOrderedColumns`)
     const properties = schema.properties;
     const columns = Object.keys(properties);
     
     // Créer un tableau avec les colonnes et leur displayOrder
     const columnsWithOrder = columns.map(columnName => {
         const property = properties[columnName];
-        console.log(`DEBUG Property : ${property}`)
         return {
             name: columnName,
             title: property.title,
@@ -167,49 +174,6 @@ function getSchemaOrderedColumns(schema) {
     console.log(`📋 Ordre des colonnes récupéré:`, columnsWithOrder.map(col => `${col.name} (${col.displayOrder})`));
     
     return columnsWithOrder;
-}
-
-
-/**
- * Cache pour optimiser les accès aux données des DataTables
- */
-let dataTableRowsCache = {};
-
-/**
- * Fonction pour charger et mettre en cache les données d'une DataTable
- */
-async function cacheDataTableRows(dataTableId, maxRows = 50) {
-    try {
-        if (dataTableRowsCache[dataTableId]) {
-            return dataTableRowsCache[dataTableId]; // Déjà en cache
-        }
-        
-        const opts = {
-            pageSize: maxRows,
-            pageNumber: 1
-        };
-        
-        const data = await architectApi.getFlowsDatatableRows(dataTableId, opts);
-        
-        if (data.entities) {
-            dataTableRowsCache[dataTableId] = data.entities;
-            console.log(`📋 ${data.entities.length} lignes mises en cache pour ${dataTableId}`);
-        }
-        
-        return data.entities || [];
-        
-    } catch (error) {
-        console.warn(`Erreur lors de la mise en cache de ${dataTableId}:`, error);
-        return [];
-    }
-}
-
-/**
- * Fonction pour vider le cache
- */
-function clearDataTableRowsCache() {
-    dataTableRowsCache = {};
-    console.log('🗑️ Cache des lignes DataTable vidé');
 }
 
 // Chargement des colonnes d'une DataTable
@@ -286,44 +250,4 @@ async function getDataTableSchemaWithCache(datatableId) {
 function clearDataTableSchemaCache() {
     dataTableSchemaCache.clear();
     console.log('🗑️ Cache des schémas DataTable vidé');
-}
-
-
-// Récupération complète des lignes d'une DataTable
-function getAllDataTableRows(datatableId) {
-    let allRows = [];
-    let pageNumber = 1;
-    const pageSize = 100;
-    
-    function fetchPage() {
-        let opts = {
-            pageSize: pageSize,
-            pageNumber: pageNumber,
-            showbrief: false
-        };
-        console.log(`DEBUG getAllDataTableRows opts = `,opts);
-
-        return architectApi.getFlowsDatatableRows(datatableId, opts)
-            .then((data) => {
-                console.log(`DEBUG DataTable ${datatableId} page ${pageNumber} récupérée:`, data.entities.length, 'lignes');
-                
-                // Ajouter les lignes de cette page
-                allRows = allRows.concat(data.entities);
-                
-                // Vérifier s'il y a d'autres pages
-                if (data.pageNumber < data.pageCount) {
-                    pageNumber++;
-                    return fetchPage();
-                } else {
-                    console.log(`Toutes les lignes récupérées pour ${datatableId}:`, allRows.length, 'au total');
-                    return allRows;
-                }
-            })
-            .catch((err) => {
-                console.error(`Erreur lors de la récupération des lignes page ${pageNumber}:`, err);
-                throw err;
-            });
-    }
-    
-    return fetchPage();
 }
