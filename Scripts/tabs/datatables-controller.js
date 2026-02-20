@@ -1,4 +1,4 @@
-﻿/**
+/**
  * datatables-config.js
  * Gestion des DataTables et de leur configuration
  * Auteur: PS Genesys - Matthieu FRYS
@@ -92,9 +92,14 @@ const QUICK_REGEX_EXAMPLES = [
         description: 'Nombres entiers uniquement'
     },
     {
-        label: '^\\d{1,3}$',
-        pattern: '^\\d{1,3}$',
-        description: 'Nombre entre 0 et 999'
+        label: '^\\d{1,4}$',
+        pattern: '^\\d{1,4}$',
+        description: 'Nombre entre 0 et 9999'
+    },
+    {
+        label: '^(?:100(?:\\.0)?|(?:[1-9]\\d|\\d)(?:\\.\\d)?)$',
+        pattern: '^(?:100(?:\\.0)?|(?:[1-9]\\d|\\d)(?:\\.\\d)?)$',
+        description: 'Nombre entre 0 et 100'
     },
     {
         label: '^(\\+33)[0-9]{9}$',
@@ -304,7 +309,7 @@ function displayColumnsConfiguration(datatableId, properties) {
     setupColumnTypeEvents();
 
     // Charger la configuration existante si elle existe
-    loadExistingConfiguration(datatableId);
+    loadExistingConfiguration(datatableId, configDiv);
     
     configDiv.style.display = 'block';
 }
@@ -463,7 +468,7 @@ function displayColumnsConfigurationInList(datatableId, properties,icon) {
     setupColumnTypeEvents();
 
     // Charger la configuration existante si elle existe
-    loadExistingConfiguration(datatableId);
+    loadExistingConfiguration(datatableId, configDiv);
     
     configDiv.style.display = 'block';
 }
@@ -495,6 +500,10 @@ function setupColumnTypeEvents() {
             .off('click.dtListeExample', '.liste-example-btn')
             .on('click.dtListeExample', '.liste-example-btn', applyListeExample);
     }
+
+    document.querySelectorAll('.column-type').forEach((select) => {
+        updateColumnConfigVisualState(select);
+    });
 }
 
 // Gestion du changement de type de colonne
@@ -535,6 +544,30 @@ function handleColumnTypeChange(event) {
         if (regexContainer) regexContainer.style.display = 'block';
         if (regexTester) regexTester.style.display = 'block';
         setupRegexEvents(columnName, scopeRoot);
+    }
+
+    updateColumnConfigVisualState(select);
+}
+
+function updateColumnConfigVisualState(selectElement) {
+    if (!selectElement) {
+        return;
+    }
+
+    const row = selectElement.closest('.column-config');
+    if (!row) {
+        return;
+    }
+
+    const isConfigured = !!(selectElement.value && selectElement.value.trim());
+    if (isConfigured) {
+        row.style.background = '#f4fbf6';
+        row.style.borderLeft = '4px solid #5cb85c';
+        row.style.paddingLeft = '8px';
+    } else {
+        row.style.background = '#fff9e8';
+        row.style.borderLeft = '4px solid #f0ad4e';
+        row.style.paddingLeft = '8px';
     }
 }
 
@@ -671,6 +704,32 @@ function parseListeValues(rawValues) {
         .filter(value => value !== '');
 }
 
+function buildDataTableConfigBadgeHtml(datatableId) {
+    const hasConfig = !!dataTableConfigurations[datatableId];
+    return hasConfig
+        ? '<span class="badge badge-success">Configuré</span>'
+        : '<span class="badge badge-warning">Non configuré</span>';
+}
+
+function buildDataTableControlButtonHtml(datatableId) {
+    const hasConfig = !!dataTableConfigurations[datatableId];
+    return hasConfig
+        ? `<button class="btn btn-control btn-sm" onclick="validateDataTable('${datatableId}')">Contrôle</button>`
+        : '';
+}
+
+function updateDataTableListItemState(datatableId) {
+    const badgeElement = document.getElementById(`config-badge-${datatableId}`);
+    const controlElement = document.getElementById(`control-btn-${datatableId}`);
+
+    if (badgeElement) {
+        badgeElement.innerHTML = buildDataTableConfigBadgeHtml(datatableId);
+    }
+    if (controlElement) {
+        controlElement.innerHTML = buildDataTableControlButtonHtml(datatableId);
+    }
+}
+
 
 // Affichage des DataTables avec boutons de contrôle
 function displayDataTables() {
@@ -684,13 +743,8 @@ function displayDataTables() {
         div.style.border = '1px solid #ddd';
         div.style.borderRadius = '5px';
         
-        const hasConfig = dataTableConfigurations[dataTable.id];
-        const controlButton = hasConfig ? 
-            `<button class="btn btn-control btn-sm" onclick="validateDataTable('${dataTable.id}')">Contrôle</button>` : 
-            '';
-        const configBadge = hasConfig ? 
-            '<span class="badge badge-success">Configuré</span>' : 
-            '<span class="badge badge-warning">Non configuré</span>';
+        const controlButton = buildDataTableControlButtonHtml(dataTable.id);
+        const configBadge = buildDataTableConfigBadgeHtml(dataTable.id);
 
         div.innerHTML = `
             <div class="datatable-header" style="padding: 10px; cursor: pointer;" >
@@ -709,8 +763,8 @@ function displayDataTables() {
                         <i class="fa fa-check-to-slot" style="margin-left: 10px; color: #337ab7;" onclick="searchUnusedRows('${dataTable.id}')" title="Lignes Non utilisées"></i>
                     </div>
                     <div class="col-md-4 text-right">
-                        ${configBadge}
-                        ${controlButton}
+                        <span id="config-badge-${dataTable.id}">${configBadge}</span>
+                        <span id="control-btn-${dataTable.id}">${controlButton}</span>
                     </div>
                 </div>
             </div>
@@ -747,9 +801,20 @@ function displayDataTables() {
 
 async function checkAllDataTablesConfigured() {
     const feedback = document.getElementById('globalControllerFeedback');
+    const resultsDiv = document.getElementById('validationResults');
+
     if (feedback) {
         feedback.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Vérification en cours...';
     }
+
+    if(resultsDiv){
+        console.log(`DEBUG - Vidage des résultats précédents`);
+        resultsDiv.innerHTML = `
+                        <h4>Résultats du contrôle</h4>
+                        <div id="validationContent"></div>
+                        `;
+    }
+
     let pageNum = 0
     dataTablesCache.forEach(dataTable => {
         const hasConfig = dataTableConfigurations[dataTable.id];
@@ -905,8 +970,9 @@ async function validateDataTable(datatableId, pageNum=1) {
     console.log('Config de la DataTable',config);
     
     // Afficher un indicateur de chargement
-    if(pageNum == 1) showValidationLoading(datatableId);
-    
+    //if(pageNum == 1) showValidationLoading(datatableId);
+    showValidationLoading(datatableId);
+
     try {
         const allRows = await getDataTableRowsWithCache(datatableId);
         console.log(`📊 ${allRows.length} lignes récupérées pour validation`);
@@ -941,6 +1007,7 @@ async function validateDataTable(datatableId, pageNum=1) {
         const validationResults = allValidationResults.filter(result => result !== null);
         
         console.log(`✅ Validation ${pageNum} terminée: ${validationResults.length} problème(s) détecté(s)`);
+        console.log(`DEBUG validation results : `,validationResults);
 
         displayValidationResults(datatableId, validationResults, pageNum);
         
@@ -1256,7 +1323,7 @@ function displayValidationResults(datatableId, results,pageNum) {
     
     const dataTableName = dataTablesCache.find(dt => dt.id === datatableId)?.name || datatableId;
     
-    console.log(`Analyse de la validation`)
+    console.log(`Analyse de la validation ${pageNum}`)
     let html = `<h5>Résultats ${pageNum} pour: ${dataTableName}</h5>`;
     
     if (results.length === 0) {
@@ -1264,14 +1331,12 @@ function displayValidationResults(datatableId, results,pageNum) {
     } else {
         const errors = results.filter(r => r.type === 'error');
         const warnings = results.filter(r => r.type === 'warning');
-        
         if (errors.length > 0) {
             html += `<div class="validation-result validation-error">
                 <strong>❌ ${errors.length} erreur(s) détectée(s):</strong>
                 <ul>${errors.map(e => `<li>${e.message}</li>`).join('')}</ul>
             </div>`;
         }
-        
         if (warnings.length > 0) {
             html += `<div class="validation-result validation-warning">
                 <strong>⚠️ ${warnings.length} avertissement(s):</strong>
@@ -1280,11 +1345,10 @@ function displayValidationResults(datatableId, results,pageNum) {
         }
     }
     
-    if (pageNum>1){
-        contentDiv.innerHTML += html;
-    }else{
-        contentDiv.innerHTML = html;
-    }
+    const loadingDiv = document.getElementById('datatableAnalyseLoading-'+datatableId);
+    if(loadingDiv) loadingDiv.remove();
+    contentDiv.innerHTML += html;
+    
     resultsDiv.style.display = 'block';
     
     // Scroll vers les résultats
@@ -1299,7 +1363,7 @@ function showValidationLoading(datatableId) {
     if (resultsDiv && contentDiv) {
         const dataTableName = getDataTableNameById(datatableId);
         contentDiv.innerHTML += `
-            <div class="text-center">
+            <div class="text-center" id="datatableAnalyseLoading-${datatableId}">
                 <i class="fa fa-spinner fa-spin fa-3x text-primary"></i>
                 <h4>Validation en cours...</h4>
                 <p>Analyse de la DataTable: <strong>${dataTableName}</strong></p>

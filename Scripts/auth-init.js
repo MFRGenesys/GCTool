@@ -756,7 +756,7 @@ function loadAllGenesysData() {
             console.log(`  - DataTables: ${dataTablesCache.length}`);
             console.log(`  - Queues: ${queuesCache.length}`);
             console.log(`  - Skills: ${skillsCache.length}`);
-            console.log(`  - Skills: ${promptsCache.length}`);
+            console.log(`  - Prompts: ${promptsCache.length}`);
             console.log(`  - Schedule Groups: ${scheduleGroupsCache.length}`);
             
             return results;

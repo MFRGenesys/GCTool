@@ -1,5 +1,6 @@
 // Cache pour optimiser les validations de liaisons
 let liaisonDataCache = new Map();
+let liaisonDataPromiseCache = new Map();
 
 // Fonction pour récupérer les données d'une DataTable avec cache
 async function getDataTableRowsWithCache(datatableId) {
@@ -10,43 +11,49 @@ async function getDataTableRowsWithCache(datatableId) {
         console.log(`Récupération des données de la DT `,datatableId,` déjà en cache.`)
         return liaisonDataCache.get(datatableId);
     }
+    if (liaisonDataPromiseCache.has(datatableId)) {
+        console.log(`Reutilisation du chargement en cours pour la DT ${datatableId}`);
+        return liaisonDataPromiseCache.get(datatableId);
+    }
 
     console.log(`Chargement des donnees pour DataTable: ${datatableId}`);
     // Charger toutes les pages une seule fois et reutiliser le resultat ensuite.
     const dataPromise = (async () => {
-        let allRows = [];
-        let pageNumber = 1;
-        const pageSize = 100;
+        try {
+            let allRows = [];
+            let pageNumber = 1;
+            const pageSize = 100;
 
-        while (true) {
-            const opts = {
-                pageSize: pageSize,
-                pageNumber: pageNumber,
-                showbrief: false
-            };
+            while (true) {
+                const opts = {
+                    pageSize: pageSize,
+                    pageNumber: pageNumber,
+                    showbrief: false
+                };
 
-            const data = await architectApi.getFlowsDatatableRows(datatableId, opts);
-            const entities = Array.isArray(data && data.entities) ? data.entities : [];
-            allRows = allRows.concat(entities);
+                const data = await architectApi.getFlowsDatatableRows(datatableId, opts);
+                const entities = Array.isArray(data && data.entities) ? data.entities : [];
+                allRows = allRows.concat(entities);
 
-            const pageCount = (data && typeof data.pageCount === "number") ? data.pageCount : pageNumber;
-            if (pageNumber >= pageCount) {
-                break;
+                const pageCount = (data && typeof data.pageCount === "number") ? data.pageCount : pageNumber;
+                if (pageNumber >= pageCount) {
+                    break;
+                }
+
+                pageNumber += 1;
             }
 
-            pageNumber += 1;
-        }
-
-        liaisonDataCache.set(datatableId, allRows);
-        console.log(`Lignes mises en cache pour ${datatableId}:`, allRows.length);
-        return allRows;
-    })()
-        .catch((error) => {
+            liaisonDataCache.set(datatableId, allRows);
+            console.log(`Lignes mises en cache pour ${datatableId}:`, allRows.length);
+            return allRows;
+        } catch (error) {
             console.error(`Erreur lors du chargement de ${datatableId}:`, error);
             throw error;
-        })
-        .finally(() => {
-        });
+        }
+    })().finally(() => {
+        liaisonDataPromiseCache.delete(datatableId);
+    });
+    liaisonDataPromiseCache.set(datatableId, dataPromise);
     return dataPromise;
 }
 
@@ -197,6 +204,7 @@ function loadDataTableColumns(datatableId) {
 // Fonction pour vider le cache (à appeler si nécessaire)
 function clearLiaisonCache() {
     liaisonDataCache.clear();
+    liaisonDataPromiseCache.clear();
     console.log('🗑️ Cache des liaisons vidé');
 }
 
@@ -251,3 +259,4 @@ function clearDataTableSchemaCache() {
     dataTableSchemaCache.clear();
     console.log('🗑️ Cache des schémas DataTable vidé');
 }
+

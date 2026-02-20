@@ -1,16 +1,17 @@
-﻿
+
 
 //############################        START CONFIG        #############################
 
 
 // Chargement d'une configuration existante - Version mise à jour
-function loadExistingConfiguration(datatableId) {
+function loadExistingConfiguration(datatableId, scopeRoot) {
     const config = dataTableConfigurations[datatableId];
     if (!config || !config.columns) return;
+    const root = scopeRoot || document;
     
     Object.keys(config.columns).forEach(columnName => {
         const columnConfig = config.columns[columnName];
-        const typeSelect = document.querySelector(`.column-type[data-column="${columnName}"]`);
+        const typeSelect = root.querySelector(`.column-type[data-column="${columnName}"]`) || root.querySelector('.column-type');
         
         if (typeSelect) {
             typeSelect.value = columnConfig.type;
@@ -20,19 +21,19 @@ function loadExistingConfiguration(datatableId) {
             
             // Charger les valeurs spécifiques selon le type
             if (columnConfig.type === 'liaison' && columnConfig.liaisonTarget) {
-                const liaisonSelect = document.querySelector(`.liaison-target[data-column="${columnName}"]`);
+                const liaisonSelect = root.querySelector(`.liaison-target[data-column="${columnName}"]`) || root.querySelector('.liaison-target');
                 if (liaisonSelect) {
                     liaisonSelect.value = columnConfig.liaisonTarget;
                 }
             } else if (columnConfig.type === 'liaison_auto' && columnConfig.liaisonAutoColumn) {
-                const liaisonAutoSelect = document.querySelector(`.liaison-auto-column[data-column="${columnName}"]`);
+                const liaisonAutoSelect = root.querySelector(`.liaison-auto-column[data-column="${columnName}"]`) || root.querySelector('.liaison-auto-column');
                 if (liaisonAutoSelect) {
                     liaisonAutoSelect.value = columnConfig.liaisonAutoColumn;
                 }
             } else if (columnConfig.type === 'liste' && columnConfig.listeValues) {
-                const listeTextarea = document.querySelector(`.liste-values[data-column="${columnName}"]`);
-                const allowNullCheckbox = document.querySelector(`.liste-allow-null[data-column="${columnName}"]`);
-                const ignoreCaseCheckbox = document.querySelector(`.liste-ignore-case[data-column="${columnName}"]`);
+                const listeTextarea = root.querySelector(`.liste-values[data-column="${columnName}"]`) || root.querySelector('.liste-values');
+                const allowNullCheckbox = root.querySelector(`.liste-allow-null[data-column="${columnName}"]`) || root.querySelector('.liste-allow-null');
+                const ignoreCaseCheckbox = root.querySelector(`.liste-ignore-case[data-column="${columnName}"]`) || root.querySelector('.liste-ignore-case');
                 if (listeTextarea) {
                     listeTextarea.value = columnConfig.listeValues.join(';');
                     // Déclencher l'événement input pour mettre à jour l'aperçu
@@ -47,9 +48,9 @@ function loadExistingConfiguration(datatableId) {
                     ignoreCaseCheckbox.dispatchEvent(new Event('change'));
                 }
             } else if (columnConfig.type === 'regex' && columnConfig.regexPattern) {
-                const regexInput = document.querySelector(`.regex-pattern[data-column="${columnName}"]`);
-                const descriptionInput = document.querySelector(`.regex-description[data-column="${columnName}"]`);
-                const allowNullCheckbox = document.querySelector(`.regex-allow-null[data-column="${columnName}"]`);
+                const regexInput = root.querySelector(`.regex-pattern[data-column="${columnName}"]`) || root.querySelector('.regex-pattern');
+                const descriptionInput = root.querySelector(`.regex-description[data-column="${columnName}"]`) || root.querySelector('.regex-description');
+                const allowNullCheckbox = root.querySelector(`.regex-allow-null[data-column="${columnName}"]`) || root.querySelector('.regex-allow-null');
                 
                 if (regexInput) {
                     regexInput.value = columnConfig.regexPattern;
@@ -171,13 +172,12 @@ function saveConfiguration(datatableId) {
     // Sauvegarder dans les configurations et les cookies
     dataTableConfigurations[resolvedDatatableId] = configuration;
     saveConfigurationsToCookie();
-    
-    alert('✅ Configuration sauvegardée avec succès !');
-    
-    // Rafraîchir l'affichage des DataTables
-    displayDataTables();
-    
-    console.log('💾 Configuration sauvegardée pour:', resolvedDatatableId);
+
+    if (typeof updateDataTableListItemState === 'function') {
+        updateDataTableListItemState(resolvedDatatableId);
+    }
+
+    console.log('Configuration sauvegardee pour:', resolvedDatatableId);
 }
 
 
@@ -958,3 +958,4 @@ function importMappingConfiguration(event) {
 }
 
 // ################################         FIN MAPPING       #######################################
+

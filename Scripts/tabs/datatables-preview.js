@@ -1,4 +1,4 @@
-﻿
+
 /**
  * Affichage de l'aperçu des 10 premières lignes d'une DataTable
  */

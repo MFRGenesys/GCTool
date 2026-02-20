@@ -7,6 +7,22 @@ let schemaScale = 1;
 let isDragging = false;
 let dragElement = null;
 let dragOffset = { x: 0, y: 0 };
+const SCHEMA_LAYOUT = {
+    minTableWidth: 200,
+    maxTableWidth: 520,
+    minTableHeight: 90,
+    margin: 50,
+    gapX: 40,
+    gapY: 35,
+    headerHeight: 30,
+    rowsTopPadding: 10,
+    rowHeight: 22,
+    bottomPadding: 8,
+    iconSlotWidth: 20,
+    horizontalPadding: 10,
+    titleCharWidth: 7.2,
+    columnCharWidth: 6.1
+};
 
 /**
  * Configuration des icônes par type
@@ -130,7 +146,9 @@ function addDataTableToConfig(dataTableId,tables,connections,processedTables,tab
     // Récupération de la colonne key
     const keyProperty = dataTable.schema.properties['key'];
     tableData.columns.push({
+        key: 'key',
         name: keyProperty.title,
+        type: 'key',
         title: keyProperty.title,
         icon: CONFIG_ICONS['key'] || fa-question,
         details : ''
@@ -142,6 +160,7 @@ function addDataTableToConfig(dataTableId,tables,connections,processedTables,tab
         const columnConfig = config.columns[columnName];
         
         const columnData = {
+            key: columnName,
             name: columnName,
             type: columnConfig.type,
             icon: CONFIG_ICONS[columnConfig.type] || 'fa-question',
@@ -272,38 +291,111 @@ async function getReferenceValueForColumnAsync(dataTableId, columnName) {
     }
 }
 
+function trimTextForWidth(text, maxChars) {
+    if (!text) return '';
+    if (text.length <= maxChars) return text;
+    if (maxChars <= 3) return text.substring(0, maxChars);
+    return `${text.substring(0, maxChars - 3)}...`;
+}
+
+function estimateTableSize(table) {
+    const tableName = table.name || '';
+    const columnNames = (table.columns || []).map(column => column.name || '');
+    const longestColumnNameLength = columnNames.reduce((max, name) => Math.max(max, name.length), 0);
+
+    const titleWidth = (tableName.length * SCHEMA_LAYOUT.titleCharWidth) + (SCHEMA_LAYOUT.horizontalPadding * 2);
+    const columnsWidth = (SCHEMA_LAYOUT.horizontalPadding * 2)
+        + SCHEMA_LAYOUT.iconSlotWidth
+        + (longestColumnNameLength * SCHEMA_LAYOUT.columnCharWidth);
+    const rawWidth = Math.ceil(Math.max(titleWidth, columnsWidth, SCHEMA_LAYOUT.minTableWidth));
+    const width = Math.min(SCHEMA_LAYOUT.maxTableWidth, rawWidth);
+
+    const rowsCount = (table.columns || []).length;
+    const rawHeight = SCHEMA_LAYOUT.headerHeight
+        + SCHEMA_LAYOUT.rowsTopPadding
+        + (rowsCount * SCHEMA_LAYOUT.rowHeight)
+        + SCHEMA_LAYOUT.bottomPadding;
+    const height = Math.max(SCHEMA_LAYOUT.minTableHeight, rawHeight);
+
+    return { width, height };
+}
+
+function resizeSchemaCanvas(requiredWidth, requiredHeight) {
+    const canvas = document.getElementById('DataTableSchemaCanvas');
+    if (!canvas) return;
+
+    const containerWidth = canvas.parentElement?.clientWidth || 800;
+    const canvasWidth = Math.max(containerWidth, Math.ceil(requiredWidth));
+    const canvasHeight = Math.max(600, Math.ceil(requiredHeight));
+
+    canvas.setAttribute('width', String(canvasWidth));
+    canvas.setAttribute('height', String(canvasHeight));
+}
+
 /**
  * Calcul des positions automatiques des tables
  */
 function calculateTablePositions() {
-    const canvas = document.getElementById('DataTableSchemaCanvas');
-    const canvasWidth = canvas.clientWidth || 800;
-    const canvasHeight = 600;
-    
-    const tableWidth = 200;
-    const tableHeight = 120;
-    const margin = 50;
-    
-    // Calculer le nombre de colonnes et lignes
     const tablesCount = schemaData.tables.length;
+    if (tablesCount === 0) return;
+
+    schemaPositions.clear();
+
     const cols = Math.ceil(Math.sqrt(tablesCount));
     const rows = Math.ceil(tablesCount / cols);
-    
-    // Calculer l'espacement
-    const availableWidth = canvasWidth - (2 * margin);
-    const availableHeight = canvasHeight - (2 * margin);
-    const spacingX = availableWidth / cols;
-    const spacingY = availableHeight / rows;
-    
-    // Positionner chaque table
+
+    const columnWidths = Array(cols).fill(0);
+    const rowHeights = Array(rows).fill(0);
+    const tableSizes = new Map();
+
     schemaData.tables.forEach((table, index) => {
         const col = index % cols;
         const row = Math.floor(index / cols);
-        
-        const x = margin + (col * spacingX) + (spacingX - tableWidth) / 2;
-        const y = margin + (row * spacingY) + (spacingY - tableHeight) / 2;
-        
-        schemaPositions.set(table.id, { x, y, width: tableWidth, height: tableHeight });
+
+        const size = estimateTableSize(table);
+        tableSizes.set(table.id, size);
+        columnWidths[col] = Math.max(columnWidths[col], size.width);
+        rowHeights[row] = Math.max(rowHeights[row], size.height);
+    });
+
+    const colOffsets = [];
+    const rowOffsets = [];
+    let runningX = SCHEMA_LAYOUT.margin;
+    let runningY = SCHEMA_LAYOUT.margin;
+
+    for (let col = 0; col < cols; col++) {
+        colOffsets[col] = runningX;
+        runningX += columnWidths[col] + SCHEMA_LAYOUT.gapX;
+    }
+
+    for (let row = 0; row < rows; row++) {
+        rowOffsets[row] = runningY;
+        runningY += rowHeights[row] + SCHEMA_LAYOUT.gapY;
+    }
+
+    const totalWidth = (SCHEMA_LAYOUT.margin * 2)
+        + columnWidths.reduce((sum, width) => sum + width, 0)
+        + (Math.max(0, cols - 1) * SCHEMA_LAYOUT.gapX);
+    const totalHeight = (SCHEMA_LAYOUT.margin * 2)
+        + rowHeights.reduce((sum, height) => sum + height, 0)
+        + (Math.max(0, rows - 1) * SCHEMA_LAYOUT.gapY);
+    resizeSchemaCanvas(totalWidth, totalHeight);
+
+    schemaData.tables.forEach((table, index) => {
+        const col = index % cols;
+        const row = Math.floor(index / cols);
+        const size = tableSizes.get(table.id);
+        if (!size) return;
+
+        const x = colOffsets[col] + ((columnWidths[col] - size.width) / 2);
+        const y = rowOffsets[row] + ((rowHeights[row] - size.height) / 2);
+
+        schemaPositions.set(table.id, {
+            x,
+            y,
+            width: size.width,
+            height: size.height
+        });
     });
 }
 
@@ -336,6 +428,10 @@ function drawTable(table, parent) {
     console.log(`Dessin de la DT ${table.name}`)
     const position = schemaPositions.get(table.id);
     if (!position) return;
+    const maxTitleChars = Math.max(8, Math.floor((position.width - 20) / SCHEMA_LAYOUT.titleCharWidth));
+    const maxColumnChars = Math.max(8, Math.floor(
+        (position.width - (SCHEMA_LAYOUT.horizontalPadding * 2) - SCHEMA_LAYOUT.iconSlotWidth) / SCHEMA_LAYOUT.columnCharWidth
+    ));
     
     // Groupe principal de la table
     const tableGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
@@ -368,7 +464,7 @@ function drawTable(table, parent) {
     title.setAttribute('fill', 'white');
     title.setAttribute('font-weight', 'bold');
     title.setAttribute('font-size', '12');
-    title.textContent = table.name.length > 23 ? table.name.substring(0, 20) + '...' : table.name;
+    title.textContent = trimTextForWidth(table.name, maxTitleChars);
     
     // Ajouter les éléments de base
     tableGroup.appendChild(rect);
@@ -377,7 +473,7 @@ function drawTable(table, parent) {
     
     // Ajouter les colonnes
     table.columns.forEach((column, index) => {
-        const y = 40 + (index * 22);
+        const y = SCHEMA_LAYOUT.headerHeight + SCHEMA_LAYOUT.rowsTopPadding + (index * SCHEMA_LAYOUT.rowHeight);
         
         // Icône du type
         const icon = document.createElementNS('http://www.w3.org/2000/svg', 'text');
@@ -394,7 +490,7 @@ function drawTable(table, parent) {
         columnText.setAttribute('y', y);
         columnText.setAttribute('font-size', '10');
         columnText.setAttribute('fill', '#333');
-        columnText.textContent = column.name.length > 25 ? column.name.substring(0, 22) + '...' : column.name;
+        columnText.textContent = trimTextForWidth(column.name, maxColumnChars);
         
         // Tooltip avec les détails
         const tooltip = document.createElementNS('http://www.w3.org/2000/svg', 'title');
@@ -405,7 +501,7 @@ function drawTable(table, parent) {
         const newLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
         newLine.setAttribute('x1','0');
         newLine.setAttribute('y1',y+6);
-        newLine.setAttribute('x2','200');
+        newLine.setAttribute('x2', String(position.width));
         newLine.setAttribute('y2',y+6);
         newLine.setAttribute("stroke", "#337ab7")
         
@@ -436,8 +532,9 @@ function drawDataTableConnection(connection, parent) {
     if (!fromPos || !toPos) return;
     
     // Calculer les points de connexion
-    const fromPoint = getConnectionPoint(fromPos, connection.fromColumn, 'output');
-    const toPoint = getConnectionPoint(toPos, 'key', 'input');
+    const fromPoint = getConnectionPoint(connection.fromTable, connection.fromColumn, 'output');
+    const toPoint = getConnectionPoint(connection.toTable, connection.toColumn || 'key', 'input');
+    if (!fromPoint || !toPoint) return;
     
     // Créer le path pour la connexion
     const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
@@ -464,21 +561,65 @@ function drawDataTableConnection(connection, parent) {
 }
 
 /**
+ * Recherche d'une table de schéma par son identifiant
+ */
+function getSchemaTableById(tableId) {
+    if (!schemaData || !Array.isArray(schemaData.tables)) return null;
+    return schemaData.tables.find(table => table.id === tableId) || null;
+}
+
+/**
+ * Recherche de l'index d'une colonne dans la table
+ * Priorité sur la clé technique, puis sur le nom affiché.
+ */
+function getTableColumnIndex(table, columnName) {
+    if (!table || !Array.isArray(table.columns)) return -1;
+
+    const normalize = (value) => String(value || '').trim().toLowerCase();
+    const target = normalize(columnName);
+    if (!target) return -1;
+
+    let index = table.columns.findIndex(column => normalize(column.key) === target);
+    if (index !== -1) return index;
+
+    index = table.columns.findIndex(column => normalize(column.name) === target);
+    if (index !== -1) return index;
+
+    // Fallback pour les anciennes définitions de connexions vers la clé.
+    if (target === 'key') return 0;
+
+    return -1;
+}
+
+/**
  * Calcul du point de connexion sur une table
  */
-function getConnectionPoint(tablePos, columnName, direction) {
-    const centerX = tablePos.x + tablePos.width / 2;
-    const centerY = tablePos.y + tablePos.height / 2;
+function getConnectionPoint(tableId, columnName, direction) {
+    const tablePos = schemaPositions.get(tableId);
+    if (!tablePos) return null;
+
+    const table = getSchemaTableById(tableId);
+    const rowIndex = getTableColumnIndex(table, columnName);
+
+    // Si on trouve la colonne, on aligne sur sa ligne; sinon fallback au centre.
+    let y = tablePos.y + (tablePos.height / 2);
+    if (rowIndex >= 0) {
+        y = tablePos.y
+            + SCHEMA_LAYOUT.headerHeight
+            + SCHEMA_LAYOUT.rowsTopPadding
+            + (rowIndex * SCHEMA_LAYOUT.rowHeight)
+            - 2;
+    }
     
     if (direction === 'output') {
         return {
             x: tablePos.x + tablePos.width,
-            y: centerY
+            y
         };
     } else {
         return {
             x: tablePos.x,
-            y: centerY
+            y
         };
     }
 }
@@ -538,7 +679,8 @@ function getIconUnicode(iconClass) {
 function drawDataTableIncompleteConnection(connection, fromPos, parent) {
     if (!fromPos) return;
     
-    const fromPoint = getConnectionPoint(fromPos, connection.fromColumn, 'output');
+    const fromPoint = getConnectionPoint(connection.fromTable, connection.fromColumn, 'output');
+    if (!fromPoint) return;
     const endPoint = {
         x: fromPoint.x + 100,
         y: fromPoint.y
@@ -715,25 +857,200 @@ function zoomDataTableSchema(direction) {
 /**
  * Export du schéma en PNG
  */
-function exportDataTableSchema() {
+function getSchemaExportBounds() {
     const svg = document.getElementById('DataTableSchemaCanvas');
-    const serializer = new XMLSerializer();
-    const svgString = serializer.serializeToString(svg);
-    
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    const img = new Image();
-    
-    img.onload = function() {
-        canvas.width = img.width;
-        canvas.height = img.height;
-        ctx.drawImage(img, 0, 0);
-        
-        const link = document.createElement('a');
-        link.download = `schema-datatables-${new Date().toISOString().split('T')[0]}.png`;
-        link.href = canvas.toDataURL();
-        link.click();
+    const tablesGroup = document.getElementById('DataTableSchemaTables');
+    const connectionsGroup = document.getElementById('DataTableSchemaConnections');
+    const margin = 20;
+
+    if (!svg) return { x: 0, y: 0, width: 1200, height: 600 };
+
+    const boxes = [];
+    const pushBBox = (element) => {
+        if (!element || typeof element.getBBox !== 'function') return;
+        try {
+            const box = element.getBBox();
+            if (Number.isFinite(box.width) && Number.isFinite(box.height)) {
+                if (box.width > 0 || box.height > 0) boxes.push(box);
+            }
+        } catch (_error) {
+            // getBBox can fail if element is not rendered yet.
+        }
     };
-    
-    img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgString)));
+
+    pushBBox(connectionsGroup);
+    pushBBox(tablesGroup);
+
+    if (boxes.length === 0) {
+        const width = parseFloat(svg.getAttribute('width')) || svg.clientWidth || 1200;
+        const height = parseFloat(svg.getAttribute('height')) || svg.clientHeight || 600;
+        return { x: 0, y: 0, width, height };
+    }
+
+    const minX = Math.min(...boxes.map(box => box.x)) - margin;
+    const minY = Math.min(...boxes.map(box => box.y)) - margin;
+    const maxX = Math.max(...boxes.map(box => box.x + box.width)) + margin;
+    const maxY = Math.max(...boxes.map(box => box.y + box.height)) + margin;
+
+    return {
+        x: minX,
+        y: minY,
+        width: Math.max(1, maxX - minX),
+        height: Math.max(1, maxY - minY)
+    };
+}
+
+function buildSchemaExportSvg(bounds) {
+    const sourceSvg = document.getElementById('DataTableSchemaCanvas');
+    if (!sourceSvg) return null;
+
+    const exportSvg = sourceSvg.cloneNode(true);
+    exportSvg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    exportSvg.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
+    exportSvg.setAttribute('width', String(Math.ceil(bounds.width)));
+    exportSvg.setAttribute('height', String(Math.ceil(bounds.height)));
+    exportSvg.setAttribute('viewBox', `${bounds.x} ${bounds.y} ${bounds.width} ${bounds.height}`);
+    exportSvg.style.transform = 'none';
+    exportSvg.style.transformOrigin = 'top left';
+
+    return exportSvg;
+}
+
+function downloadBlobFile(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+}
+
+function escapeXmlForDrawio(value) {
+    return String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&apos;');
+}
+
+function sanitizeDrawioId(value) {
+    return String(value || '')
+        .replace(/[^a-zA-Z0-9_\-:.]/g, '_');
+}
+
+function buildSchemaTableLabel(table) {
+    const title = `&lt;b&gt;${escapeXmlForDrawio(table.name || 'DataTable')}&lt;/b&gt;`;
+    const columns = (table.columns || []).map(column => '- ' + escapeXmlForDrawio(column.name || ''));
+    return [title].concat(columns).join('&#xa;');
+}
+
+function exportDataTableSchemaDrawio() {
+    if (!schemaData || !Array.isArray(schemaData.tables) || schemaData.tables.length === 0) {
+        alert('Aucun schema a exporter');
+        return;
+    }
+
+    const timestamp = new Date().toISOString();
+    const tableCells = [];
+    const edgeCells = [];
+
+    schemaData.tables.forEach(table => {
+        const position = schemaPositions.get(table.id);
+        if (!position) return;
+
+        const cellId = `dt_${sanitizeDrawioId(table.id)}`;
+        const label = buildSchemaTableLabel(table);
+        const cell = `<mxCell id="${cellId}" value="${label}" style="rounded=1;whiteSpace=wrap;html=1;strokeColor=#337ab7;fillColor=#ffffff;align=left;verticalAlign=top;spacing=8;" vertex="1" parent="1"><mxGeometry x="${Math.round(position.x)}" y="${Math.round(position.y)}" width="${Math.round(position.width)}" height="${Math.round(position.height)}" as="geometry"/></mxCell>`;
+        tableCells.push(cell);
+    });
+
+    let edgeIndex = 1;
+    schemaData.connections.forEach(connection => {
+        if (!connection.toTable || !schemaPositions.get(connection.toTable)) return;
+
+        const sourceId = `dt_${sanitizeDrawioId(connection.fromTable)}`;
+        const targetId = `dt_${sanitizeDrawioId(connection.toTable)}`;
+        const strokeColor = connection.type === 'liaison_auto' ? '#ff6b6b' : '#337ab7';
+        const dashed = connection.type === 'liaison_auto' ? 'dashed=1;' : '';
+        const edgeLabel = escapeXmlForDrawio(`${connection.fromColumn || ''} -> ${connection.toColumn || 'key'}`);
+        const edge = `<mxCell id="edge_${edgeIndex}" value="${edgeLabel}" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=${strokeColor};${dashed}" edge="1" parent="1" source="${sourceId}" target="${targetId}"><mxGeometry relative="1" as="geometry"/></mxCell>`;
+        edgeCells.push(edge);
+        edgeIndex += 1;
+    });
+
+    const mxGraphModel = `<mxGraphModel dx="1422" dy="794" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1200" math="0" shadow="0"><root><mxCell id="0"/><mxCell id="1" parent="0"/>${tableCells.join('')}${edgeCells.join('')}</root></mxGraphModel>`;
+    const xmlContent = `<?xml version="1.0" encoding="UTF-8"?><mxfile host="app.diagrams.net" modified="${timestamp}" agent="gcTool" version="1.0"><diagram name="Schema DataTables" id="schema_datatables">${mxGraphModel}</diagram></mxfile>`;
+
+    downloadBlobFile(
+        new Blob([xmlContent], { type: 'application/xml;charset=utf-8' }),
+        `schema-datatables-${new Date().toISOString().split('T')[0]}.drawio`
+    );
+}
+
+function exportDataTableSchema(format = 'png') {
+    const normalizedFormat = String(format || 'png').toLowerCase();
+
+    if (normalizedFormat === 'drawio') {
+        exportDataTableSchemaDrawio();
+        return;
+    }
+
+    const bounds = getSchemaExportBounds();
+    const exportSvg = buildSchemaExportSvg(bounds);
+    if (!exportSvg) {
+        alert('Erreur: schema introuvable');
+        return;
+    }
+
+    const serializer = new XMLSerializer();
+    const svgString = `<?xml version="1.0" encoding="UTF-8"?>\n${serializer.serializeToString(exportSvg)}`;
+
+    if (normalizedFormat === 'svg') {
+        downloadBlobFile(
+            new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' }),
+            `schema-datatables-${new Date().toISOString().split('T')[0]}.svg`
+        );
+        return;
+    }
+
+    const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+    const svgUrl = URL.createObjectURL(svgBlob);
+    const img = new Image();
+
+    img.onload = function() {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = Math.ceil(bounds.width);
+        canvas.height = Math.ceil(bounds.height);
+
+        if (!ctx) {
+            URL.revokeObjectURL(svgUrl);
+            alert('Impossible de generer le PNG');
+            return;
+        }
+
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+        canvas.toBlob((blob) => {
+            if (!blob) {
+                URL.revokeObjectURL(svgUrl);
+                alert('Erreur lors de la creation du PNG');
+                return;
+            }
+            downloadBlobFile(blob, `schema-datatables-${new Date().toISOString().split('T')[0]}.png`);
+            URL.revokeObjectURL(svgUrl);
+        }, 'image/png');
+    };
+
+    img.onerror = function() {
+        URL.revokeObjectURL(svgUrl);
+        alert('Erreur lors du rendu SVG vers PNG');
+    };
+
+    img.src = svgUrl;
 }
