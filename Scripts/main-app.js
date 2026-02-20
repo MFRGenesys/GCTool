@@ -10,23 +10,46 @@ let appState = {
     isAuthenticated: false,
     isDataLoaded: false,
     currentUser: null,
+    flowDesignerInitialized: false,
     loadingSteps: [
-        'Authentification...',
-        'Chargement des DataTables...',
-        'Chargement des Queues...',
-        'Chargement des Skills...',
-        'Chargement des Schedule Groups...',
-        'Chargement des Prompts...',
-        'Finalisation...'
+        i18nText('main.loading.step.auth', 'Authentification...'),
+        i18nText('main.loading.step.datatables', 'Chargement des DataTables...'),
+        i18nText('main.loading.step.queues', 'Chargement des Queues...'),
+        i18nText('main.loading.step.skills', 'Chargement des Skills...'),
+        i18nText('main.loading.step.schedule_groups', 'Chargement des Schedule Groups...'),
+        i18nText('main.loading.step.prompts', 'Chargement des Prompts...'),
+        i18nText('main.loading.step.finalize', 'Finalisation...')
     ],
     currentStep: 0
 };
+
+function i18nText(key, fallback, params) {
+    if (window.GCToolI18n && typeof window.GCToolI18n.t === 'function') {
+        return window.GCToolI18n.t(key, params || {}, fallback);
+    }
+    return fallback;
+}
 
 /**
  * Initialisation de l'application principale
  */
 document.addEventListener('DOMContentLoaded', function() {
     console.log('🚀 Démarrage de l\'application Genesys Cloud Tools');
+
+    if (window.GCToolI18n && typeof window.GCToolI18n.onChange === 'function') {
+        window.GCToolI18n.onChange(() => {
+            appState.loadingSteps = [
+                i18nText('main.loading.step.auth', 'Authentification...'),
+                i18nText('main.loading.step.datatables', 'Chargement des DataTables...'),
+                i18nText('main.loading.step.queues', 'Chargement des Queues...'),
+                i18nText('main.loading.step.skills', 'Chargement des Skills...'),
+                i18nText('main.loading.step.schedule_groups', 'Chargement des Schedule Groups...'),
+                i18nText('main.loading.step.prompts', 'Chargement des Prompts...'),
+                i18nText('main.loading.step.finalize', 'Finalisation...')
+            ];
+            updateUserInfo();
+        });
+    }
     
     // Démarrer l'authentification et le chargement
     initializeApplication();
@@ -37,7 +60,7 @@ document.addEventListener('DOMContentLoaded', function() {
  */
 async function initializeApplication() {
     try {
-        updateLoadingStatus('Démarrage de l\'authentification...');
+        updateLoadingStatus(i18nText('main.loading.auth_start', 'Demarrage de l\'authentification...'));
         
         // Authentifier et charger les données
         await initializeWithOrgSelection();
@@ -57,7 +80,7 @@ async function initializeApplication() {
         
     } catch (error) {
         console.error('❌ Erreur lors de l\'initialisation:', error);
-        showError(error.message || 'Erreur inconnue lors de l\'initialisation');
+        showError(error.message || i18nText('main.error.unknown_init', 'Erreur inconnue lors de l\'initialisation'));
     }
 }
 
@@ -80,7 +103,7 @@ function updateLoadingStatus(message) {
  * Chargement du contenu des onglets
  */
 async function loadTabContents() {
-    updateLoadingStatus('Chargement des interfaces...');
+    updateLoadingStatus(i18nText('main.loading.ui', 'Chargement des interfaces...'));
     
     try {
         // Charger la page Information
@@ -126,6 +149,9 @@ async function loadTabFromFile(tabName, containerId) {
         
         if (container) {
             container.innerHTML = htmlContent;
+            if (window.GCToolI18n && typeof window.GCToolI18n.apply === 'function') {
+                window.GCToolI18n.apply(container);
+            }
             console.log(`✅ Onglet ${tabName} chargé`);
         } else {
             throw new Error(`Container ${containerId} introuvable`);
@@ -184,8 +210,11 @@ function updateUserInfo() {
     const orgInfo = document.getElementById('orgInfo');
     
     if (appState.currentUser && userInfo && userName && orgInfo) {
-        userName.textContent = appState.currentUser.name || 'Utilisateur inconnu';
-        orgInfo.textContent = `Région: ${ORGREGION} | ID: ${appState.currentUser.id}`;
+        userName.textContent = appState.currentUser.name || i18nText('app.user.unknown', 'Utilisateur inconnu');
+        orgInfo.textContent = i18nText('main.user.region_label', 'Region: {region} | ID: {id}', {
+            region: ORGREGION,
+            id: appState.currentUser.id
+        });
         userInfo.style.display = 'block';
     }
 }
@@ -211,8 +240,9 @@ $(document).ready(function() {
                 }
                 break;
             case '#datatables-flow':
-                if (typeof initializeFlowDesigner === 'function') {
+                if (!appState.flowDesignerInitialized && typeof initializeFlowDesigner === 'function') {
                     initializeFlowDesigner();
+                    appState.flowDesignerInitialized = true;
                 }
                 break;
             case '#logs-flow':

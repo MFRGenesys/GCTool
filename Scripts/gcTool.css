@@ -21,6 +21,47 @@
     color: white;
     margin-left: 10px;
 }
+
+.language-switcher {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+.language-switcher-label {
+    font-size: 11px;
+    color: #424b53;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+}
+
+.language-switcher-buttons {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.lang-flag-btn {
+    border: 1px solid rgba(70, 70, 70, 0.25);
+    background: rgba(255, 255, 255, 0.08);
+    color: #4e4e4e;
+    border-radius: 999px;
+    width: 30px;
+    height: 30px;
+    line-height: 1;
+    padding: 0;
+    font-size: 16px;
+}
+
+.lang-flag-btn:hover {
+    background: rgba(98, 109, 158, 0.2);
+}
+
+.lang-flag-btn.is-active {
+    border-color: #4172cc;
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.35);
+}
 .validation-result {
     margin-top: 10px;
     padding: 10px;
@@ -355,12 +396,46 @@
 }
 
 .flow-step {
+    display: inline-flex;
+    align-items: flex-start;
+    gap: 6px;
     padding: 8px 12px;
-    border-radius: 20px;
+    border-radius: 12px;
     background-color: #007bff;
     color: white;
     font-size: 12px;
     font-weight: bold;
+    line-height: 1.25;
+    white-space: normal;
+    max-width: 100%;
+}
+
+.flow-step-icon {
+    flex: 0 0 auto;
+    margin-top: 2px;
+}
+
+.flow-step-text {
+    display: inline-block;
+}
+
+.flow-step.menu .flow-step-text {
+    max-width: 150px;
+    white-space: normal;
+    word-break: break-word;
+}
+
+.visual-flow .flow-step,
+.branch-content .flow-step {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+}
+
+.visual-flow .flow-step-icon,
+.branch-content .flow-step-icon {
+    margin-top: 0;
+    margin-bottom: 2px;
 }
 
 .output-config {
@@ -739,13 +814,35 @@ option[style*="color: #d9534f"] {
 }
 
 .flow-designer-row {
-    margin: 0 -5px; /* Réduire l'espace entre les colonnes */
+    margin: 0 -5px; /* Reduire l'espace entre les colonnes */
+    display: flex;
+    align-items: stretch;
+    height: clamp(420px, calc(100vh - 220px), 820px);
 }
 
 .flow-palette-col,
 .flow-canvas-col,
 .flow-config-col {
-    padding: 0 5px; /* Espacement réduit entre colonnes */
+    padding: 0 5px; /* Espacement reduit entre colonnes */
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+}
+.flow-palette-col .box,
+.flow-canvas-col .box,
+.flow-config-col .box {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.flow-palette-col .box .box-body,
+.flow-canvas-col .box .box-body,
+.flow-config-col .box .box-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
 }
 
 /* Palette compacte */
@@ -791,27 +888,32 @@ option[style*="color: #d9534f"] {
     border-radius: 5px;
     background-color: #fafafa;
     position: relative;
-    overflow: hidden;
-    min-height: 600px;
+    overflow: auto;
+    height: 100%;
+    min-height: 0;
+}
+
+#flowSvg {
+    display: block;
 }
 
 /* Configuration panel à droite */
 #boxConfigPanel {
-    position: sticky;
-    top: 20px;
-    max-height: calc(100vh - 40px);
-    overflow-y: auto;
+    position: static;
+    top: auto;
+    max-height: 100%;
+    overflow: hidden;
 }
 
 #boxConfigPanel .box-body {
-    max-height: calc(100vh - 10px);
+    max-height: 95%;
     overflow-y: auto;
 }
 
 /* Panneau d'aide */
 #helpPanel {
-    position: sticky;
-    top: 20px;
+    position: static;
+    top: auto;
 }
 
 #helpPanel .box-body {
@@ -871,6 +973,20 @@ option[style*="color: #d9534f"] {
     font-size: 11px;
     margin-bottom: 2px;
 }
+.box-config-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.box-config-title .box-title-input {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.output-remove-btn {
+    margin-top: 2px;
+}
 
 /* Responsive pour petits écrans */
 @media (max-width: 1200px) {
@@ -890,6 +1006,7 @@ option[style*="color: #d9534f"] {
 @media (max-width: 768px) {
     .flow-designer-row {
         flex-direction: column;
+        height: auto;
     }
     
     .flow-palette-col,
@@ -897,6 +1014,7 @@ option[style*="color: #d9534f"] {
     .flow-config-col {
         width: 100%;
         margin-bottom: 10px;
+        height: auto;
     }
     
     .flow-palette {
@@ -913,6 +1031,7 @@ option[style*="color: #d9534f"] {
     #boxConfigPanel {
         position: static;
         max-height: none;
+        overflow: visible;
     }
 }
 
@@ -1411,10 +1530,11 @@ display: inline-block;
 }
 
 .test-controls {
-    width: 120px;
+    width: 72px;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 8px;
+    align-items: center;
     margin-right: 15px;
 }
 
@@ -1585,6 +1705,105 @@ display: inline-block;
 
 .validation-choice {
     margin-left: 10px;
+}
+
+.tri-switch {
+    display: inline-flex;
+    border: 1px solid #c9d2dd;
+    border-radius: 999px;
+    background: #eef2f7;
+    padding: 2px;
+    gap: 2px;
+}
+
+.tri-switch-option {
+    border: 0;
+    outline: 0;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #45576b;
+    background: transparent;
+    transition: all 0.15s ease;
+}
+
+.tri-switch-option:hover {
+    background: rgba(40, 54, 70, 0.12);
+}
+
+.tri-switch-option-ok.is-active {
+    background: #28a745;
+    color: #fff;
+}
+
+.tri-switch-option-untested.is-active {
+    background: #8e9aa7;
+    color: #fff;
+}
+
+.tri-switch-option-ko.is-active {
+    background: #dc3545;
+    color: #fff;
+}
+
+.tri-switch-vertical {
+    flex-direction: column;
+    border-radius: 16px;
+    padding: 3px 2px;
+}
+
+.tri-switch-horizontal {
+    flex-direction: row;
+}
+
+.identification-validation {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.validation-choice-switch {
+    margin-left: auto;
+}
+
+.menu-branch-validations-container {
+    margin-top: 14px;
+    padding-left: 16px;
+    border-left: 3px solid #d7dee8;
+}
+
+.menu-branch-validation-group {
+    margin: 10px 0;
+    border: 1px solid #dfe5ec;
+    border-radius: 6px;
+    background: #f8fafc;
+}
+
+.menu-branch-validation-toggle {
+    width: 100%;
+    border: 0;
+    text-align: left;
+    padding: 8px 10px;
+    background: #eef3f8;
+    color: #29425f;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.menu-branch-validation-body {
+    padding: 8px 8px 8px 12px;
+}
+
+.branch-validation-step {
+    margin-left: 10px;
+    border-left: 3px dashed #c5cfda !important;
 }
 
 .validation-btn {

@@ -1,7 +1,7 @@
         <div class="col-lg-12 text-left">
             <div class="box box-primary">
                 <div class="box-header with-border">
-                    <h3 class="box-title">Contrôleur de DataTables Genesys</h3>
+                    <h3 class="box-title" data-i18n="tab.datatables_controller.title">Controleur de DataTables Genesys</h3>
                 </div>
                 
                 <div class="box-body">
@@ -28,7 +28,7 @@
                             <div class="box-header with-border" style="cursor: pointer;" onclick="toggleDataTablesList()">
                                 <h3 class="box-title">
                                     <i class="fa fa-list" id="dataTablesListIcon"></i>
-                                    Liste des DataTables
+                                    <span data-i18n="tab.datatables_controller.list_title">Liste des DataTables</span>
                                 </h3>
                             </div>
                             <div class="box-body" id="dataTablesListContent">
@@ -40,12 +40,12 @@
                     </div>
                     <!-- Schéma relationnel des DataTables -->
                     <div class="config-section">
-                        <h4>Schéma Relationnel des Configurations 
+                        <h4><span data-i18n="tab.datatables_controller.schema_title">Schema Relationnel des Configurations</span>
                             <button type="button" class="btn btn-info btn-sm" onclick="toggleDataTableSchemaSection()">
-                                <i class="fa fa-sitemap"></i> Afficher/Masquer le Schéma
+                                <i class="fa fa-sitemap"></i> <span data-i18n="tab.datatables_controller.schema_toggle">Afficher/Masquer le Schema</span>
                             </button>
                             <button type="button" class="btn btn-success btn-sm" onclick="refreshDataTableSchema()" style="margin-left: 5px;">
-                                <i class="fa fa-refresh"></i> Actualiser
+                                <i class="fa fa-refresh"></i> <span data-i18n="common.refresh">Actualiser</span>
                             </button>
                         </h4>
                         
@@ -54,7 +54,7 @@
                                 <div class="btn-group" role="group">
                                     <div class="btn-group">
                                         <button type="button" class="btn btn-default btn-sm dropdown-toggle" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
-                                            <i class="fa fa-download"></i> Exporter <span class="caret"></span>
+                                            <i class="fa fa-download"></i> <span data-i18n="common.export">Exporter</span> <span class="caret"></span>
                                         </button>
                                         <ul class="dropdown-menu">
                                             <li><a href="#" onclick="exportDataTableSchema('png'); return false;">PNG</a></li>
@@ -63,7 +63,7 @@
                                         </ul>
                                     </div>
                                     <button type="button" class="btn btn-default btn-sm" onclick="resetDataTableSchemaLayout()">
-                                        <i class="fa fa-refresh"></i> Réorganiser
+                                        <i class="fa fa-refresh"></i> <span data-i18n="tab.datatables_controller.reorganize">Reorganiser</span>
                                     </button>
                                     <button type="button" class="btn btn-default btn-sm" onclick="zoomDataTableSchema('in')">
                                         <i class="fa fa-search-plus"></i> Zoom +
@@ -74,7 +74,7 @@
                                 </div>
                                 
                                 <div class="schema-legend" style="float: right;">
-                                    Légende :
+                                    <span data-i18n="tab.datatables_controller.legend">Legende :</span>
                                     <div class="legend-items">
                                         <span class="legend-item"><i class="fa fa-list"></i> Liste</span>
                                         <span class="legend-item"><i class="fa fa-code"></i> Regex</span>
@@ -113,7 +113,7 @@
                             
                             <div id="DataTableSchemaInfo" class="schema-info" style="margin-top: 10px;">
                                 <small class="text-muted">
-                                    Cliquez sur une table pour la sélectionner. Glissez pour repositionner.
+                                    <span data-i18n="tab.datatables_controller.schema_hint">Cliquez sur une table pour la selectionner. Glissez pour repositionner.</span>
                                 </small>
                             </div>
                         </div>
@@ -121,17 +121,17 @@
                     <div id="ControleAll">
                         <button id="btnCheckAllDataTables" class="btn btn-warning" onclick="checkAllDataTablesConfigured()">
                             <i class="fa fa-clipboard-check"></i>
-                            Contrôler toutes les DataTables
+                            <span data-i18n="tab.datatables_controller.check_all">Controler toutes les DataTables</span>
                         </button>
                         <button id="btnCheckAllUnusedData" class="btn btn-warning" onclick="checkAllUnusedData()">
                             <i class="fa fa-check-to-slot"></i>
-                            Vérifier les lignes non utilisées
+                            <span data-i18n="tab.datatables_controller.check_unused">Verifier les lignes non utilisees</span>
                         </button>
                         <span id="globalControllerFeedback" style="margin-left: 10px;"></span>
                     </div>
                     <!-- Validation Results -->
                     <div id="validationResults" style="display: none;">
-                        <h4>Résultats du contrôle</h4>
+                        <h4 data-i18n="tab.datatables_controller.results_title">Resultats du controle</h4>
                         <div id="validationContent"></div>
                     </div>
                 </div>
@@ -142,9 +142,9 @@
         <!-- SECTION CONFIGURATION -->
         <!-- Ajout d'une nouvelle section pour l'import/export général -->
         <div class="config-section">
-            <h4>Import / Export de Configuration Complète
+            <h4><span data-i18n="tab.datatables_controller.import_export_title">Import / Export de Configuration Complete</span>
                 <button type="button" class="btn btn-primary btn-sm" onclick="toggleImportExportSection()">
-                    <i class="fa fa-exchange"></i> Gérer Import/Export
+                    <i class="fa fa-exchange"></i> <span data-i18n="tab.datatables_controller.manage_import_export">Gerer Import/Export</span>
                 </button>
             </h4>
             

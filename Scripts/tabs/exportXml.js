@@ -120,6 +120,14 @@ function escapeXml(str) {
               .replace(/>/g, '&gt;');
 }
 
+function estimateDrawioBoxWidth(label, defaultWidth = 120) {
+    const raw = (label || '').toString().replace(/\\n/g, '\n');
+    const lines = raw.split('\n');
+    const longestLine = lines.reduce((max, line) => Math.max(max, line.length), 0);
+    const estimated = Math.round(longestLine * 7.2) + 28;
+    return Math.max(defaultWidth, Math.min(460, estimated));
+}
+
 
 /**
  * Génération du XML mxGraphModel pour une boîte
@@ -148,11 +156,14 @@ function generateBoxXML(box, position,boxLabel, context = '') {
     }
     
     // Remplacer les placeholders dans le template XML
-    return boxConfig.xml
+    const xml = boxConfig.xml
         .replace(/{id}/g, uniqueId)
         .replace(/{label}/g, escapeXmlValue(label))
         .replace(/{x}/g, position.x)
         .replace(/{y}/g, position.y);
+
+    const dynamicWidth = estimateDrawioBoxWidth(label, 120);
+    return xml.replace(/width=\"[0-9.]+\"/g, `width=\"${dynamicWidth}\"`);
 }
 
 
@@ -224,8 +235,9 @@ function extractFirstBoxId(boxXML) {
 /**
  * Génération des connexions XML entre boîtes
  */
-function generateConnectionXML(fromBoxId, toBoxId, connectionId) {
-    return `<mxCell id="${connectionId}" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="${fromBoxId}" target="${toBoxId}">
+function generateConnectionXML(fromBoxId, toBoxId, connectionId, label = "") {
+    return `<mxCell id="${connectionId}"  value="${label || ''}"
+                style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="${fromBoxId}" target="${toBoxId}">
               <mxGeometry relative="1" as="geometry"/>
             </mxCell>`;
 }

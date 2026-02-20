@@ -4,7 +4,7 @@
  *
  */
 
-(function apiExplorerModule() {
+//(function apiExplorerModule() {
     'use strict';
     const ARRAY_WILDCARD_TOKEN = '__ARRAY_ALL__';
     const FAVORITES_COOKIE_NAME = 'gctool_api_explorer_favorites';
@@ -19,7 +19,7 @@
     const RESPONSE_TAB_LIMIT = 5;
     const NODE_VIEW_AUTO_TEXT_THRESHOLD_BYTES = 1024 * 1024;
 
-    const state = {
+    const apiExplorerState = {
         // Etat runtime uniquement (pas de persistance locale, sauf favoris via cookie).
         initialized: false,
         catalog: [],
@@ -80,7 +80,7 @@
             return;
         }
 
-        state.initialized = true;
+        apiExplorerState.initialized = true;
         loadFavoritesFromCookie();
         bindUiEvents();
         buildCatalog();
@@ -285,7 +285,7 @@
 
         const allowsBatch = allowsBatchMode(endpoint);
         const targetMode = mode === 'batch' && allowsBatch ? 'batch' : 'fields';
-        state.inputMode = targetMode;
+        apiExplorerState.inputMode = targetMode;
 
         const modeFieldsBtn = document.getElementById('apiExplorerModeFieldsBtn');
         const modeBatchBtn = document.getElementById('apiExplorerModeBatchBtn');
@@ -306,26 +306,26 @@
     }
 
     function toggleLeftPanelCollapse() {
-        state.isLeftPanelCollapsed = !state.isLeftPanelCollapsed;
+        apiExplorerState.isLeftPanelCollapsed = !state.isLeftPanelCollapsed;
         applyPanelLayoutState();
     }
 
     function toggleLeftListCollapse() {
-        state.isLeftListCollapsed = !state.isLeftListCollapsed;
+        apiExplorerState.isLeftListCollapsed = !state.isLeftListCollapsed;
         if (state.isLeftListCollapsed) {
             // Si on replie la liste, on affiche automatiquement l'aide.
-            state.isJsonPathHelpCollapsed = false;
+            apiExplorerState.isJsonPathHelpCollapsed = false;
         }
         applyPanelLayoutState();
     }
 
     function toggleJsonPathHelpCollapse() {
-        state.isJsonPathHelpCollapsed = !state.isJsonPathHelpCollapsed;
+        apiExplorerState.isJsonPathHelpCollapsed = !state.isJsonPathHelpCollapsed;
         applyPanelLayoutState();
     }
 
     function toggleRequestPanelCollapse() {
-        state.isRequestPanelCollapsed = !state.isRequestPanelCollapsed;
+        apiExplorerState.isRequestPanelCollapsed = !state.isRequestPanelCollapsed;
         applyPanelLayoutState();
     }
 
@@ -333,24 +333,24 @@
         const root = document.getElementById('apiExplorerRoot');
         if (!root) return;
 
-        root.classList.toggle('api-left-collapsed', state.isLeftPanelCollapsed);
-        root.classList.toggle('api-left-list-collapsed', state.isLeftListCollapsed);
-        root.classList.toggle('api-jsonpath-help-collapsed', state.isJsonPathHelpCollapsed);
-        root.classList.toggle('api-request-collapsed', state.isRequestPanelCollapsed);
+        root.classList.toggle('api-left-collapsed', apiExplorerState.isLeftPanelCollapsed);
+        root.classList.toggle('api-left-list-collapsed', apiExplorerState.isLeftListCollapsed);
+        root.classList.toggle('api-jsonpath-help-collapsed', apiExplorerState.isJsonPathHelpCollapsed);
+        root.classList.toggle('api-request-collapsed', apiExplorerState.isRequestPanelCollapsed);
 
         const leftPanelBtn = document.getElementById('apiExplorerToggleLeftPanelBtn');
         if (leftPanelBtn) {
-            const iconClass = state.isLeftPanelCollapsed ? 'fa-angle-double-right' : 'fa-angle-double-left';
+            const iconClass = apiExplorerState.isLeftPanelCollapsed ? 'fa-angle-double-right' : 'fa-angle-double-left';
             leftPanelBtn.innerHTML = '<i class="fa ' + iconClass + '"></i>';
-            leftPanelBtn.title = state.isLeftPanelCollapsed ? 'Afficher le panneau API' : 'Replier le panneau API';
+            leftPanelBtn.title = apiExplorerState.isLeftPanelCollapsed ? 'Afficher le panneau API' : 'Replier le panneau API';
             leftPanelBtn.setAttribute('aria-label', leftPanelBtn.title);
         }
 
         const leftListBtn = document.getElementById('apiExplorerToggleLeftListBtn');
         if (leftListBtn) {
-            const iconClass = state.isLeftListCollapsed ? 'fa-chevron-down' : 'fa-chevron-up';
+            const iconClass = apiExplorerState.isLeftListCollapsed ? 'fa-chevron-down' : 'fa-chevron-up';
             leftListBtn.innerHTML = '<i class="fa ' + iconClass + '"></i>';
-            leftListBtn.title = state.isLeftListCollapsed
+            leftListBtn.title = apiExplorerState.isLeftListCollapsed
                 ? 'Afficher la liste API'
                 : 'Replier la liste API (afficher l aide)';
             leftListBtn.setAttribute('aria-label', leftListBtn.title);
@@ -358,9 +358,9 @@
 
         const jsonPathHelpBtn = document.getElementById('apiExplorerToggleJsonPathHelpBtn');
         if (jsonPathHelpBtn) {
-            const iconClass = state.isJsonPathHelpCollapsed ? 'fa-chevron-down' : 'fa-chevron-up';
+            const iconClass = apiExplorerState.isJsonPathHelpCollapsed ? 'fa-chevron-down' : 'fa-chevron-up';
             jsonPathHelpBtn.innerHTML = '<i class="fa ' + iconClass + '"></i>';
-            jsonPathHelpBtn.title = state.isJsonPathHelpCollapsed
+            jsonPathHelpBtn.title = apiExplorerState.isJsonPathHelpCollapsed
                 ? 'Afficher l aide JSONPath'
                 : 'Replier l aide JSONPath';
             jsonPathHelpBtn.setAttribute('aria-label', jsonPathHelpBtn.title);
@@ -368,9 +368,9 @@
 
         const requestPanelBtn = document.getElementById('apiExplorerToggleRequestPanelBtn');
         if (requestPanelBtn) {
-            const iconClass = state.isRequestPanelCollapsed ? 'fa-chevron-down' : 'fa-chevron-up';
+            const iconClass = apiExplorerState.isRequestPanelCollapsed ? 'fa-chevron-down' : 'fa-chevron-up';
             requestPanelBtn.innerHTML = '<i class="fa ' + iconClass + '"></i>';
-            requestPanelBtn.title = state.isRequestPanelCollapsed
+            requestPanelBtn.title = apiExplorerState.isRequestPanelCollapsed
                 ? 'Afficher les parametres de requete'
                 : 'Replier les parametres de requete';
             requestPanelBtn.setAttribute('aria-label', requestPanelBtn.title);
@@ -383,11 +383,11 @@
     }
 
     function getSelectedEndpoint() {
-        return state.catalog.find((item) => item.id === state.selectedEndpointId) || null;
+        return apiExplorerState.catalog.find((item) => item.id === apiExplorerState.selectedEndpointId) || null;
     }
 
     function buildCatalog() {
-        state.catalog = [];
+        apiExplorerState.catalog = [];
 
         if (typeof platformClient === 'undefined' || !platformClient) {
             setCatalogInfo('SDK platformClient introuvable.');
@@ -419,17 +419,17 @@
             });
         });
 
-        state.catalog = entries;
+        apiExplorerState.catalog = entries;
     }
 
     function getApiInstance(apiClassName) {
         if (state.apiInstances[apiClassName]) {
-            return state.apiInstances[apiClassName];
+            return apiExplorerState.apiInstances[apiClassName];
         }
 
         try {
-            state.apiInstances[apiClassName] = new platformClient[apiClassName]();
-            return state.apiInstances[apiClassName];
+            apiExplorerState.apiInstances[apiClassName] = new platformClient[apiClassName]();
+            return apiExplorerState.apiInstances[apiClassName];
         } catch (error) {
             console.warn('[API Explorer] Impossible de creer', apiClassName, error);
             return null;
@@ -623,7 +623,7 @@
         const searchValue = ((document.getElementById('apiExplorerSearchInput') || {}).value || '').trim().toLowerCase();
         const enabledMethods = getSelectedHttpMethods();
 
-        const filtered = state.catalog.filter((item) => {
+        const filtered = apiExplorerState.catalog.filter((item) => {
             const methodAllowed = item.httpMethod === 'UNKNOWN' || enabledMethods.has(item.httpMethod);
             if (!methodAllowed) return false;
 
@@ -641,8 +641,8 @@
         // La section favoris est rendue a chaque filtrage pour rester synchronisee.
         renderFavoritesSection();
 
-        if (categories.length && state.expandedCategories.size === 0) {
-            state.expandedCategories.add(categories[0]);
+        if (categories.length && apiExplorerState.expandedCategories.size === 0) {
+            apiExplorerState.expandedCategories.add(categories[0]);
         }
 
         if (!filtered.length) {
@@ -653,7 +653,7 @@
 
         const html = categories.map((category) => {
             const endpoints = grouped[category];
-            const expanded = state.expandedCategories.has(category);
+            const expanded = apiExplorerState.expandedCategories.has(category);
 
             return `
                 <div class="api-category-row">
@@ -685,8 +685,8 @@
     }
 
     function renderEndpointButton(item) {
-        const selectedClass = item.id === state.selectedEndpointId ? 'is-selected' : '';
-        const isFavorite = state.favorites.has(item.id);
+        const selectedClass = item.id === apiExplorerState.selectedEndpointId ? 'is-selected' : '';
+        const isFavorite = apiExplorerState.favorites.has(item.id);
 
         return `
             <div class="api-endpoint-item ${selectedClass}">
@@ -723,9 +723,9 @@
             if (!category) return;
 
             if (state.expandedCategories.has(category)) {
-                state.expandedCategories.delete(category);
+                apiExplorerState.expandedCategories.delete(category);
             } else {
-                state.expandedCategories.add(category);
+                apiExplorerState.expandedCategories.add(category);
             }
 
             renderCatalog();
@@ -764,8 +764,8 @@
         const favoritesListEl = document.getElementById('apiExplorerFavoritesList');
         if (!favoritesListEl) return;
 
-        const favoriteEndpoints = state.catalog
-            .filter((item) => state.favorites.has(item.id))
+        const favoriteEndpoints = apiExplorerState.catalog
+            .filter((item) => apiExplorerState.favorites.has(item.id))
             .sort((a, b) => {
                 const left = (a.category + '.' + a.methodName).toLowerCase();
                 const right = (b.category + '.' + b.methodName).toLowerCase();
@@ -801,9 +801,9 @@
         if (!endpointId) return;
 
         if (state.favorites.has(endpointId)) {
-            state.favorites.delete(endpointId);
+            apiExplorerState.favorites.delete(endpointId);
         } else {
-            state.favorites.add(endpointId);
+            apiExplorerState.favorites.add(endpointId);
         }
 
         saveFavoritesToCookie();
@@ -811,17 +811,17 @@
     }
 
     function selectEndpoint(endpointId) {
-        const endpoint = state.catalog.find((item) => item.id === endpointId);
+        const endpoint = apiExplorerState.catalog.find((item) => item.id === endpointId);
         if (!endpoint) return;
 
-        state.selectedEndpointId = endpointId;
-        state.lastResponse = null;
-        state.lastProjection = null;
-        state.lastExecutionMeta = null;
-        state.projectionAutocompletePaths = [];
-        state.currentProjectionSuggestions = [];
+        apiExplorerState.selectedEndpointId = endpointId;
+        apiExplorerState.lastResponse = null;
+        apiExplorerState.lastProjection = null;
+        apiExplorerState.lastExecutionMeta = null;
+        apiExplorerState.projectionAutocompletePaths = [];
+        apiExplorerState.currentProjectionSuggestions = [];
         clearProjectionAutocompleteDebounce();
-        state.activeResponseTabId = null;
+        apiExplorerState.activeResponseTabId = null;
 
         renderCatalog();
         renderResponseTabs();
@@ -931,8 +931,8 @@
         }
 
         container.style.display = 'block';
-        tabsEl.innerHTML = state.responseTabs.map((tab) => {
-            const isActive = tab.id === state.activeResponseTabId;
+        tabsEl.innerHTML = apiExplorerState.responseTabs.map((tab) => {
+            const isActive = tab.id === apiExplorerState.activeResponseTabId;
             const methodClass = getMethodLabelClass(tab.httpMethod || 'UNKNOWN');
             const title = tab.title || '(sans titre)';
             return `
@@ -947,8 +947,8 @@
     }
 
     function createResponseTab(endpoint) {
-        const tabId = 'responseTab_' + state.nextResponseTabSequence;
-        state.nextResponseTabSequence += 1;
+        const tabId = 'responseTab_' + apiExplorerState.nextResponseTabSequence;
+        apiExplorerState.nextResponseTabSequence += 1;
 
         const tab = {
             id: tabId,
@@ -966,11 +966,11 @@
             createdAt: Date.now()
         };
 
-        state.responseTabs.push(tab);
+        apiExplorerState.responseTabs.push(tab);
         while (state.responseTabs.length > RESPONSE_TAB_LIMIT) {
-            const removed = state.responseTabs.shift();
-            if (removed && removed.id === state.activeResponseTabId) {
-                state.activeResponseTabId = null;
+            const removed = apiExplorerState.responseTabs.shift();
+            if (removed && removed.id === apiExplorerState.activeResponseTabId) {
+                apiExplorerState.activeResponseTabId = null;
             }
         }
 
@@ -978,7 +978,7 @@
     }
 
     function getTabById(tabId) {
-        return state.responseTabs.find((tab) => tab.id === tabId) || null;
+        return apiExplorerState.responseTabs.find((tab) => tab.id === tabId) || null;
     }
 
     function getActiveResponseTab() {
@@ -1013,7 +1013,7 @@
 
         return {
             endpointId: endpoint.id,
-            inputMode: state.inputMode,
+            inputMode: apiExplorerState.inputMode,
             requiredParamValues,
             bodyJson: bodyInput ? bodyInput.value : '',
             optionsJson: optionsInput ? optionsInput.value : '',
@@ -1102,9 +1102,9 @@
         tab.httpMethod = endpoint.httpMethod;
         tab.methodName = endpoint.methodName;
         tab.title = endpoint.methodName;
-        tab.response = state.lastResponse;
-        tab.projection = state.lastProjection;
-        tab.executionMeta = state.lastExecutionMeta;
+        tab.response = apiExplorerState.lastResponse;
+        tab.projection = apiExplorerState.lastProjection;
+        tab.executionMeta = apiExplorerState.lastExecutionMeta;
         tab.context = captureCurrentRequestContext(endpoint);
 
         renderResponseTabs();
@@ -1114,24 +1114,24 @@
         const tab = getTabById(tabId);
         if (!tab) return;
 
-        state.activeResponseTabId = tab.id;
+        apiExplorerState.activeResponseTabId = tab.id;
 
-        const endpoint = state.catalog.find((item) => item.id === tab.endpointId) || null;
+        const endpoint = apiExplorerState.catalog.find((item) => item.id === tab.endpointId) || null;
         if (endpoint) {
-            state.selectedEndpointId = endpoint.id;
+            apiExplorerState.selectedEndpointId = endpoint.id;
             renderCatalog();
             renderWorkbench(endpoint, { preserveResponseState: true });
             applyRequestContext(endpoint, tab.context);
         }
 
-        state.lastResponse = tab.response;
-        state.lastProjection = typeof tab.projection === 'undefined' ? tab.response : tab.projection;
-        state.lastExecutionMeta = tab.executionMeta || null;
+        apiExplorerState.lastResponse = tab.response;
+        apiExplorerState.lastProjection = typeof tab.projection === 'undefined' ? tab.response : tab.projection;
+        apiExplorerState.lastExecutionMeta = tab.executionMeta || null;
         rebuildProjectionAutocompletePaths();
 
-        if (state.lastProjection !== null && typeof state.lastProjection !== 'undefined') {
+        if (state.lastProjection !== null && typeof apiExplorerState.lastProjection !== 'undefined') {
             renderResponseObject(state.lastProjection);
-        } else if (state.lastResponse !== null && typeof state.lastResponse !== 'undefined') {
+        } else if (state.lastResponse !== null && typeof apiExplorerState.lastResponse !== 'undefined') {
             renderResponseObject(state.lastResponse);
         } else {
             renderResponseText('Aucune reponse pour cet onglet.');
@@ -1165,11 +1165,11 @@
     }
 
     function getCurrentRenderableResponsePayload() {
-        if (state.lastProjection !== null && typeof state.lastProjection !== 'undefined') {
-            return state.lastProjection;
+        if (state.lastProjection !== null && typeof apiExplorerState.lastProjection !== 'undefined') {
+            return apiExplorerState.lastProjection;
         }
 
-        return state.lastResponse;
+        return apiExplorerState.lastResponse;
     }
 
     function resolveResponseRenderMode(bytes) {
@@ -1227,8 +1227,8 @@
         batchTextarea.placeholder = buildBatchJsonPlaceholder(endpoint);
         validateBatchJsonEditorRealtime({ silentWhenEmpty: true });
 
-        if (!allowsBatchMode(endpoint) && state.inputMode === 'batch') {
-            state.inputMode = 'fields';
+        if (!allowsBatchMode(endpoint) && apiExplorerState.inputMode === 'batch') {
+            apiExplorerState.inputMode = 'fields';
         }
     }
 
@@ -1256,7 +1256,7 @@
     // =========================
     async function executeSelectedEndpoint(options) {
         const targetTabMode = options && options.targetTabMode === 'new' ? 'new' : 'current';
-        const endpoint = state.catalog.find((item) => item.id === state.selectedEndpointId);
+        const endpoint = apiExplorerState.catalog.find((item) => item.id === apiExplorerState.selectedEndpointId);
         if (!endpoint) {
             setExecutionStatus('Selectionnez une API a executer.', 'warning');
             return;
@@ -1330,7 +1330,7 @@
 
             try {
                 const response = await instance[endpoint.methodName].apply(instance, args);
-                state.requestTimestamps.push(Date.now());
+                apiExplorerState.requestTimestamps.push(Date.now());
                 trimRequestTimestamps();
                 return response;
             } catch (error) {
@@ -1355,7 +1355,7 @@
             }
 
             const now = Date.now();
-            const oldestTs = state.requestTimestamps[0];
+            const oldestTs = apiExplorerState.requestTimestamps[0];
             const waitMs = Math.max(250, API_RATE_LIMIT_WINDOW_MS - (now - oldestTs) + 50);
             setExecutionStatus(buildRateLimitWaitMessage(waitMs, waitContext, 'Attente limite 300 appels/min.'), 'warning');
             await sleep(waitMs);
@@ -1364,8 +1364,8 @@
 
     function trimRequestTimestamps() {
         const minTimestamp = Date.now() - API_RATE_LIMIT_WINDOW_MS;
-        while (state.requestTimestamps.length && state.requestTimestamps[0] < minTimestamp) {
-            state.requestTimestamps.shift();
+        while (state.requestTimestamps.length && apiExplorerState.requestTimestamps[0] < minTimestamp) {
+            apiExplorerState.requestTimestamps.shift();
         }
     }
 
@@ -1548,7 +1548,7 @@
         });
         if (preferredAuthMode === 'pkce' && typeof apiClient.loginPKCEGrant === 'function') {
             await apiClient.loginPKCEGrant(selectedOrgConfig.clientId, redirectForLogin, {
-                state: 'gctool-batch-refresh'
+                apiExplorerState: 'gctool-batch-refresh'
             });
             return;
         }
@@ -2294,21 +2294,21 @@
     function rebuildProjectionAutocompletePaths() {
         ensureProjectionSuggestionDataList();
         clearProjectionAutocompleteDebounce();
-        if (state.lastResponse === null || typeof state.lastResponse === 'undefined') {
-            state.projectionAutocompletePaths = [];
-            state.currentProjectionSuggestions = [];
+        if (state.lastResponse === null || typeof apiExplorerState.lastResponse === 'undefined') {
+            apiExplorerState.projectionAutocompletePaths = [];
+            apiExplorerState.currentProjectionSuggestions = [];
             setProjectionSuggestionList([], null);
             return;
         }
 
-        state.projectionAutocompletePaths = buildProjectionAutocompletePaths(state.lastResponse);
+        apiExplorerState.projectionAutocompletePaths = buildProjectionAutocompletePaths(state.lastResponse);
         refreshProjectionAutocompleteSuggestions();
     }
 
     function scheduleProjectionAutocompleteRefresh() {
         clearProjectionAutocompleteDebounce();
-        state.projectionAutocompleteDebounceId = setTimeout(() => {
-            state.projectionAutocompleteDebounceId = null;
+        apiExplorerState.projectionAutocompleteDebounceId = setTimeout(() => {
+            apiExplorerState.projectionAutocompleteDebounceId = null;
             refreshProjectionAutocompleteSuggestions();
         }, PROJECTION_AUTOCOMPLETE_DEBOUNCE_MS);
     }
@@ -2316,7 +2316,7 @@
     function clearProjectionAutocompleteDebounce() {
         if (state.projectionAutocompleteDebounceId !== null) {
             clearTimeout(state.projectionAutocompleteDebounceId);
-            state.projectionAutocompleteDebounceId = null;
+            apiExplorerState.projectionAutocompleteDebounceId = null;
         }
     }
 
@@ -2326,14 +2326,14 @@
 
         const context = getProjectionInputContext(input.value);
         if (context.activeSegment.length < PROJECTION_AUTOCOMPLETE_MIN_CHARS) {
-            state.currentProjectionSuggestions = [];
+            apiExplorerState.currentProjectionSuggestions = [];
             setProjectionSuggestionList([], context);
             ensureProjectionInputShowsTail();
             return;
         }
 
         const suggestions = getProjectionSuggestionCandidates(context.query, PROJECTION_AUTOCOMPLETE_LIMIT);
-        state.currentProjectionSuggestions = suggestions;
+        apiExplorerState.currentProjectionSuggestions = suggestions;
         setProjectionSuggestionList(suggestions, context);
         ensureProjectionInputShowsTail();
     }
@@ -2473,7 +2473,7 @@
     }
 
     function getProjectionSuggestionCandidates(query, limit) {
-        const allPaths = Array.isArray(state.projectionAutocompletePaths) ? state.projectionAutocompletePaths : [];
+        const allPaths = Array.isArray(state.projectionAutocompletePaths) ? apiExplorerState.projectionAutocompletePaths : [];
         if (!allPaths.length) return [];
 
         const cappedLimit = Math.max(1, Number(limit) || 40);
@@ -2552,7 +2552,7 @@
             const groupByObject = !groupByObjectCheckbox || Boolean(groupByObjectCheckbox.checked);
 
             if (!projectionPaths.length) {
-                state.lastProjection = state.lastResponse;
+                apiExplorerState.lastProjection = apiExplorerState.lastResponse;
                 renderResponseObject(state.lastProjection);
                 updateActiveTabFromCurrentState();
                 setExecutionStatus('Projection vide: affichage de la reponse complete.', 'info');
@@ -2566,7 +2566,7 @@
                     return;
                 }
 
-                state.lastProjection = projected;
+                apiExplorerState.lastProjection = projected;
                 renderResponseObject(projected);
                 updateActiveTabFromCurrentState();
                 setExecutionStatus('Projection appliquee: ' + projectionPaths[0], 'success');
@@ -2581,7 +2581,7 @@
                 return;
             }
 
-            state.lastProjection = multipleProjection.value;
+            apiExplorerState.lastProjection = multipleProjection.value;
             renderResponseObject(multipleProjection.value);
             updateActiveTabFromCurrentState();
             setExecutionStatus(multipleProjection.message, 'success');
@@ -2591,7 +2591,7 @@
     }
 
     function setProjectionProcessingState(isProcessing) {
-        state.isProjectionProcessing = Boolean(isProcessing);
+        apiExplorerState.isProjectionProcessing = Boolean(isProcessing);
 
         const button = document.getElementById('apiExplorerApplyProjectionBtn');
         if (button) {
@@ -2599,15 +2599,15 @@
                 button.dataset.originalLabel = button.innerHTML;
             }
 
-            button.disabled = state.isProjectionProcessing;
-            button.innerHTML = state.isProjectionProcessing
+            button.disabled = apiExplorerState.isProjectionProcessing;
+            button.innerHTML = apiExplorerState.isProjectionProcessing
                 ? '<i class="fa fa-spinner fa-spin"></i> En cours...'
                 : button.dataset.originalLabel;
         }
 
         const responseEl = document.getElementById('apiExplorerResponse');
         if (responseEl) {
-            responseEl.classList.toggle('api-response-processing', state.isProjectionProcessing);
+            responseEl.classList.toggle('api-response-processing', apiExplorerState.isProjectionProcessing);
         }
     }
 
@@ -2623,14 +2623,14 @@
             return;
         }
 
-        state.lastProjection = state.lastResponse;
+        apiExplorerState.lastProjection = apiExplorerState.lastResponse;
         renderResponseObject(state.lastProjection);
         updateActiveTabFromCurrentState();
         setExecutionStatus('Projection reinitialisee.', 'info');
     }
 
     function exportCurrentProjectionToCsv() {
-        const value = state.lastProjection !== null ? state.lastProjection : state.lastResponse;
+        const value = apiExplorerState.lastProjection !== null ? apiExplorerState.lastProjection : apiExplorerState.lastResponse;
 
         if (value === null) {
             setExecutionStatus('Aucune donnee a exporter.', 'warning');
@@ -2645,7 +2645,7 @@
     }
 
     function exportCurrentProjectionToJson() {
-        const value = state.lastProjection !== null ? state.lastProjection : state.lastResponse;
+        const value = apiExplorerState.lastProjection !== null ? apiExplorerState.lastProjection : apiExplorerState.lastResponse;
 
         if (value === null) {
             setExecutionStatus('Aucune donnee a exporter.', 'warning');
@@ -3592,7 +3592,7 @@
     // Stats reponse / pagination
     // ==========================
     function resolveStatsPayload(fallbackPayload) {
-        const executionMeta = state.lastExecutionMeta;
+        const executionMeta = apiExplorerState.lastExecutionMeta;
         if (isPlainObject(executionMeta)) {
             if (executionMeta.mode === 'post-auto-pagination' && isPlainObject(executionMeta.paging)) {
                 return executionMeta.paging;
@@ -3603,7 +3603,7 @@
             }
         }
 
-        return state.lastResponse !== null ? state.lastResponse : fallbackPayload;
+        return apiExplorerState.lastResponse !== null ? apiExplorerState.lastResponse : fallbackPayload;
     }
 
     function updateResponseStats(payload) {
@@ -3795,19 +3795,19 @@
         // Persistance simple (cookie) pour rester autonome sans backend.
         const cookieValue = getCookieValue(FAVORITES_COOKIE_NAME);
         if (!cookieValue) {
-            state.favorites = new Set();
+            apiExplorerState.favorites = new Set();
             return;
         }
 
         try {
             const parsed = JSON.parse(decodeURIComponent(cookieValue));
             if (Array.isArray(parsed)) {
-                state.favorites = new Set(parsed.filter((id) => typeof id === 'string' && id.trim().length > 0));
+                apiExplorerState.favorites = new Set(parsed.filter((id) => typeof id === 'string' && id.trim().length > 0));
             } else {
-                state.favorites = new Set();
+                apiExplorerState.favorites = new Set();
             }
         } catch (_error) {
-            state.favorites = new Set();
+            apiExplorerState.favorites = new Set();
         }
     }
 
@@ -3818,7 +3818,7 @@
 
         Array.from(state.favorites).forEach((favoriteId) => {
             if (!knownIds.has(favoriteId)) {
-                state.favorites.delete(favoriteId);
+                apiExplorerState.favorites.delete(favoriteId);
                 changed = true;
             }
         });
@@ -3881,4 +3881,4 @@
     function escapeAttribute(value) {
         return escapeHtml(value);
     }
-})();
+//})();

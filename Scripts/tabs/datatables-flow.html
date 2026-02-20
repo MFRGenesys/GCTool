@@ -6,7 +6,7 @@
             <div class="box box-primary">
                 <div class="box-header with-border">
                     <h3 class="box-title">
-                        <i class="fa fa-puzzle-piece"></i> Palette
+                        <i class="fa fa-puzzle-piece"></i> <span data-i18n="tab.flow.palette.title">Palette</span>
                     </h3>
                 </div>
                 <div class="box-body">
@@ -19,7 +19,7 @@
                                     <div class="output-point"></div>
                                 </div>
                             </div>
-                            <small>Démarrage</small>
+                            <small data-i18n="tab.flow.palette.start">Demarrage</small>
                         </div>
                         
                         <div class="palette-item" draggable="true" data-type="route">
@@ -31,7 +31,7 @@
                                     <div class="output-point"></div>
                                 </div>
                             </div>
-                            <small>Route</small>
+                            <small data-i18n="tab.flow.palette.route">Route</small>
                         </div>
                         
                         <div class="palette-item" draggable="true" data-type="menu">
@@ -45,7 +45,7 @@
                                     <div class="output-point out3"></div>
                                 </div>
                             </div>
-                            <small>Menu</small>
+                            <small data-i18n="tab.flow.palette.menu">Menu</small>
                         </div>
                         
                         <div class="palette-item" draggable="true" data-type="message">
@@ -57,7 +57,7 @@
                                     <div class="output-point"></div>
                                 </div>
                             </div>
-                            <small>Message</small>
+                            <small data-i18n="tab.flow.palette.message">Message</small>
                         </div>
                         
                         <div class="palette-item" draggable="true" data-type="calendar">
@@ -69,7 +69,7 @@
                                     <div class="output-point"></div>
                                 </div>
                             </div>
-                            <small>Calendar</small>
+                            <small data-i18n="tab.flow.palette.calendar">Calendar</small>
                         </div>
 
                         <div class="palette-item" draggable="true" data-type="end">
@@ -80,7 +80,7 @@
                                     <div class="input-point"></div>
                                 </div>
                             </div>
-                            <small>Fin</small>
+                            <small data-i18n="tab.flow.palette.end">Fin</small>
                         </div>
                         
                         <div class="palette-item" draggable="true" data-type="error">
@@ -91,7 +91,7 @@
                                     <div class="input-point"></div>
                                 </div>
                             </div>
-                            <small>Erreur</small>
+                            <small data-i18n="tab.flow.palette.error">Erreur</small>
                         </div>
                     </div>
                     
@@ -100,23 +100,23 @@
                     <!-- Actions -->
                     <div class="flow-actions">
                         <div class="form-group" style="margin-bottom: 10px;">
-                            <label for="visualsCount" style="font-size: 11px; margin-bottom: 5px;">Nb visuels :</label>
+                            <label for="visualsCount" style="font-size: 11px; margin-bottom: 5px;" data-i18n="tab.flow.visual_count">Nb visuels :</label>
                             <select class="form-control" id="visualsCount" style="font-size: 11px; height: 28px;">
                                 <option value="1" selected>1</option>
                                 <option value="10">10</option>
                                 <option value="50">50</option>
-                                <option value="all">Tous</option>
+                                <option value="all" data-i18n="tab.flow.visual_count_all">Tous</option>
                             </select>
                         </div>
                         
                         <button class="btn btn-success btn-sm btn-block" onclick="generateFlowVisuals()">
-                            <i class="fa fa-magic"></i> Générer
+                            <i class="fa fa-magic"></i> <span data-i18n="tab.flow.generate">Generer</span>
                         </button>
                         <button class="btn btn-info btn-sm btn-block" onclick="validateFlow(true)">
-                            <i class="fa fa-check"></i> Valider
+                            <i class="fa fa-check"></i> <span data-i18n="tab.flow.validate">Valider</span>
                         </button>
                         <button class="btn btn-warning btn-sm btn-block" onclick="clearCanvas()">
-                            <i class="fa fa-trash"></i> Vider
+                            <i class="fa fa-trash"></i> <span data-i18n="tab.flow.clear">Vider</span>
                         </button>
                     </div>
                 </div>
@@ -128,7 +128,7 @@
             <div class="box box-primary">
                 <div class="box-header with-border">
                     <h3 class="box-title">
-                        <i class="fa fa-project-diagram"></i> Concepteur de Flux
+                        <i class="fa fa-project-diagram"></i> <span data-i18n="tab.flow.designer.title">Concepteur de Flux</span>
                     </h3>
                     <div class="box-tools pull-right">
                         <button type="button" class="btn btn-box-tool" onclick="exportFlow()">
@@ -148,6 +148,10 @@
                                         refX="9" refY="3.5" orient="auto">
                                     <polygon points="0 0, 10 3.5, 0 7" fill="#666" />
                                 </marker>
+                                <marker id="arrowhead-default" markerWidth="10" markerHeight="7"
+                                        refX="9" refY="3.5" orient="auto">
+                                    <polygon points="0 0, 10 3.5, 0 7" fill="#1f3f8a" />
+                                </marker>
                             </defs>
                             <g id="connectionsGroup"></g>
                             <g id="boxesGroup"></g>
@@ -162,7 +166,7 @@
             <div class="box box-info" id="boxConfigPanel" style="display: none;">
                 <div class="box-header with-border">
                     <h3 class="box-title">
-                        <i class="fa fa-cog"></i> Configuration
+                        <i class="fa fa-cog"></i> <span data-i18n="tab.flow.config.title">Configuration</span>
                     </h3>
                     <div class="box-tools pull-right">
                         <button type="button" class="btn btn-box-tool" onclick="deselectBox()">
@@ -181,28 +185,28 @@
             <div class="box box-default" id="helpPanel">
                 <div class="box-header with-border">
                     <h3 class="box-title">
-                        <i class="fa fa-question-circle"></i> Aide
+                        <i class="fa fa-question-circle"></i> <span data-i18n="tab.flow.help.title">Aide</span>
                     </h3>
                 </div>
                 <div class="box-body">
-                    <h5>Comment utiliser :</h5>
+                    <h5 data-i18n="tab.flow.help.howto">Comment utiliser :</h5>
                     <ol style="font-size: 12px; padding-left: 15px;">
-                        <li>Glissez une boîte de la palette vers le canvas</li>
-                        <li>Cliquez sur une boîte pour la configurer</li>
-                        <li>Cliquez sur les points de connexion pour relier les boîtes</li>
-                        <li>Configurez les conditions de routage</li>
-                        <li>Générez les visuels pour tester le flux</li>
+                        <li data-i18n="tab.flow.help.step1">Glissez une boite de la palette vers le canvas</li>
+                        <li data-i18n="tab.flow.help.step2">Cliquez sur une boite pour la configurer</li>
+                        <li data-i18n="tab.flow.help.step3">Cliquez sur les points de connexion pour relier les boites</li>
+                        <li data-i18n="tab.flow.help.step4">Configurez les conditions de routage</li>
+                        <li data-i18n="tab.flow.help.step5">Generez les visuels pour tester le flux</li>
                     </ol>
                     
-                    <h5>Types de boîtes :</h5>
+                    <h5 data-i18n="tab.flow.help.types">Types de boites :</h5>
                     <ul style="font-size: 11px; padding-left: 15px;">
-                        <li><span class="label" style="background-color: #28a745;">Start</span> Point de départ</li>
-                        <li><span class="label" style="background-color: #17a2b8;">Route</span> Passage simple</li>
-                        <li><span class="label" style="background-color: #ffc107; color: #333;">Menu</span> Branchement multiple</li>
-                        <li><span class="label" style="background-color: #496bd8;">Message</span> Diffusion d'un message</li>
-                        <li><span class="label" style="background-color: #ebd61d;">Calendar</span> Calendrier d'ouverture</li>
-                        <li><span class="label" style="background-color: #dc3545;">End</span> Point d'arrivée</li>
-                        <li><span class="label" style="background-color: #dc3545;">Error</span> Point d'erreur</li>
+                        <li><span class="label" style="background-color: #28a745;">Start</span> <span data-i18n="tab.flow.help.type_start">Point de depart</span></li>
+                        <li><span class="label" style="background-color: #17a2b8;">Route</span> <span data-i18n="tab.flow.help.type_route">Passage simple</span></li>
+                        <li><span class="label" style="background-color: #ffc107; color: #333;">Menu</span> <span data-i18n="tab.flow.help.type_menu">Branchement multiple</span></li>
+                        <li><span class="label" style="background-color: #496bd8;">Message</span> <span data-i18n="tab.flow.help.type_message">Diffusion d'un message</span></li>
+                        <li><span class="label" style="background-color: #ebd61d;">Calendar</span> <span data-i18n="tab.flow.help.type_calendar">Calendrier d'ouverture</span></li>
+                        <li><span class="label" style="background-color: #dc3545;">End</span> <span data-i18n="tab.flow.help.type_end">Point d'arrivee</span></li>
+                        <li><span class="label" style="background-color: #dc3545;">Error</span> <span data-i18n="tab.flow.help.type_error">Point d'erreur</span></li>
                     </ul>
                 </div>
             </div>
@@ -216,28 +220,28 @@
         <div class="box box-success">
             <div class="box-header with-border">
                 <h3 class="box-title">
-                    <i class="fa fa-eye"></i> Visuels Générés
+                    <i class="fa fa-eye"></i> <span data-i18n="tab.flow.generated_visuals.title">Visuels Generes</span>
                 </h3>
                 <div class="box-tools pull-right">
                     <button type="button" class="btn btn-box-tool" onclick="exportAllVisualsAsPDF()">
-                        <i class="fa fa-file-pdf-o"></i> Export PDF
+                        <i class="fa fa-file-pdf-o"></i> <span data-i18n="tab.flow.generated_visuals.export_pdf">Export PDF</span>
                     </button>                
                     <button type="button" class="btn btn-box-tool dropdown-toggle" data-toggle="dropdown">
                         <span class="caret"></span>
                     </button>
                     <ul class="dropdown-menu">
                         <li><a href="#" onclick="exportAllVisualsAsPDF()">
-                            <i class="fa fa-file-pdf-o"></i> Export PDF rapide
+                            <i class="fa fa-file-pdf-o"></i> <span data-i18n="tab.flow.generated_visuals.export_pdf_quick">Export PDF rapide</span>
                         </a></li>
                         <li><a href="#" onclick="showPDFExportOptions()">
-                            <i class="fa fa-cog"></i> Export PDF avec options
+                            <i class="fa fa-cog"></i> <span data-i18n="tab.flow.generated_visuals.export_pdf_options">Export PDF avec options</span>
                         </a></li>
                     </ul>
                     <button type="button" class="btn btn-box-tool" onclick="exportAllVisualsToDrawio()">
-                        <i class="fa fa-download"></i> Exporter
+                        <i class="fa fa-download"></i> <span data-i18n="tab.flow.generated_visuals.export">Exporter</span>
                     </button>
                     <button type="button" class="btn btn-box-tool" onclick="clearGeneratedVisuals()">
-                        <i class="fa fa-trash"></i> Vider
+                        <i class="fa fa-trash"></i> <span data-i18n="tab.flow.generated_visuals.clear">Vider</span>
                     </button>
                     <button type="button" class="btn btn-box-tool" onclick="toggleVisualsSection()">
                         <i class="fa fa-minus"></i>
@@ -248,8 +252,8 @@
                 <div id="generatedVisualsContent" style="display: none;">
                             <div class="text-center" id="generatingVisuals">
                                 <i class="fa fa-spinner fa-spin fa-2x"></i>
-                                <h4>Génération des visuels en cours...</h4>
-                                <p>Analyse des parcours avec gestion des menus...</p>
+                                <h4 data-i18n="tab.flow.generated_visuals.loading_title">Generation des visuels en cours...</h4>
+                                <p data-i18n="tab.flow.generated_visuals.loading_desc">Analyse des parcours avec gestion des menus...</p>
                             </div>
                     <!-- Les visuels générés apparaîtront ici -->
                 </div>
@@ -267,19 +271,19 @@
                     <span aria-hidden="true">&times;</span>
                 </button>
                 <h4 class="modal-title" id="importFlowModalLabel">
-                    <i class="fa fa-upload"></i> Importer un Flow
+                    <i class="fa fa-upload"></i> <span data-i18n="tab.flow.import_modal.title">Importer un Flow</span>
                 </h4>
             </div>
             <div class="modal-body">
                 <div class="form-group">
-                    <label for="flowImportFile">Sélectionner un fichier JSON :</label>
+                    <label for="flowImportFile" data-i18n="tab.flow.import_modal.select_file">Selectionner un fichier JSON :</label>
                     <input type="file" class="form-control" id="flowImportFile" accept=".json">
                 </div>
                 <div id="importError" class="alert alert-danger" style="display: none;"></div>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-default" data-dismiss="modal">Annuler</button>
-                <button type="button" class="btn btn-primary" onclick="processFlowImport()">Importer</button>
+                <button type="button" class="btn btn-default" data-dismiss="modal" data-i18n="common.cancel">Annuler</button>
+                <button type="button" class="btn btn-primary" onclick="processFlowImport()" data-i18n="common.import">Importer</button>
             </div>
         </div>
     </div>

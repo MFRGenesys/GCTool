@@ -3,7 +3,7 @@
 <head>
     <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <title>GCTool - Outils d'Administration</title>
+    <title data-i18n="app.meta_title">GCTool - Outils d'Administration</title>
     <link rel="icon" href="gctool.ico" type="image/x-icon">
     <meta content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" name="viewport">
     
@@ -22,8 +22,8 @@
             <div class="loading-spinner">
                 <i class="fa fa-spinner fa-spin"></i>
             </div>
-            <h4>Chargement des données Genesys Cloud...</h4>
-            <p id="loadingStatus">Initialisation...</p>
+            <h4 data-i18n="app.loading.title">Chargement des donnees Genesys Cloud...</h4>
+            <p id="loadingStatus" data-i18n="app.loading.status.init">Initialisation...</p>
         </div>
     </div>
 
@@ -32,13 +32,14 @@
         <div class="container">
             <div class="row">
                 <div class="col-md-8">
-                    <h1><i class="fa fa-cloud"></i> Genesys Cloud - Outils d'Administration</h1>
-                    <div class="subtitle">Suite d'outils pour l'administration et le contrôle de votre organisation Genesys Cloud</div>
+                    <h1><i class="fa fa-cloud"></i> <span data-i18n="app.header.title">Genesys Cloud - Outils d'Administration</span></h1>
+                    <div class="subtitle" data-i18n="app.header.subtitle">Suite d'outils pour l'administration et le controle de votre organisation Genesys Cloud</div>
                 </div>
                 <div class="col-md-4 text-right">
+                    <div id="languageSwitcher" class="language-switcher"></div>
                     <div id="userInfo" class="user-info" style="display: none;">
-                        <strong id="userName">Utilisateur</strong><br>
-                        <small id="orgInfo">Organisation</small>
+                        <strong id="userName" data-i18n="app.user.default_name">Utilisateur</strong><br>
+                        <small id="orgInfo" data-i18n="app.user.default_org">Organisation</small>
                     </div>
                 </div>
             </div>
@@ -49,7 +50,7 @@
     <div class="container">
         <!-- Error Message -->
         <div id="errorMessage" class="error-message" style="display: none;">
-            <h4><i class="fa fa-exclamation-triangle"></i> Erreur d'initialisation</h4>
+            <h4><i class="fa fa-exclamation-triangle"></i> <span data-i18n="app.error.init_title">Erreur d'initialisation</span></h4>
             <p id="errorDetails"></p>
         </div>
 
@@ -60,38 +61,38 @@
             <ul class="nav nav-tabs" role="tablist">
                 <li role="presentation" class="active">
                     <a href="#information" aria-controls="information" role="tab" data-toggle="tab">
-                        <i class="fa fa-info-circle"></i> Information
+                        <i class="fa fa-info-circle"></i> <span data-i18n="app.tabs.information">Information</span>
                     </a>
                 </li>
                 <li role="presentation">
                     <a href="#datatables-controller" aria-controls="datatables-controller" role="tab" data-toggle="tab">
-                        <i class="fa fa-table"></i> Contrôleur DataTables
+                        <i class="fa fa-table"></i> <span data-i18n="app.tabs.datatables_controller">Controleur DataTables</span>
                     </a>
                 </li>
                 <li role="presentation">
                     <a href="#datatables-flow" aria-controls="datatables-flow" role="tab" data-toggle="tab">
-                        <i class="fa fa-project-diagram"></i> Flows
+                        <i class="fa fa-project-diagram"></i> <span data-i18n="app.tabs.flows">Flows</span>
                     </a>
                 </li>
                 <li role="presentation">
                     <a href="#logs-flow" aria-controls="logs-flow" role="tab" data-toggle="tab">
-                        <i class="fa fa-exchange"></i> Flux Logs
+                        <i class="fa fa-exchange"></i> <span data-i18n="app.tabs.logs_flow">Flux Logs</span>
                     </a>
                 </li>
                 <li role="presentation">
                     <a href="#priorisation" aria-controls="priorisation" role="tab" data-toggle="tab">
-                        <i class="fa fa-chart-bar"></i> Priorisation
+                        <i class="fa fa-chart-bar"></i> <span data-i18n="app.tabs.priorisation">Priorisation</span>
                     </a>
                 </li>
                 <li role="presentation">
                     <a href="#api-explorer" aria-controls="api-explorer" role="tab" data-toggle="tab">
-                        <i class="fa fa-code"></i> API Explorer
+                        <i class="fa fa-code"></i> <span data-i18n="app.tabs.api_explorer">API Explorer</span>
                     </a>
                 </li>
                 <!-- Prêt pour d'autres onglets -->
                 <li role="presentation" class="disabled">
                     <a href="#" aria-controls="" role="tab">
-                        <i class="fa fa-plus"></i> Autres outils (à venir)
+                        <i class="fa fa-plus"></i> <span data-i18n="app.tabs.other_tools">Autres outils (a venir)</span>
                     </a>
                 </li>
             </ul>
@@ -137,6 +138,10 @@
     <script src="./Scripts/jquery.min.js"></script>
     <script src="./Scripts/bootstrap.min.js"></script>
     <script src="./Scripts/select2.full.min.js"></script>
+    <script src="./Scripts/i18n/locales/fr-FR.js"></script>
+    <script src="./Scripts/i18n/locales/en-US.js"></script>
+    <script src="./Scripts/i18n/locales/es-ES.js"></script>
+    <script src="./Scripts/i18n.js"></script>
     
     <!-- Scripts spécifiques aux onglets -->
     <script src="./Scripts/tabs/information.js"></script>

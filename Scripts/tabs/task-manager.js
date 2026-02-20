@@ -362,10 +362,20 @@ function generateTasksConfigSection(box) {
     
     let html = `
         <div class="config-section">
-            <h5>
-                <i class="fa fa-tasks"></i> Gestion des Tâches 
-                <span class="badge badge-info">${tasks.length}</span>
-            </h5>
+            <div class="row">
+                <div class="col-md-8">
+                <h5>
+                    <i class="fa fa-tasks"></i> Gestion des Tâches 
+                    <span class="badge badge-info">${tasks.length}</span>
+                </h5>
+                </div>
+                <div class="col-md-4 text-right">
+                    <button type="button" class="btn btn-xs btn-success" 
+                        onclick="showTaskForm('${box.id}')">
+                        <i class="fa fa-plus"></i>
+                    </button>
+                </div>
+            </div>
             <div id="tasksContainer">
     `;
 
@@ -431,10 +441,10 @@ function generateTasksConfigSection(box) {
                 </div>
             </div>
             
-            <button type="button" class="btn btn-primary btn-sm" 
+            <!--<button type="button" class="btn btn-primary btn-sm" 
                     onclick="showTaskForm('${box.id}')">
                 <i class="fa fa-plus"></i> Ajouter une tâche
-            </button>
+            </button>-->
         </div>
     </div>
     `;
@@ -779,7 +789,7 @@ function generateTaskSubSteps(box, rowData) {
         
         subStepsHtml += subStepContent;
     });
-    console.log(`DEBUG SubSteps HTML`,subStepsHtml);
+    //console.log(`DEBUG SubSteps HTML`,subStepsHtml);
     return subStepsHtml;
 }
 

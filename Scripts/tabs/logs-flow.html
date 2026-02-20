@@ -2,14 +2,14 @@
 <div class="box box-primary" id="logsFlowRoot">
   <div class="box-header with-border">
     <h3 class="box-title">
-      <i class="fa fa-exchange"></i> Flux Logs v1.05
+      <i class="fa fa-exchange"></i> <span data-i18n="tab.logs_flow.title">Flux Logs v1.05</span>
     </h3>
     <!-- ================= Menus groupés ================= -->
     <div id="logsMenusToolbar" class="box-tools pull-left" Style="left: 200px;">
       <!-- Menu 1 : Chargement de données -->
       <div class="btn-group dropdown" id="menuDataGroup">
           <button class="btn btn-sm dropdown-toggle" type="button" data-toggle="dropdown">
-            <i class="fa fa-database"></i> Chargement de données <span class="caret"></span>
+            <i class="fa fa-database"></i> <span data-i18n="tab.logs_flow.menu.data_load">Chargement de donnees</span> <span class="caret"></span>
           </button>
           <ul class="dropdown-menu" style="width:300px">
             <li><a href="#" id="menuImportCsv"><i class="fa fa-file-text-o"></i> Chargement des interactions depuis CSV</a></li>
@@ -25,7 +25,7 @@
         <!-- Menu 2 : Gestion du graphe -->
       <div class="btn-group dropdown" id="menuGraphGroup">
           <button class="btn btn-sm dropdown-toggle" type="button" data-toggle="dropdown">
-            <i class="fa fa-project-diagram"></i> Gestion du graphe <span class="caret"></span>
+            <i class="fa fa-project-diagram"></i> <span data-i18n="tab.logs_flow.menu.graph">Gestion du graphe</span> <span class="caret"></span>
           </button>
           <ul class="dropdown-menu" style="width:300px">
             <li><a href="#" id="menuBuildFromLocal"><i class="fa fa-play"></i> Construire depuis données locales</a></li>
@@ -91,7 +91,7 @@
     <div class="row">
       <div class="col-md-3" id="logsLeftCol">
         <div class="well well-sm" style="min-height:110px">
-          <strong>Utilisation</strong>
+          <strong data-i18n="tab.logs_flow.usage">Utilisation</strong>
           <ul style="padding-left:18px;margin-top:6px">
             <li>Double‑cliquez sur le canevas pour <em>ajouter une boîte</em>.</li>
             <li>Chaque boîte doit avoir un <strong>Label</strong> et un <strong>Point de passage</strong> au format <code>AAAA[999]</code> (3‑4 lettres + 3‑4 chiffres entre crochets).</li>
@@ -115,7 +115,7 @@
       </div>
       <div class="col-md-9" id="logsRightCol" style="position:relative;">
         <button id="toggleLeftColBtn" class="btn btn-default btn-xs"
-            title="Masquer le panneau"
+            title="Masquer le panneau" data-i18n-title="tab.logs_flow.toggle_panel"
             style="position:absolute; top:6px; left:6px; z-index:10;">
           <i class="fa fa-chevron-left"></i>
         </button>

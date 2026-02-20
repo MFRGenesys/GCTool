@@ -1,7 +1,7 @@
 <div class="box box-primary" id="apiExplorerRoot">
   <div class="box-header with-border">
     <h3 class="box-title">
-      <i class="fa fa-code"></i> API Explorer Genesys Cloud
+      <i class="fa fa-code"></i> <span data-i18n="tab.api_explorer.title">API Explorer Genesys Cloud</span>
     </h3>
   </div>
 
@@ -9,12 +9,12 @@
     <div class="api-explorer-layout">
       <div class="api-left-panel">
         <div class="api-panel-header">
-          <strong class="api-panel-title">Liste API</strong>
+          <strong class="api-panel-title" data-i18n="tab.api_explorer.api_list">Liste API</strong>
           <div class="api-panel-actions">
-            <button id="apiExplorerToggleLeftListBtn" type="button" class="api-panel-toggle" title="Replier la liste API (afficher l aide)" aria-label="Replier la liste API">
+            <button id="apiExplorerToggleLeftListBtn" type="button" class="api-panel-toggle" title="Replier la liste API (afficher l aide)" aria-label="Replier la liste API" data-i18n-title="tab.api_explorer.toggle_list" data-i18n-aria-label="tab.api_explorer.toggle_list">
               <i class="fa fa-chevron-up"></i>
             </button>
-            <button id="apiExplorerToggleLeftPanelBtn" type="button" class="api-panel-toggle" title="Replier le panneau API" aria-label="Replier le panneau API">
+            <button id="apiExplorerToggleLeftPanelBtn" type="button" class="api-panel-toggle" title="Replier le panneau API" aria-label="Replier le panneau API" data-i18n-title="tab.api_explorer.toggle_panel" data-i18n-aria-label="tab.api_explorer.toggle_panel">
               <i class="fa fa-angle-double-left"></i>
             </button>
           </div>
@@ -23,8 +23,8 @@
         <div id="apiExplorerLeftPanelBody" class="api-left-panel-body">
           <div id="apiExplorerLeftListSection">
             <div class="form-group">
-              <label for="apiExplorerSearchInput">Filtre textuel</label>
-              <input id="apiExplorerSearchInput" type="text" class="form-control" placeholder="Filtrer par categorie, methode, route..." />
+              <label for="apiExplorerSearchInput" data-i18n="tab.api_explorer.text_filter">Filtre textuel</label>
+              <input id="apiExplorerSearchInput" type="text" class="form-control" placeholder="Filtrer par categorie, methode, route..." data-i18n-placeholder="tab.api_explorer.text_filter_placeholder" />
             </div>
 
             <div class="api-method-filters">
@@ -36,7 +36,7 @@
             </div>
 
             <div class="well well-sm api-favorites-box">
-              <strong><i class="fa fa-star"></i> Favoris</strong>
+              <strong><i class="fa fa-star"></i> <span data-i18n="tab.api_explorer.favorites">Favoris</span></strong>
               <div id="apiExplorerFavoritesList" class="api-favorites-list"></div>
             </div>
 
@@ -47,14 +47,14 @@
           <div class="panel panel-default api-jsonpath-help">
             <div class="panel-heading">
               <div class="api-panel-header api-panel-header-inline">
-                <strong><i class="fa fa-book"></i> Aide JSONPath</strong>
-                <button id="apiExplorerToggleJsonPathHelpBtn" type="button" class="api-panel-toggle" title="Afficher l aide JSONPath" aria-label="Afficher l aide JSONPath">
+                <strong><i class="fa fa-book"></i> <span data-i18n="tab.api_explorer.jsonpath_help">Aide JSONPath</span></strong>
+                <button id="apiExplorerToggleJsonPathHelpBtn" type="button" class="api-panel-toggle" title="Afficher l aide JSONPath" aria-label="Afficher l aide JSONPath" data-i18n-title="tab.api_explorer.jsonpath_help_toggle" data-i18n-aria-label="tab.api_explorer.jsonpath_help_toggle">
                   <i class="fa fa-chevron-down"></i>
                 </button>
               </div>
             </div>
             <div id="apiExplorerJsonPathHelpBody" class="panel-body api-jsonpath-help-body">
-              <div class="small text-muted" style="margin-bottom:6px;">
+              <div class="small text-muted" style="margin-bottom:6px;" data-i18n="tab.api_explorer.json_sample_caption">
                 JSON d'exemple utilise dans les expressions ci-dessous:
               </div>
               <pre class="api-jsonpath-sample">{
@@ -162,7 +162,7 @@
 
       <div class="api-main-panel">
         <div id="apiExplorerEmptyState" class="alert alert-info" style="margin-bottom:0;">
-          Selectionnez une API dans le menu de gauche pour afficher ses parametres et executer l'appel.
+          <span data-i18n="tab.api_explorer.empty_state">Selectionnez une API dans le menu de gauche pour afficher ses parametres et executer l'appel.</span>
         </div>
 
         <div id="apiExplorerWorkbench" style="display:none;">
@@ -178,8 +178,8 @@
           <div id="apiExplorerRequestPanel" class="panel panel-default api-request-panel">
             <div class="panel-heading">
               <div class="api-panel-header api-panel-header-inline">
-                <strong class="api-panel-title">Parametres de la requete</strong>
-                <button id="apiExplorerToggleRequestPanelBtn" type="button" class="api-panel-toggle" title="Replier les parametres de requete" aria-label="Replier les parametres de requete">
+                <strong class="api-panel-title" data-i18n="tab.api_explorer.request_params">Parametres de la requete</strong>
+                <button id="apiExplorerToggleRequestPanelBtn" type="button" class="api-panel-toggle" title="Replier les parametres de requete" aria-label="Replier les parametres de requete" data-i18n-title="tab.api_explorer.request_params_toggle" data-i18n-aria-label="tab.api_explorer.request_params_toggle">
                   <i class="fa fa-chevron-up"></i>
                 </button>
               </div>
@@ -187,35 +187,35 @@
             <div id="apiExplorerRequestPanelBody" class="panel-body">
               <div class="row">
                 <div class="col-md-6">
-                  <h5>Parametres requis</h5>
+                  <h5 data-i18n="tab.api_explorer.required_params">Parametres requis</h5>
                   <div class="btn-group btn-group-xs" style="margin-bottom:8px;">
-                    <button id="apiExplorerModeFieldsBtn" type="button" class="btn btn-default active">Mode champs</button>
-                    <button id="apiExplorerModeBatchBtn" type="button" class="btn btn-default">Mode lot JSON</button>
+                    <button id="apiExplorerModeFieldsBtn" type="button" class="btn btn-default active" data-i18n="tab.api_explorer.mode_fields">Mode champs</button>
+                    <button id="apiExplorerModeBatchBtn" type="button" class="btn btn-default" data-i18n="tab.api_explorer.mode_batch">Mode lot JSON</button>
                   </div>
                   <div id="apiExplorerParamsForm"></div>
                   <div id="apiExplorerBatchPanel" style="display:none;">
-                    <div class="small text-muted" style="margin-bottom:6px;">
+                    <div class="small text-muted" style="margin-bottom:6px;" data-i18n-html="tab.api_explorer.batch_expected_json">
                       JSON attendu: tableau d'objets avec les parametres requis. Optionnel: <code>body</code> et <code>options</code>.
                     </div>
                     <textarea id="apiExplorerBatchJson" class="form-control" rows="8" placeholder='[{"id":"..."}]' spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off"></textarea>
                     <div id="apiExplorerBatchJsonValidation" class="small text-muted" style="margin-top:6px;">
-                      JSON lot: en attente de saisie.
+                      <span data-i18n="tab.api_explorer.batch_waiting">JSON lot: en attente de saisie.</span>
                     </div>
                   </div>
                 </div>
                 <div class="col-md-6">
                   <div class="form-group">
-                    <label for="apiExplorerBodyJson">Body JSON (POST/PATCH/PUT)</label>
+                    <label for="apiExplorerBodyJson" data-i18n="tab.api_explorer.body_json">Body JSON (POST/PATCH/PUT)</label>
                     <textarea id="apiExplorerBodyJson" class="form-control" rows="7" placeholder='{"key":"value"}'></textarea>
                   </div>
                   <div class="form-group">
-                    <label for="apiExplorerOptionsJson">Options JSON (params optionnels / query)</label>
+                    <label for="apiExplorerOptionsJson" data-i18n="tab.api_explorer.options_json">Options JSON (params optionnels / query)</label>
                     <textarea id="apiExplorerOptionsJson" class="form-control" rows="6" placeholder='{"pageSize":25,"pageNumber":1}'></textarea>
                   </div>
                   <div class="checkbox" style="margin-top:6px;">
                     <label>
                       <input id="apiExplorerPostAutoPaging" type="checkbox">
-                      Pagination auto pour POST (appel page par page)
+                      <span data-i18n="tab.api_explorer.auto_paging_post">Pagination auto pour POST (appel page par page)</span>
                     </label>
                   </div>
                 </div>
@@ -224,14 +224,14 @@
               <div class="form-group" style="margin-top:10px; margin-bottom:0;">
                 <div class="btn-group">
                   <button id="apiExplorerExecuteBtn" class="btn btn-primary" type="button">
-                    <i class="fa fa-play"></i> Executer
+                    <i class="fa fa-play"></i> <span data-i18n="tab.api_explorer.execute">Executer</span>
                   </button>
-                  <button type="button" class="btn btn-primary dropdown-toggle" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" title="Options d execution">
+                  <button type="button" class="btn btn-primary dropdown-toggle" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" title="Options d execution" data-i18n-title="tab.api_explorer.execute_options">
                     <span class="caret"></span>
-                    <span class="sr-only">Options</span>
+                    <span class="sr-only" data-i18n="common.options">Options</span>
                   </button>
                   <ul class="dropdown-menu">
-                    <li><a id="apiExplorerExecuteNewTabBtn" href="#"><i class="fa fa-plus-square-o"></i> Executer dans un nouvel onglet</a></li>
+                    <li><a id="apiExplorerExecuteNewTabBtn" href="#"><i class="fa fa-plus-square-o"></i> <span data-i18n="tab.api_explorer.execute_new_tab">Executer dans un nouvel onglet</span></a></li>
                   </ul>
                 </div>
                 <span id="apiExplorerExecutionStatus" class="text-muted" style="margin-left:10px;"></span>
@@ -241,7 +241,7 @@
 
           <div class="panel panel-default" style="margin-bottom:0;">
             <div class="panel-heading">
-              <strong>Traitement de la reponse</strong>
+              <strong data-i18n="tab.api_explorer.response_processing">Traitement de la reponse</strong>
               <span id="apiExplorerResponseStats" class="small text-muted" style="margin-left:10px;">
                 totalHits: - | page: - / -
               </span>
@@ -251,10 +251,10 @@
                 <ul id="apiExplorerResponseTabs" class="nav nav-tabs api-response-tabs"></ul>
               </div>
               <div class="api-inline-tools" style="margin-bottom:10px;">
-                <input id="apiExplorerProjectionPath" type="text" class="form-control" style="max-width:460px;" placeholder="Projection JSON (ex: entities[].id)" list="apiExplorerProjectionSuggestions" autocomplete="off" spellcheck="false" />
+                <input id="apiExplorerProjectionPath" type="text" class="form-control" style="max-width:460px;" placeholder="Projection JSON (ex: entities[].id)" data-i18n-placeholder="tab.api_explorer.projection_placeholder" list="apiExplorerProjectionSuggestions" autocomplete="off" spellcheck="false" />
                 <datalist id="apiExplorerProjectionSuggestions"></datalist>
                 <label class="checkbox-inline" style="margin-top:6px;">
-                  <input id="apiExplorerProjectionGroupByObject" type="checkbox" checked> groupe par objet
+                  <input id="apiExplorerProjectionGroupByObject" type="checkbox" checked> <span data-i18n="tab.api_explorer.group_by_object">groupe par objet</span>
                 </label>
                 <button id="apiExplorerApplyProjectionBtn" class="btn btn-default" type="button" title="Filter">
                   <i class="fa fa-filter"></i>
@@ -267,21 +267,21 @@
                     <i class="fa fa-file-export"></i> <span class="caret"></span>
                   </button>
                   <ul class="dropdown-menu dropdown-menu-right">
-                    <li><a id="apiExplorerExportCsvBtn" href="#">Exporter CSV</a></li>
-                    <li><a id="apiExplorerExportJsonBtn" href="#">Exporter JSON</a></li>
+                    <li><a id="apiExplorerExportCsvBtn" href="#" data-i18n="tab.api_explorer.export_csv">Exporter CSV</a></li>
+                    <li><a id="apiExplorerExportJsonBtn" href="#" data-i18n="tab.api_explorer.export_json">Exporter JSON</a></li>
                   </ul>
                 </div>
               </div>
-              <div id="apiExplorerResponse" class="api-response">Aucune reponse pour le moment.</div>
+              <div id="apiExplorerResponse" class="api-response" data-i18n="tab.api_explorer.no_response">Aucune reponse pour le moment.</div>
               <div class="api-response-meta">
-                <div id="apiExplorerResponseSize" class="small text-muted api-response-size">Taille reponse: -</div>
+                <div id="apiExplorerResponseSize" class="small text-muted api-response-size" data-i18n="tab.api_explorer.response_size">Taille reponse: -</div>
                 <div class="api-response-view-switch">
-                  <span class="api-response-view-switch-label">Texte</span>
-                  <label class="api-switch" title="Basculer entre texte brut et vision NODE">
+                  <span class="api-response-view-switch-label" data-i18n="tab.api_explorer.view_text">Texte</span>
+                  <label class="api-switch" title="Basculer entre texte brut et vision NODE" data-i18n-title="tab.api_explorer.view_switch_title">
                     <input id="apiExplorerResponseNodeViewSwitch" type="checkbox" checked disabled>
                     <span class="api-switch-slider"></span>
                   </label>
-                  <span class="api-response-view-switch-label">NODE</span>
+                  <span class="api-response-view-switch-label" data-i18n="tab.api_explorer.view_node">NODE</span>
                 </div>
               </div>
               <div id="apiExplorerResponseRenderHint" class="small text-warning api-response-render-hint"></div>

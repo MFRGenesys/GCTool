@@ -1,4 +1,4 @@
-/**
+﻿/**
  * datatables-flow.js
  * Concepteur de flux DataTables avec interface graphique
  * Auteur: PS Genesys - Matthieu FRYS
@@ -14,10 +14,13 @@ let draggedBoxType = null;
 let nextBoxId = 1;
 let isConnecting = false;
 let connectionStart = null;
-let tempLine = null; 
-let isDrawingConnection = false;
+let tempLine = null;
+const FLOW_CANVAS_PADDING = 50;
+const FLOW_CANVAS_MIN_WIDTH = 700;
+const FLOW_CANVAS_MIN_HEIGHT = 740;
 
-// Configuration des types de boîtes
+let flowDesignerInitialized = false;
+// Configuration des types de boites
 const BOX_TYPES = {
     start: {
         name: 'Start',
@@ -189,7 +192,11 @@ function checkBootstrapDependencies() {
  * Initialisation optimisée de l'interface
  */
 function initializeFlowDesigner() {
-    console.log('🎨 Initialisation du concepteur de flux optimisé');
+    if (flowDesignerInitialized) {
+        optimizeInitialLayout();
+        return;
+    }
+    console.log('Initialisation du concepteur de flux optimisé');
     
     // Vérifier les dépendances
     if (!checkBootstrapDependencies()) {
@@ -206,6 +213,7 @@ function initializeFlowDesigner() {
     optimizeInitialLayout();
     loadFlowFromCookie();
     loadGeneratedVisualsFromStorage();
+    flowDesignerInitialized = true;
 
     console.log('✅ Concepteur de flux optimisé initialisé');
 }
@@ -224,15 +232,50 @@ function optimizeInitialLayout() {
     // Ajuster la hauteur du canvas selon la taille de l'écran
     const canvas = document.getElementById('flowCanvas');
     if (canvas) {
-        const windowHeight = window.innerHeight;
-        const optimalHeight = Math.max(500, Math.min(800, windowHeight - 200));
+        const row = document.querySelector('.flow-designer-row');
+        const rowHeight = row ? row.clientHeight : Math.max(420, Math.min(820, window.innerHeight - 220));
+        const optimalHeight = Math.max(280, rowHeight - 80);
         canvas.style.height = optimalHeight + 'px';
-        
-        const svg = document.getElementById('flowSvg');
-        if (svg) {
-            svg.setAttribute('height', optimalHeight);
-        }
+        updateFlowCanvasSize();
     }
+}
+
+function getCanvasPointerPosition(event) {
+    if (!flowCanvas) {
+        return { x: 0, y: 0 };
+    }
+    const rect = flowCanvas.getBoundingClientRect();
+    return {
+        x: event.clientX - rect.left + flowCanvas.scrollLeft,
+        y: event.clientY - rect.top + flowCanvas.scrollTop
+    };
+}
+
+function updateFlowCanvasSize() {
+    if (!flowCanvas) {
+        return;
+    }
+
+    const svg = document.getElementById('flowSvg');
+    if (!svg) {
+        return;
+    }
+
+    const minWidth = Math.max(flowCanvas.clientWidth, FLOW_CANVAS_MIN_WIDTH);
+    const minHeight = Math.max(flowCanvas.clientHeight, FLOW_CANVAS_MIN_HEIGHT);
+
+    let maxRight = 0;
+    let maxBottom = 0;
+    flowBoxes.forEach(box => {
+        maxRight = Math.max(maxRight, box.x + box.width);
+        maxBottom = Math.max(maxBottom, box.y + box.height);
+    });
+
+    const targetWidth = Math.max(minWidth, maxRight + FLOW_CANVAS_PADDING);
+    const targetHeight = Math.max(minHeight, maxBottom + FLOW_CANVAS_PADDING);
+
+    svg.setAttribute('width', String(Math.ceil(targetWidth)));
+    svg.setAttribute('height', String(Math.ceil(targetHeight)));
 }
 
 
@@ -263,6 +306,7 @@ window.addEventListener('error', function(e) {
 function setupFlowCanvas() {
     flowCanvas = document.getElementById('flowCanvas');
     const svg = document.getElementById('flowSvg');
+    updateFlowCanvasSize();
     
     // Événement de drop sur le canvas
     flowCanvas.addEventListener('drop', handleCanvasDrop);
@@ -300,9 +344,9 @@ function handleCanvasDrop(e) {
     
     if (!draggedBoxType) return;
     
-    const rect = flowCanvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    const pointer = getCanvasPointerPosition(e);
+    const x = pointer.x;
+    const y = pointer.y;
     
     // Vérifier si c'est une boîte unique (Start)
     if (BOX_TYPES[draggedBoxType].unique && hasBoxOfType(draggedBoxType)) {
@@ -333,8 +377,8 @@ function createFlowBox(type, x, y) {
     const box = {
         id: boxId,
         type: type,
-        x: x - 60, // Centrer la boîte
-        y: y - 40,
+        x: Math.max(0, x - 60), // Centrer la boîte
+        y: Math.max(0, y - 40),
         width: 120,
         height: 80,
         displayName: boxConfig.displayName,
@@ -372,6 +416,7 @@ function createFlowBox(type, x, y) {
     
     // Sauvegarder dans la map
     flowBoxes.set(boxId, box);
+    updateFlowCanvasSize();
     
     // Sélectionner la nouvelle boîte
     selectBox(boxId);
@@ -470,6 +515,7 @@ function createConnectionPoints(group, box, config) {
         point.setAttribute('class', 'connection-point input-point');
         point.setAttribute('data-type', 'input');
         point.setAttribute('data-index', i);
+        point.setAttribute('data-box-id', box.id);
         
         point.addEventListener('click', (e) => {
             e.stopPropagation();
@@ -494,6 +540,7 @@ function createConnectionPoints(group, box, config) {
         point.setAttribute('class', 'connection-point output-point');
         point.setAttribute('data-type', 'output');
         point.setAttribute('data-index', i);
+        point.setAttribute('data-box-id', box.id);
         
         point.addEventListener('click', (e) => {
             e.stopPropagation();
@@ -515,7 +562,7 @@ function handleConnectionPoint(boxId, type, index) {
             isConnecting = true;
             connectionStart = { boxId, type, index };
             const outputPoint = document.querySelector(
-                `[data-box="${boxId}"] .connection-point[data-type="output"][data-index="${index}"]`
+                `.connection-point[data-box-id="${boxId}"][data-type="output"][data-index="${index}"]`
             );
             if (outputPoint) {
                 outputPoint.style.fill = '#ff6b6b';
@@ -595,6 +642,9 @@ function drawConnection(connection) {
     
     const toX = toBox.x + toBox.width / 2;
     const toY = toBox.y ;
+    const useDefaultStyle = isDefaultOutput(fromBox, connection.from.index);
+    const lineColor = useDefaultStyle ? '#1f3f8a' : '#666';
+    const markerId = useDefaultStyle ? 'arrowhead-default' : 'arrowhead';
       // Créer un groupe pour la connexion (ligne + texte)
     const connectionGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
     connectionGroup.setAttribute('class', 'connection-group');
@@ -606,16 +656,16 @@ function drawConnection(connection) {
     line.setAttribute('y1', fromY);
     line.setAttribute('x2', toX);
     line.setAttribute('y2', toY);
-    line.setAttribute('stroke', '#666');
+    line.setAttribute('stroke', lineColor);
     line.setAttribute('stroke-width', '2');
-    line.setAttribute('marker-end', 'url(#arrowhead)');
+    line.setAttribute('marker-end', `url(#${markerId})`);
     line.setAttribute('class', 'connection-line');
     line.setAttribute('data-connection-id', connection.id);
     
     const conditionText = getConditionText(fromBox, connection.from.index);
     if (conditionText) {
         // Calculer le point médian de la ligne avec décallage si plusieurs connexions
-        textSpacing = (toY - fromY) / (fromBox.currentOutputs + 1);
+        const textSpacing = (toY - fromY) / (fromBox.currentOutputs + 1);
         const midX = (fromX + toX) / 2;
         const midY = fromY  + textSpacing * (connection.from.index + 1);
 
@@ -672,18 +722,19 @@ function drawConnection(connection) {
 /**
  * Raccourcissement du texte de condition si trop long
  */
+function isDefaultOutput(box, outputIndex) {
+    const condition = box?.outputConditions?.[outputIndex];
+    return Boolean(condition && condition.isDefault);
+}
+
 function getConditionText(box, outputIndex) {
     const condition = box.outputConditions[outputIndex];
     if (!condition) return null;
     
-    if (condition.isDefault) {
-        return 'Par défaut';
-    }
-    
     if (condition.column && condition.value) {
         const fullText = `${condition.column} = "${condition.value}"`;
         
-        // Raccourcir si trop long (plus de 20 caractères)
+        // Raccourcir si trop long (plus de 20 caracteres)
         if (fullText.length > 20) {
             const shortValue = condition.value.length > 8 ? 
                 condition.value.substring(0, 8) + '...' : 
@@ -693,8 +744,34 @@ function getConditionText(box, outputIndex) {
         
         return fullText;
     }
+
+    if (condition.isDefault) {
+        return `Sortie ${outputIndex + 1}`;
+    }
     
     return null;
+}
+
+function getFlowStepIconClass(type) {
+    return (BOX_TYPES[type] && BOX_TYPES[type].icon) ? BOX_TYPES[type].icon : 'fa-circle';
+}
+
+function extractBoxIdsFromBoxXmlList(boxesXML) {
+    if (!boxesXML || !boxesXML.length) return [];
+    const ids = [];
+    boxesXML.forEach(boxXml => {
+        const idMatch = boxXml.match(/id=\"([^\"]+)\"/);
+        if (idMatch && idMatch[1]) {
+            const rawId = idMatch[1];
+            ids.push(rawId);
+            let candidate = rawId;
+            while (candidate.includes('_')) {
+                candidate = candidate.substring(0, candidate.lastIndexOf('_'));
+                ids.push(candidate);
+            }
+        }
+    });
+    return Array.from(new Set(ids));
 }
 
 /**
@@ -786,10 +863,10 @@ function deselectBox() {
 function generateBoxConfigHTML(box) {
     const config = BOX_TYPES[box.type];
     
-    let html = `<h5><i class="fa ${config.icon} inline-element"></i><input type="text" class="form-control inline-element"
+    let html = `<h5 class="box-config-title"><i class="fa ${config.icon}"></i><input type="text" class="form-control box-title-input"
                          id="boxDisplayName" 
                          onchange="updateBoxDisplayName('${box.id}', this.value)"
-                         value = "${box.displayName}"></input> </h5>`;
+                         value="${box.displayName}"></h5>`;
     //Ajout d'un champ description
     html += `
         <div class="form-group">
@@ -854,19 +931,14 @@ function generateBoxConfigHTML(box) {
                     <div class="outputs-management">
                         <div class="row">
                             <div class="col-md-8">
-                                <h6><i class="fa fa-right-from-bracket"></i> Sorties (${box.currentOutputs}/${config.maxOutputs})</h6>
-                                <small class="text-muted">Min:${config.minOutputs},Max:${config.maxOutputs}</small>
+                                <h5><i class="fa fa-right-from-bracket"></i> Sorties (${box.currentOutputs}/${config.maxOutputs})</h5>
+                                <!--<small class="text-muted">Min:${config.minOutputs},Max:${config.maxOutputs}</small>-->
                             </div>
                             <div class="col-md-4 text-right">
                                 <button type="button" class="btn btn-xs btn-success" 
                                         onclick="addOutput('${box.id}')"
                                         ${box.currentOutputs >= config.maxOutputs ? 'disabled' : ''}>
                                     <i class="fa fa-plus"></i>
-                                </button>
-                                <button type="button" class="btn btn-xs btn-danger" 
-                                        onclick="removeOutput('${box.id}')"
-                                        ${box.currentOutputs <= config.minOutputs ? 'disabled' : ''}>
-                                    <i class="fa fa-minus"></i>
                                 </button>
                             </div>
                         </div>
@@ -898,29 +970,36 @@ function generateBoxConfigHTML(box) {
 /**
  * Génération des options DataTable
  */
-function generateDataTableOptions(selectedId) {
-    let options = '';
-    dataTablesCache.forEach(dataTable => {
-        const selected = dataTable.id === selectedId ? 'selected' : '';
-        options += `<option value="${dataTable.id}" ${selected}>${dataTable.name}</option>`;
-    });
-    return options;
-}
+// function generateDataTableOptions(selectedId) {
+//     let options = '';
+//     dataTablesCache.forEach(dataTable => {
+//         const selected = dataTable.id === selectedId ? 'selected' : '';
+//         options += `<option value="${dataTable.id}" ${selected}>${dataTable.name}</option>`;
+//     });
+//     return options;
+// }
 
 /**
  * Génération du HTML pour une sortie spécifique
  */
 function generateOutputConfigHTML(box, outputIndex, columns) {
     const condition = box.outputConditions[outputIndex] || { column: null, value: null, isDefault: false, targetKeyColumn : null };
+    const minOutputs = BOX_TYPES[box.type]?.minOutputs ?? 0;
+    const removeDisabled = box.currentOutputs <= minOutputs;
     
     return `
         <div class="output-config" id="output-config-${outputIndex}" style="border: 1px solid #ddd; padding: 10px; margin: 10px 0; border-radius: 5px;">
             <div class="row">
-                <div class="col-md-8">
+                <div class="col-md-10">
                     <h6>Sortie ${outputIndex + 1} ${condition.isDefault ? '<span class="label label-info">Par défaut</span>' : ''}</h6>
                 </div>
-                <div class="col-md-6 text-right">
-                    <small class="text-info">Connexions: ${getConnectionsCountForOutput(box.id, outputIndex)}</small>
+                <div class="col-md-2 text-right">
+                    <button type="button" class="btn btn-xs btn-danger output-remove-btn"
+                            onclick="removeOutputAt('${box.id}', ${outputIndex})"
+                            ${removeDisabled ? 'disabled' : ''}
+                            title="Supprimer cette sortie">
+                        <i class="fa fa-trash"></i>
+                    </button>
                 </div>
             </div>
             
@@ -932,7 +1011,7 @@ function generateOutputConfigHTML(box, outputIndex, columns) {
                             onchange="updateOutputCondition('${box.id}', ${outputIndex}, 'column', this.value)">
                         <option value="">Aucune condition (défaut)</option>
                         ${columns.map(col => 
-                            `<option value="${col}" ${condition.column === col ? 'selected' : ''}>${getColumnTitle(box.datatable, col)}</option>`
+                            `<option value="${col}" ${condition.column === col ? 'selected' : ''}>${getColumnTitle(box.dataTable, col)}</option>`
                         ).join('')}
                     </select>
                 </div>
@@ -943,7 +1022,7 @@ function generateOutputConfigHTML(box, outputIndex, columns) {
                             onchange="updateOutputCondition('${box.id}', ${outputIndex}, 'targetKeyColumn', this.value)">
                         <option value="">Sélectionner une colonne clé...</option>
                         ${columns.map(col => 
-                            `<option value="${col}" ${condition.targetKeyColumn === col ? 'selected' : ''}>${getColumnTitle(box.datatable, col)}</option>`
+                            `<option value="${col}" ${condition.targetKeyColumn === col ? 'selected' : ''}>${getColumnTitle(box.dataTable, col)}</option>`
                         ).join('')}
                     </select>
                 </div>
@@ -1011,27 +1090,59 @@ function addOutput(boxId) {
  */
 function removeOutput(boxId) {
     const box = flowBoxes.get(boxId);
+    if (!box) return;
+    removeOutputAt(boxId, box.currentOutputs - 1);
+}
+
+/**
+ * Suppression d'une sortie spécifique d'une boîte
+ */
+function removeOutputAt(boxId, outputIndex) {
+    const box = flowBoxes.get(boxId);
     const config = BOX_TYPES[box.type];
     
     if (!box || box.currentOutputs <= config.minOutputs) {
         console.warn('Impossible de supprimer une sortie:', box ? 'Minimum atteint' : 'Boîte introuvable');
         return;
     }
-    
-    const lastOutputIndex = box.currentOutputs - 1;
-    
-    // Supprimer les connexions de la dernière sortie
+
+    if (outputIndex < 0 || outputIndex >= box.currentOutputs) {
+        console.warn('Index de sortie invalide:', outputIndex);
+        return;
+    }
+
+    // Supprimer les connexions de la sortie supprimée
     const connectionsToRemove = flowConnections.filter(conn => 
-        conn.from.boxId === boxId && conn.from.index === lastOutputIndex
+        conn.from.boxId === boxId && conn.from.index === outputIndex
     );
     
     connectionsToRemove.forEach(conn => {
         deleteConnection(conn.id);
     });
-    
-    // Supprimer la sortie
+
+    // Décaler les index de connexions des sorties restantes
+    flowConnections.forEach(conn => {
+        if (conn.from.boxId === boxId && conn.from.index > outputIndex) {
+            conn.from.index -= 1;
+        }
+    });
+
+    // Recréer la map des conditions en décalant les index
+    const rebuiltConditions = {};
+    for (let i = 0; i < box.currentOutputs; i++) {
+        if (i === outputIndex) continue;
+        const nextIndex = i > outputIndex ? i - 1 : i;
+        rebuiltConditions[nextIndex] = box.outputConditions[i] || {
+            column: null,
+            value: null,
+            isDefault: false,
+            targetKeyColumn: null
+        };
+    }
+
+    // Supprimer la sortie sélectionnée
     box.currentOutputs--;
-    delete box.outputConditions[lastOutputIndex];
+    box.outputConditions = rebuiltConditions;
     
     // Recréer l'élément SVG
     recreateBoxSVG(boxId);
@@ -1039,7 +1150,7 @@ function removeOutput(boxId) {
     // Rafraîchir le panneau de configuration
     showBoxConfigPanel(boxId);
     
-    console.log(`➖ Sortie supprimée de la boîte ${boxId}. Total: ${box.currentOutputs}`);
+    console.log(`Sortie ${outputIndex + 1} supprimée de la boîte ${boxId}. Total: ${box.currentOutputs}`);
 }
 
 /**
@@ -1127,7 +1238,7 @@ function updateBoxErrorText(boxId, text) {
     // Mettre à jour la visualisation de la boîte
     updateBoxVisual(boxId);
     
-    console.log(`📝 Texte d'erreur mis à jour pour ${boxId}:`, text);
+    console.log(`Texte d'erreur mis à jour pour ${boxId}:`, text);
 }
 
 function updateBoxDisplayColumn(boxId, column) {
@@ -1138,12 +1249,12 @@ function updateBoxDisplayColumn(boxId, column) {
     updateBoxVisual(boxId);
 }
 
-function updateBoxOutputColumn(boxId, outputIndex, column) {
-    const box = flowBoxes.get(boxId);
-    if (!box) return;
+// function updateBoxOutputColumn(boxId, outputIndex, column) {
+//     const box = flowBoxes.get(boxId);
+//     if (!box) return;
     
-    box.outputColumns[outputIndex] = column;
-}
+//     box.outputColumns[outputIndex] = column;
+// }
 
 /**
  * Mise à jour de la description d'une boîte
@@ -1157,7 +1268,7 @@ function updateBoxDescription(boxId, description) {
     // Mettre à jour la visualisation de la boîte si nécessaire
     updateBoxVisual(boxId);
     
-    console.log(`📝 Description mise à jour pour ${boxId}:`, description);
+    console.log(`Description mise à jour pour ${boxId}:`, description);
 }
 
 /**
@@ -1172,7 +1283,7 @@ function updateBoxDisplayName(boxId, displayName) {
     // Mettre à jour la visualisation de la boîte si nécessaire
     recreateBoxSVG(boxId);
     
-    console.log(`📝 displayName mise à jour pour ${boxId}:`, displayName);
+    console.log(`displayName mise à jour pour ${boxId}:`, displayName);
 }
 
 /**
@@ -1232,9 +1343,9 @@ function setupConnectionEvents() {
 function handleConnectionMouseMove(e) {
     if (!isConnecting || !connectionStart) return;
     
-    const rect = flowCanvas.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
+    const pointer = getCanvasPointerPosition(e);
+    const mouseX = pointer.x;
+    const mouseY = pointer.y;
     
     // Supprimer la ligne temporaire précédente
     if (tempLine) {
@@ -1246,8 +1357,7 @@ function handleConnectionMouseMove(e) {
     const fromBox = flowBoxes.get(connectionStart.boxId);
     if (!fromBox) return;
     
-    const fromConfig = BOX_TYPES[fromBox.type];
-    const fromSpacing = fromBox.width / (fromConfig.outputs + 1);
+    const fromSpacing = fromBox.width / (fromBox.currentOutputs + 1);
     const fromX = fromBox.x + fromSpacing * (connectionStart.index + 1);
     const fromY = fromBox.y + fromBox.height;
     
@@ -1300,7 +1410,7 @@ function cancelConnection() {
         point.style.fill = '#fff';
     });
     
-    console.log('🚫 Connexion annulée');
+    console.log('Connexion annulée');
 }
 
 /**
@@ -1313,13 +1423,13 @@ function deleteConnection(connectionId) {
         flowConnections.splice(connectionIndex, 1);
     }
     
-    // ✅ Supprimer le groupe complet (ligne + texte)
+    // Supprimer le groupe complet (ligne + texte)
     const connectionElement = document.querySelector(`[data-connection-id="${connectionId}"]`);
     if (connectionElement) {
         connectionElement.remove();
     }
     
-    console.log('🗑️ Connexion supprimée:', connectionId);
+    console.log('Connexion supprimée:', connectionId);
 }
 
 /**
@@ -1366,10 +1476,13 @@ function updateConnectionLine(connection, connectionElement) {
     // Mettre à jour la ligne visible
     const line = connectionElement.querySelector('.connection-line');
     if (line) {
+        const useDefaultStyle = isDefaultOutput(fromBox, connection.from.index);
         line.setAttribute('x1', fromX);
         line.setAttribute('y1', fromY);
         line.setAttribute('x2', toX);
         line.setAttribute('y2', toY);
+        line.setAttribute('stroke', useDefaultStyle ? '#1f3f8a' : '#666');
+        line.setAttribute('marker-end', useDefaultStyle ? 'url(#arrowhead-default)' : 'url(#arrowhead)');
     }
     
     updateConnectionText(connection, connectionElement);
@@ -1466,7 +1579,7 @@ function updateOutputCondition(boxId, outputIndex, property, value) {
     });
 
     onFlowChanged();
-    console.log(`🔧 Condition mise à jour pour ${boxId} sortie ${outputIndex}:`, condition);
+    console.log(`Condition mise à jour pour ${boxId} sortie ${outputIndex}:`, condition);
     
     // Rafraîchir l'affichage
     showBoxConfigPanel(boxId);
@@ -1484,39 +1597,39 @@ function getConnectionsCountForOutput(boxId, outputIndex) {
 /**
  * Validation des connexions
  */
-function validateConnections() {
-    const errors = [];
+// function validateConnections() {
+//     const errors = [];
     
-    // Vérifier que chaque boîte (sauf End) a au moins une sortie connectée
-    for (let box of flowBoxes.values()) {
-        if (box.type !== 'end') {
-            const config = BOX_TYPES[box.type];
-            const connectedOutputs = flowConnections.filter(conn => conn.from.boxId === box.id);
+//     // Vérifier que chaque boîte (sauf End) a au moins une sortie connectée
+//     for (let box of flowBoxes.values()) {
+//         if (box.type !== 'end') {
+//             const config = BOX_TYPES[box.type];
+//             const connectedOutputs = flowConnections.filter(conn => conn.from.boxId === box.id);
             
-            if (connectedOutputs.length === 0) {
-                errors.push(`La boîte ${box.type} (${box.id}) n'a aucune sortie connectée`);
-            }
-        }
-    }
+//             if (connectedOutputs.length === 0) {
+//                 errors.push(`La boîte ${box.type} (${box.id}) n'a aucune sortie connectée`);
+//             }
+//         }
+//     }
     
-    // Vérifier que chaque boîte (sauf Start) a une entrée connectée
-    for (let box of flowBoxes.values()) {
-        if (box.type !== 'start') {
-            const connectedInputs = flowConnections.filter(conn => conn.to.boxId === box.id);
+//     // Vérifier que chaque boîte (sauf Start) a une entrée connectée
+//     for (let box of flowBoxes.values()) {
+//         if (box.type !== 'start') {
+//             const connectedInputs = flowConnections.filter(conn => conn.to.boxId === box.id);
             
-            if (connectedInputs.length === 0) {
-                errors.push(`La boîte ${box.type} (${box.id}) n'a aucune entrée connectée`);
-            }
-        }
-    }
+//             if (connectedInputs.length === 0) {
+//                 errors.push(`La boîte ${box.type} (${box.id}) n'a aucune entrée connectée`);
+//             }
+//         }
+//     }
     
-    // Vérifier qu'il n'y a pas de cycles
-    if (hasCircularDependency()) {
-        errors.push('Le flux contient des références circulaires');
-    }
+//     // Vérifier qu'il n'y a pas de cycles
+//     if (hasCircularDependency()) {
+//         errors.push('Le flux contient des références circulaires');
+//     }
     
-    return errors;
-}
+//     return errors;
+// }
 
 /**
  * Détection de dépendances circulaires
@@ -1570,9 +1683,9 @@ function startDragBox(e, boxId) {
     const box = flowBoxes.get(boxId);
     if (!box) return;
     
-    const rect = flowCanvas.getBoundingClientRect();
-    const startX = e.clientX - rect.left - box.x;
-    const startY = e.clientY - rect.top - box.y;
+    const startPointer = getCanvasPointerPosition(e);
+    const startX = startPointer.x - box.x;
+    const startY = startPointer.y - box.y;
     
     let isDragging = false;
     
@@ -1581,12 +1694,13 @@ function startDragBox(e, boxId) {
             isDragging = true;
         }
         
-        const newX = e.clientX - rect.left - startX;
-        const newY = e.clientY - rect.top - startY;
+        const pointer = getCanvasPointerPosition(e);
+        const newX = pointer.x - startX;
+        const newY = pointer.y - startY;
         
         // Contraindre dans les limites du canvas
-        box.x = Math.max(0, Math.min(newX, flowCanvas.offsetWidth - box.width));
-        box.y = Math.max(0, Math.min(newY, flowCanvas.offsetHeight - box.height));
+        box.x = Math.max(0, newX);
+        box.y = Math.max(0, newY);
         
         // Mettre à jour la position visuelle
         const boxElement = document.getElementById(boxId);
@@ -1596,6 +1710,7 @@ function startDragBox(e, boxId) {
         
         // Mettre à jour les connexions
         updateConnectionsForBox(boxId);
+        updateFlowCanvasSize();
     }
     
     function handleMouseUp() {
@@ -1603,7 +1718,7 @@ function startDragBox(e, boxId) {
         document.removeEventListener('mouseup', handleMouseUp);
         
         if (isDragging) {
-            console.log(`📦 Boîte ${boxId} déplacée à (${box.x}, ${box.y})`);
+            console.log(`Boîte ${boxId} déplacée à (${box.x}, ${box.y})`);
             onFlowChanged();
         }
     }
@@ -1616,7 +1731,7 @@ function startDragBox(e, boxId) {
  * Suppression d'une boîte et de ses connexions
  */
 function deleteBox(boxId) {
-    if (!confirm('Êtes-vous sûr de vouloir supprimer cette boîte ?')) {
+    if (!confirm('êtes-vous sûr de vouloir supprimer cette boîte ?')) {
         return;
     }
     
@@ -1642,9 +1757,10 @@ function deleteBox(boxId) {
     if (selectedBox === boxId) {
         deselectBox();
     }
-    
+
+    updateFlowCanvasSize();
     onFlowChanged();
-    console.log('🗑️ Boîte supprimée:', boxId);
+    console.log('Boîte supprimée:', boxId);
 }
 
 /**
@@ -1652,7 +1768,7 @@ function deleteBox(boxId) {
  */
 function clearCanvas(show) {
     if(show){
-        if (!confirm('Êtes-vous sûr de vouloir vider complètement le canvas ?')) {
+        if (!confirm('êtes-vous sûr de vouloir vider complètement le canvas ?')) {
             return;
         }
     }
@@ -1675,8 +1791,9 @@ function clearCanvas(show) {
     isConnecting = false;
     connectionStart = null;
     nextBoxId = 1;
+    updateFlowCanvasSize();
     
-    console.log('🧹 Canvas vidé');
+    console.log('Canvas vidé');
 }
 
 /**
@@ -1785,7 +1902,7 @@ function validateFlow(show) {
     }
     
     if(show) {
-        alert('✅ Flux valide !');
+        alert('Flux valide !');
     }
     return true;
 }
@@ -1798,7 +1915,7 @@ function generateFlowVisuals() {
         return;
     }
     clearGeneratedVisuals();
-    console.log('🎨 Génération des visuels avec limitation...');
+    console.log('Génération des visuels avec limitation...');
     
     // Trouver la boîte Start
     const startBox = Array.from(flowBoxes.values()).find(box => box.type === 'start');
@@ -1809,12 +1926,12 @@ function generateFlowVisuals() {
     
     toggleVisualsSection(true);
     toggleGeneratingVisuals();
-    visualsContainer = document.getElementById('generatedVisualsSection')
+    const visualsContainer = document.getElementById('generatedVisualsSection')
     visualsContainer.style.display = 'block';
     
     // Récupérer le nombre de visuels à générer
-    const visualsCountSelect = document.getElementById('visualsCount');
-    const selectedCount = visualsCountSelect.value;
+    const visualsCountSelect = /** @type {HTMLSelectElement | null} */ (document.getElementById('visualsCount'));
+    const selectedCount = visualsCountSelect ? visualsCountSelect.value : '1';
 
     // Récupérer les données de la DataTable Start
     getDataTableRowsWithCache(startBox.dataTable)
@@ -1853,7 +1970,7 @@ function generateFlowVisuals() {
                 container.appendChild(element);
             });
 
-            // Mettre à jour les statistiques de validation dans l'en-tête
+            // Mettre à jour les statistiques de validation dans l'en-tÃªte
             updateVisualsHeaderStats(visualData);
             
             toggleGeneratingVisuals(false);
@@ -1874,20 +1991,21 @@ function generateFlowVisuals() {
 /**
  * Génération du parcours conditionnel - Version avec gestion complète des boîtes Menu
  */
-function generateConditionalFlowPath(row, currentBox, keyValue, visitedBoxes = new Set(), depth = 0, branchIndex = 0, validator = new FlowPathValidator()) {
+function generateConditionalFlowPath(row, currentBox, keyValue, visitedBoxes = new Set(), depth = 0, branchIndex = 0, validator = new FlowPathValidator(), layoutCalculatorInstance = new DrawioLayoutCalculator()) {
     // Prévenir les boucles infinies
     if (depth > 10 || visitedBoxes.has(currentBox.id)) {
         return Promise.resolve({
             html: '<span class="flow-step error">⚠️ Boucle détectée</span>',
             details: ['Boucle détectée dans le parcours'],
             xml: generateMxGraphModelWrapper([], []),
-            validator: validator
+            validator: validator,
+            validationGroups: []
         });
     }
 
     visitedBoxes.add(currentBox.id);
-    const position = layoutCalculator.calculatePosition(currentBox.id, depth, branchIndex);
-    //console.log(`DEBUG currentBox = `, currentBox);
+    const position = layoutCalculatorInstance.calculatePosition(currentBox.id, depth, branchIndex);
+    console.log(`DEBUG generateConditionalFlowPath currentBox = `, currentBox);
     //console.log(`DEBUG currentBox KeyValue = `, keyValue);
     //console.log(`DEBUG currentRow = `, row);
     
@@ -1902,7 +2020,8 @@ function generateConditionalFlowPath(row, currentBox, keyValue, visitedBoxes = n
             </div>`,
             details: [`Erreur: ${errorText}`],
             xml: generateMxGraphModelWrapper([boxXML], []),
-            validator: validator
+            validator: validator,
+            validationGroups: []
             });
     }
 
@@ -1919,8 +2038,12 @@ function generateConditionalFlowPath(row, currentBox, keyValue, visitedBoxes = n
             currentBox.data = currentRowData;
             validator.addBox(currentBox); 
 
+            const stepDisplayText = currentBox.displayColumn
+                ? `${getColumnTitle(currentBox.dataTable,currentBox.displayColumn)}: ${currentRowData[currentBox.displayColumn] || 'N/A'}`
+                : currentBox.type;
             let html = `<div class="flow-step ${currentBox.type}">
-                ${currentBox.displayColumn ? `${getColumnTitle(currentBox.dataTable,currentBox.displayColumn)}: ${currentRowData[currentBox.displayColumn] || 'N/A'}` : currentBox.type}
+                <i class="fa ${getFlowStepIconClass(currentBox.type)} flow-step-icon"></i>
+                <span class="flow-step-text">${stepDisplayText}</span>
             `;
 
             let details = [`${currentBox.type}: ${currentRowData[currentBox.displayColumn] || currentBox.displayName}`];
@@ -1935,7 +2058,7 @@ function generateConditionalFlowPath(row, currentBox, keyValue, visitedBoxes = n
             // Si c'est une boîte End, arrêter ici
             if (currentBox.type === 'end') {
                 html += `</div>`
-                return { html, details, xml: generateMxGraphModelWrapper(allXMLBoxes, allConnections), validator: validator};
+                return { html, details, xml: generateMxGraphModelWrapper(allXMLBoxes, allConnections), validator: validator, validationGroups: [] };
             }
 
             // Gestion spéciale pour le composant Message
@@ -1959,14 +2082,20 @@ function generateConditionalFlowPath(row, currentBox, keyValue, visitedBoxes = n
             
             // Gestion spéciale pour les boîtes Menu
             if (currentBox.type === 'menu') {
-                return generateMenuFlowPaths(row, currentBox, currentRowData, visitedBoxes, depth, position)
+                return generateMenuFlowPaths(row, currentBox, currentRowData, visitedBoxes, depth,validator, layoutCalculatorInstance)
                     .then(menuResult => {
                         html += menuResult.html;
                         details = details.concat(menuResult.details);
                         allXMLBoxes = allXMLBoxes.concat(menuResult.boxes);
                         allConnections = allConnections.concat(menuResult.connections);
                         
-                        return { html, details, xml: generateMxGraphModelWrapper(allXMLBoxes, allConnections), validator: validator };
+                        return {
+                            html,
+                            details,
+                            xml: generateMxGraphModelWrapper(allXMLBoxes, allConnections),
+                            validator: validator,
+                            validationGroups: menuResult.validationGroups || []
+                        };
                     });
             }
             // Gestion spéciale pour Calendar avec ses 3 sorties fixes
@@ -1982,9 +2111,11 @@ function generateConditionalFlowPath(row, currentBox, keyValue, visitedBoxes = n
                         keyValue,
                         new Set(visitedBoxes), 
                         depth + 1, 
-                        idx
+                        idx,
+                        validator,
+                        layoutCalculatorInstance
                     ).then(result => {
-                        const connXML = generateConnectionXML(currentBox, targetBox, position, BOX_TYPES[currentBox.type].outputLabels[idx]);
+                        const connXML = generateConnectionXML(currentBox, targetBox, `conn_${currentBox}_to_${targetBox}`, BOX_TYPES[currentBox.type].outputLabels[idx]);
                         return {
                             output: BOX_TYPES[currentBox.type].outputLabels[idx],
                             result: result,
@@ -2006,7 +2137,8 @@ function generateConditionalFlowPath(row, currentBox, keyValue, visitedBoxes = n
                             html,
                             details,
                             xml: generateMxGraphModelWrapper(allXMLBoxes, allConnections),
-                            validator: validator
+                            validator: validator,
+                            validationGroups: results.flatMap(r => r.result.validationGroups || [])
                         };
                     });
             }
@@ -2019,7 +2151,7 @@ function generateConditionalFlowPath(row, currentBox, keyValue, visitedBoxes = n
                     html += ' <i class="fa fa-arrow-right"></i> ';
                     details.push(`Condition: ${nextBox.condition} sur la clé : ${nextBox.keyValue}`);
                     
-                    return generateConditionalFlowPath(row, nextBox.box,nextBox.keyValue, new Set(visitedBoxes), depth + 1, branchIndex, validator)
+                    return generateConditionalFlowPath(row, nextBox.box,nextBox.keyValue, new Set(visitedBoxes), depth + 1, branchIndex, validator, layoutCalculatorInstance)
                         .then(nextPath => {
                             html += nextPath.html;
                             details = details.concat(nextPath.details);
@@ -2035,13 +2167,25 @@ function generateConditionalFlowPath(row, currentBox, keyValue, visitedBoxes = n
                             );
                             //    const uniqueId = context ? `${box.id}_${context}` : box.id;
                             allConnections.push(connectionXML);
-                            return { html, details, xml: generateMxGraphModelWrapper(allXMLBoxes,allConnections), validator: validator };
+                            return {
+                                html,
+                                details,
+                                xml: generateMxGraphModelWrapper(allXMLBoxes,allConnections),
+                                validator: validator,
+                                validationGroups: nextPath.validationGroups || []
+                            };
 
                         });
                 } else {
                     html += ' <span class="flow-step error">❌ Aucune sortie trouvée</span>';
                     details.push(`Erreur: ${nextBox.reason}`);
-                    return { html, details, xml: generateMxGraphModelWrapper(allXMLBoxes,allConnections), validator: validator };
+                    return {
+                        html,
+                        details,
+                        xml: generateMxGraphModelWrapper(allXMLBoxes,allConnections),
+                        validator: validator,
+                        validationGroups: []
+                    };
                 }
             }
         })
@@ -2051,7 +2195,8 @@ function generateConditionalFlowPath(row, currentBox, keyValue, visitedBoxes = n
                 html: '<span class="flow-step error">❌ Erreur de données</span>',
                 details: ['Erreur lors de la récupération des données'],
                 xml: generateMxGraphModelWrapper([],[]),
-                validator: validator
+                validator: validator,
+                validationGroups: []
             };
         });
 }
@@ -2059,7 +2204,7 @@ function generateConditionalFlowPath(row, currentBox, keyValue, visitedBoxes = n
 /**
  * Génération de tous les parcours possibles pour une boîte Menu
  */
-function generateMenuFlowPaths(row, menuBox, currentRowData, visitedBoxes, depth) {
+function generateMenuFlowPaths(row, menuBox, currentRowData, visitedBoxes, depth,validator, layoutCalculatorInstance) {
     const outgoingConnections = flowConnections.filter(conn => conn.from.boxId === menuBox.id);
     
     if (outgoingConnections.length === 0) {
@@ -2067,7 +2212,8 @@ function generateMenuFlowPaths(row, menuBox, currentRowData, visitedBoxes, depth
             html: ' <span class="flow-step error">❌ Aucune connexion sortante</span>',
             details: ['Erreur: Aucune connexion sortante du menu'],
             boxes: [],
-            connections: []
+            connections: [],
+            validationGroups: []
         });
     }
     
@@ -2090,7 +2236,7 @@ function generateMenuFlowPaths(row, menuBox, currentRowData, visitedBoxes, depth
         const columnValue = currentRowData[condition.column];
         if ((columnValue && columnValue.toString() === condition.value && currentRowData[condition.targetKeyColumn]) || condition.isDefault) {
                 outputPromises.push(
-                    generateMenuOutputPath(row, menuBox, currentRowData, connections, condition,currentRowData[condition.targetKeyColumn], outputIndex, visitedBoxes, depth, branchIdx)
+                    generateMenuOutputPath(row, menuBox, currentRowData, connections, condition,currentRowData[condition.targetKeyColumn], outputIndex, visitedBoxes, depth, branchIdx,validator, layoutCalculatorInstance)
                 );
             }
     });
@@ -2104,9 +2250,12 @@ function generateMenuFlowPaths(row, menuBox, currentRowData, visitedBoxes, depth
             let details = [];
             let allBoxes = [];
             let allConnections = [];
+            let validationGroups = [];
             
             outputResults.forEach((outputResult, index) => {
-                const outputIndex = Object.keys(connectionsByOutput)[index];
+                console.log(`DEBUG generateMenuFlowPaths currentMenuBranche = `, outputResult.label);
+    
+                const outputIndex = outputResult.outputIndex;
                 //const isTaken = (parseInt(outputIndex) === takenOutputIndex);
                 //<div class="menu-branch ${isTaken ? 'taken' : 'not-taken'}">
                 //${isTaken ? '<span class="branch-status taken">✓ PRIS</span>' : '<span class="branch-status not-taken">○ Non pris</span>'}
@@ -2123,9 +2272,20 @@ function generateMenuFlowPaths(row, menuBox, currentRowData, visitedBoxes, depth
                 
                 details.push(`Sortie ${parseInt(outputIndex) + 1}: ${outputResult.label} `);
                 details = details.concat(outputResult.details.map(d => `  └─ ${d}`));
+                validationGroups = validationGroups.concat(outputResult.validationGroups || []);
 
                 allBoxes = allBoxes.concat(outputResult.boxes);
                 allConnections = allConnections.concat(outputResult.connections);
+
+                const branchBoxIds = outputResult.branchBoxIds || [];
+                if (branchBoxIds.length > 0) {
+                    validationGroups.push({
+                        menuBoxId: menuBox.id,
+                        menuLabel: menuBox.displayName || BOX_TYPES[menuBox.type].name,
+                        branchLabel: outputResult.label,
+                        boxIds: branchBoxIds
+                    });
+                }
 
                 if (outputResult.boxes.length > 0) {
                     const firstBoxId = extractFirstBoxId(outputResult.boxes[0]);
@@ -2142,7 +2302,13 @@ function generateMenuFlowPaths(row, menuBox, currentRowData, visitedBoxes, depth
             
             html += '</div>';
             
-            return { html, details, boxes: allBoxes, connections: allConnections};
+            return {
+                html,
+                details,
+                boxes: allBoxes,
+                connections: allConnections,
+                validationGroups: validationGroups
+            };
         });
 }
 
@@ -2150,9 +2316,10 @@ function generateMenuFlowPaths(row, menuBox, currentRowData, visitedBoxes, depth
 /**
  * Génération du parcours pour une sortie spécifique d'une boîte Menu - Version avec XML
  */
-function generateMenuOutputPath(row, menuBox, currentRowData, connections, condition,targetKeyColumn, outputIndex, visitedBoxes, depth, branchIndex) {
+function generateMenuOutputPath(row, menuBox, currentRowData, connections, condition,targetKeyColumn, outputIndex, visitedBoxes, depth, branchIndex,validator, layoutCalculatorInstance) {
     const connection = connections[0];
     const targetBox = flowBoxes.get(connection.to.boxId);
+    console.log(`DEBUG generateMenuOutputPath Menu =: `, outputIndex);
     
     if (!targetBox) {
         return Promise.resolve({
@@ -2160,7 +2327,10 @@ function generateMenuOutputPath(row, menuBox, currentRowData, connections, condi
             html: '<span class="flow-step error">❌ Boîte cible introuvable</span>',
             details: ['Erreur: Boîte cible introuvable'],
             boxes: [],
-            connections: []
+            connections: [],
+            branchBoxIds: [],
+            validationGroups: [],
+            outputIndex: parseInt(outputIndex)
         });
     }
     
@@ -2177,7 +2347,7 @@ function generateMenuOutputPath(row, menuBox, currentRowData, connections, condi
     }
     
     // Générer le parcours pour cette branche
-    return generateConditionalFlowPath(row, targetBox,targetKeyColumn, new Set(visitedBoxes), depth + 1, branchIndex)
+    return generateConditionalFlowPath(row, targetBox,targetKeyColumn, new Set(visitedBoxes), depth + 1, branchIndex, validator, layoutCalculatorInstance)
         .then(branchPath => {
             const branchData = extractBoxesAndConnectionsFromXML(branchPath.xml);
             return {
@@ -2185,7 +2355,11 @@ function generateMenuOutputPath(row, menuBox, currentRowData, connections, condi
                 html: ' <i class="fa fa-arrow-right"></i> ' + branchPath.html,
                 details: branchPath.details,
                 boxes: branchData.boxes,
-                connections: branchData.connections
+                connections: branchData.connections,
+                branchBoxIds: extractBoxIdsFromBoxXmlList(branchData.boxes),
+                validator: validator,
+                validationGroups: branchPath.validationGroups || [],
+                outputIndex: parseInt(outputIndex)
             };
         });
 }
@@ -2205,13 +2379,13 @@ function checkCalendarStatus(calendarId) {
 /**
  * Génération du XML pour une connexion
  */
-function generateConnectionXML(fromBox, toBox, position, label) {
-    return `<mxCell id="edge_${fromBox.id}_${toBox.id}" value="${label || ''}" 
-            style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;jettySize=auto;orthogonalLoop=1;" 
-            edge="1" parent="1" source="${fromBox.id}" target="${toBox.id}">
-        <mxGeometry relative="1" as="geometry"/>
-    </mxCell>`;
-}
+// function generateConnectionXML(fromBox, toBox, position, label) {
+//     return `<mxCell id="edge_${fromBox.id}_${toBox.id}" value="${label || ''}" 
+//             style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;jettySize=auto;orthogonalLoop=1;" 
+//             edge="1" parent="1" source="${fromBox.id}" target="${toBox.id}">
+//         <mxGeometry relative="1" as="geometry"/>
+//     </mxCell>`;
+// }
 
 function checkPromptExistence(promptId) {
     // Vérifie si le promptId existe dans le cache des prompts
@@ -2385,8 +2559,8 @@ function updateStoredValidation(boxId, updates,visualIndex) {
         }
 
         // Sauvegarder les modifications
-        localStorage.setItem('generatedVisuals', JSON.stringify(visualsData));
-        console.log('💾 Données de validation mises à jour pour la box:', boxId);
+        localStorage.setItem('generatedVisuals', JSON.stringify(storedData));
+        console.log('Données de validation mises à jour pour la box:', boxId);
     } catch (error) {
         console.error('Erreur lors de la mise à jour de la validation:', error);
     }
@@ -2565,6 +2739,7 @@ function processFlowDataImport(flowData){
         flowConnections.push(connection);
         drawConnection(connection);
     });
+    updateFlowCanvasSize();
     
     // ✅ Fermer la modal avec Bootstrap
     $('#importFlowModal').modal('hide');
@@ -2638,20 +2813,20 @@ function loadGeneratedVisualsFromStorage() {
 /**
  * Nettoyage lors du changement d'onglet
  */
-function cleanupOnTabChange() {
-    cleanupConnectionState();
+// function cleanupOnTabChange() {
+//     cleanupConnectionState();
     
-    // Nettoyer les event listeners si nécessaire
-    const svg = document.getElementById('flowSvg');
-    if (svg) {
-        // Cloner et remplacer pour supprimer tous les event listeners
-        const newSvg = svg.cloneNode(true);
-        svg.parentNode.replaceChild(newSvg, svg);
+//     // Nettoyer les event listeners si nécessaire
+//     const svg = document.getElementById('flowSvg');
+//     if (svg) {
+//         // Cloner et remplacer pour supprimer tous les event listeners
+//         const newSvg = svg.cloneNode(true);
+//         svg.parentNode.replaceChild(newSvg, svg);
         
-        // Réinitialiser les événements
-        setupConnectionEvents();
-    }
-}
+//         // Réinitialiser les événements
+//         setupConnectionEvents();
+//     }
+// }
 
 /**
  * Calculateur de positions pour l'export draw.io
@@ -2704,9 +2879,6 @@ class DrawioLayoutCalculator {
 }
 
 
-// Instance globale du calculateur
-const layoutCalculator = new DrawioLayoutCalculator();
-
 class FlowPathValidator {
     constructor() {
         this.boxes = [];
@@ -2740,3 +2912,4 @@ class FlowPathValidator {
     }*/
     
 }
+

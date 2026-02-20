@@ -38,6 +38,13 @@ const AUTH_MODES = {
 const DEFAULT_AUTH_MODE = AUTH_MODES.IMPLICIT;
 let selectedAuthMode = DEFAULT_AUTH_MODE;
 
+function i18nAuth(key, fallback, params) {
+    if (window.GCToolI18n && typeof window.GCToolI18n.t === 'function') {
+        return window.GCToolI18n.t(key, params || {}, fallback);
+    }
+    return fallback;
+}
+
 // APIs Genesys Cloud
 let currentUserId;
 let currentOrgId;
@@ -287,7 +294,7 @@ function proceedWithAuthentication() {
             }
             
             if (typeof updateLoadingStatus === 'function') {
-                updateLoadingStatus('Chargement des données Genesys...');
+                updateLoadingStatus(i18nAuth('auth.loading.genesys_data', 'Chargement des donnees Genesys...'));
             }
             
             //DEBUG COMMENT A ENLEVER 
@@ -373,7 +380,7 @@ function initializeWithOrgSelection() {
             console.log('📋 Première connexion ou org supprimée');
             
             if (typeof updateLoadingStatus === 'function') {
-                updateLoadingStatus('Sélection de l\'organisation...');
+                updateLoadingStatus(i18nAuth('auth.loading.select_org', "Selection de l'organisation..."));
             }
             
             showOrgSelector(resolve, reject);
@@ -475,8 +482,8 @@ function showOrgSelector(resolve, reject, errorMessage = null) {
             errorHtml = `
                 <div class="alert alert-warning" role="alert">
                     <i class="fa fa-exclamation-triangle"></i>
-                    <strong>Problème de connexion :</strong> ${errorMessage}
-                    <br><small>Veuillez sélectionner une organisation pour réessayer.</small>
+                    <strong>${i18nAuth('auth.org_selector.connection_problem', 'Probleme de connexion :')}</strong> ${errorMessage}
+                    <br><small>${i18nAuth('auth.org_selector.select_to_retry', 'Veuillez selectionner une organisation pour reessayer.')}</small>
                 </div>
             `;
         }
@@ -486,8 +493,8 @@ function showOrgSelector(resolve, reject, errorMessage = null) {
             ? `
                 <div class="alert alert-info" role="alert">
                     <i class="fa fa-info-circle"></i>
-                    <strong>Aucune organisation préconfigurée.</strong>
-                    <br><small>Renseignez les informations de connexion manuellement ci-dessous.</small>
+                    <strong>${i18nAuth('auth.org_selector.no_preconfigured_org', 'Aucune organisation preconfiguree.')}</strong>
+                    <br><small>${i18nAuth('auth.org_selector.manual_entry_help', 'Renseignez les informations de connexion manuellement ci-dessous.')}</small>
                 </div>
             `
             : '';
@@ -498,58 +505,58 @@ function showOrgSelector(resolve, reject, errorMessage = null) {
                     <div class="modal-content">
                         <div class="modal-header">
                             <h4 class="modal-title">
-                                <i class="fa fa-building"></i> Sélection de l'Organisation Genesys Cloud
+                                <i class="fa fa-building"></i> ${i18nAuth('auth.org_selector.title', "Selection de l'Organisation Genesys Cloud")}
                             </h4>
                         </div>
                         <div class="modal-body">
                             ${errorHtml}
                             ${noOrgConfiguredHtml}
-                            <p>Veuillez sélectionner votre organisation Genesys Cloud :</p>
+                            <p>${i18nAuth('auth.org_selector.prompt', 'Veuillez selectionner votre organisation Genesys Cloud :')}</p>
                             <div id="orgList" class="org-list">
                                 ${orgKeys.map(orgKey => renderOrgOption(orgKey, ORG_CONFIGS[orgKey])).join('')}
                             </div>
 
                             <hr>
-                            <h5><i class="fa fa-pen"></i> Saisie manuelle / Nouvelle ORG</h5>
+                            <h5><i class="fa fa-pen"></i> ${i18nAuth('auth.org_selector.manual_section', 'Saisie manuelle / Nouvelle ORG')}</h5>
                             <div class="row">
                                 <div class="col-md-6">
-                                    <label>Nom ORG</label>
-                                    <input type="text" class="form-control" id="manualOrgName" placeholder="Ex: Mon Organisation">
+                                    <label>${i18nAuth('auth.org_selector.org_name', 'Nom ORG')}</label>
+                                    <input type="text" class="form-control" id="manualOrgName" placeholder="${i18nAuth('auth.org_selector.org_name_placeholder', 'Ex: Mon Organisation')}">
                                 </div>
                                 <div class="col-md-6">
-                                    <label>Client ID</label>
+                                    <label>${i18nAuth('auth.org_selector.client_id', 'Client ID')}</label>
                                     <input type="text" class="form-control" id="manualOrgClientId" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
                                 </div>
                             </div>
                             <div class="row" style="margin-top: 10px;">
                                 <div class="col-md-6">
-                                    <label>Type de connexion</label>
+                                    <label>${i18nAuth('auth.org_selector.auth_type', 'Type de connexion')}</label>
                                     <select class="form-control" id="manualOrgAuthMode">
                                         <option value="implicit">Implicit</option>
                                         <option value="pkce">PKCE</option>
                                     </select>
                                 </div>
                                 <div class="col-md-6">
-                                    <label>Description</label>
-                                    <input type="text" class="form-control" id="manualOrgDescription" placeholder="Optionnel">
+                                    <label>${i18nAuth('auth.org_selector.description', 'Description')}</label>
+                                    <input type="text" class="form-control" id="manualOrgDescription" placeholder="${i18nAuth('auth.org_selector.optional', 'Optionnel')}">
                                 </div>
                             </div>
                             <div style="margin-top: 10px;">
                                 <button type="button" class="btn btn-default btn-sm" id="addManualOrgBtn">
-                                    <i class="fa fa-plus"></i> Ajouter cette ORG à la liste locale
+                                    <i class="fa fa-plus"></i> ${i18nAuth('auth.org_selector.add_local_org', 'Ajouter cette ORG a la liste locale')}
                                 </button>
                                 <small id="manualOrgFeedback" class="text-muted" style="display:block;margin-top:6px;"></small>
                             </div>
                             <div class="checkbox" style="margin-top: 15px;">
                                 <label>
                                     <input type="checkbox" id="rememberOrg" ${errorMessage ? '' : 'checked'}> 
-                                    Se souvenir de ma sélection
+                                    ${i18nAuth('auth.org_selector.remember', 'Se souvenir de ma selection')}
                                 </label>
                             </div>
                         </div>
                         <div class="modal-footer">
                             <button type="button" class="btn btn-primary" id="confirmOrgBtn" disabled>
-                                <i class="fa fa-sign-in"></i> Se connecter
+                                <i class="fa fa-sign-in"></i> ${i18nAuth('auth.org_selector.connect', 'Se connecter')}
                             </button>
                         </div>
                     </div>
@@ -649,7 +656,7 @@ function setupOrgSelection(resolve, reject) {
     function upsertManualOrgInLocalStore() {
         const manualOrgConfig = getManualOrgConfigFromForm();
         if (!manualOrgConfig) {
-            throw new Error('Nom ORG et Client ID obligatoires.');
+            throw new Error(i18nAuth('auth.org_selector.required_fields', 'Nom ORG et Client ID obligatoires.'));
         }
         const orgKey = saveOrUpdateUserOrg(manualOrgConfig);
         return {
@@ -672,9 +679,9 @@ function setupOrgSelection(resolve, reject) {
         try {
             const { orgKey } = upsertManualOrgInLocalStore();
             appendOrgOption(orgKey);
-            setManualFeedback('ORG ajoutée à la liste locale.', false);
+            setManualFeedback(i18nAuth('auth.org_selector.added_local', 'ORG ajoutee a la liste locale.'), false);
         } catch (error) {
-            setManualFeedback(error.message || 'Impossible d\'ajouter l\'ORG.', true);
+            setManualFeedback(error.message || i18nAuth('auth.org_selector.add_failed', 'Impossible d\'ajouter l\'ORG.'), true);
         }
     });
 
@@ -712,7 +719,7 @@ function setupOrgSelection(resolve, reject) {
 
             // Mettre à jour le statut si la fonction existe
             if (typeof updateLoadingStatus === 'function') {
-                updateLoadingStatus('Authentification en cours...');
+                updateLoadingStatus(i18nAuth('auth.loading.auth_in_progress', 'Authentification en cours...'));
             }
 
             // Procéder à l'authentification
@@ -727,7 +734,7 @@ function setupOrgSelection(resolve, reject) {
                 });
         } catch (error) {
             console.error('Erreur lors du traitement de la sélection:', error);
-            alert(error.message || 'Erreur de configuration ORG.');
+            alert(error.message || i18nAuth('auth.org_selector.config_error', 'Erreur de configuration ORG.'));
         }
     }
 }
@@ -873,7 +880,7 @@ document.addEventListener('DOMContentLoaded', function() {
  * Fonction pour changer d'organisation
  */
 function changeOrganization() {
-    if (confirm('Voulez-vous changer d\'organisation ? Cela rechargera l\'application.')) {
+    if (confirm(i18nAuth('auth.change_org_confirm', 'Voulez-vous changer d\'organisation ? Cela rechargera l\'application.'))) {
         clearSavedOrganization();
         window.location.reload();
     }

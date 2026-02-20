@@ -60,7 +60,6 @@ function generateValidationSummaryHTML(stats) {
  * Génération de l'élément visuel à partir des données sauvegardées
  */
 function generateVisualElement(flowPath, row, index, data) {
-    console.log(`DEBUG data`, data);
     const container = document.createElement('div');
     container.className = 'generated-visual';
     
@@ -143,29 +142,29 @@ function generateVisualElement(flowPath, row, index, data) {
 /**
  * Ajout d'un bouton pour générer plus de visuels
  */
-function addGenerateMoreButton(container, currentCount) {
-    const moreButtonDiv = document.createElement('div');
-    moreButtonDiv.className = 'text-center';
-    moreButtonDiv.style.marginTop = '20px';
-    moreButtonDiv.innerHTML = `
-        <div class="well">
-            <p>Vous avez généré ${currentCount} visuel(s). Voulez-vous en générer plus ?</p>
-            <div class="btn-group" role="group">
-                <button class="btn btn-info" onclick="generateMoreVisuals(10)">
-                    <i class="fa fa-plus"></i> 10 de plus
-                </button>
-                <button class="btn btn-info" onclick="generateMoreVisuals(50)">
-                    <i class="fa fa-plus"></i> 50 de plus
-                </button>
-                <button class="btn btn-success" onclick="generateAllVisuals()">
-                    <i class="fa fa-list"></i> Tous
-                </button>
-            </div>
-        </div>
-    `;
+// function addGenerateMoreButton(container, currentCount) {
+//     const moreButtonDiv = document.createElement('div');
+//     moreButtonDiv.className = 'text-center';
+//     moreButtonDiv.style.marginTop = '20px';
+//     moreButtonDiv.innerHTML = `
+//         <div class="well">
+//             <p>Vous avez généré ${currentCount} visuel(s). Voulez-vous en générer plus ?</p>
+//             <div class="btn-group" role="group">
+//                 <button class="btn btn-info" onclick="generateMoreVisuals(10)">
+//                     <i class="fa fa-plus"></i> 10 de plus
+//                 </button>
+//                 <button class="btn btn-info" onclick="generateMoreVisuals(50)">
+//                     <i class="fa fa-plus"></i> 50 de plus
+//                 </button>
+//                 <button class="btn btn-success" onclick="generateAllVisuals()">
+//                     <i class="fa fa-list"></i> Tous
+//                 </button>
+//             </div>
+//         </div>
+//     `;
     
-    container.appendChild(moreButtonDiv);
-}
+//     container.appendChild(moreButtonDiv);
+// }
 
 /**
  * Génération de visuels supplémentaires
@@ -302,202 +301,116 @@ function toggleGeneratingVisuals(force){
 /**
  * Génération des tests de validation pour les tâches
  */
-function generateTaskValidationTests(box, rowData) {
-    if (!box.tasks || box.tasks.length === 0) {
-        return [];
-    }
+// function generateTaskValidationTests(box, rowData) {
+//     if (!box.tasks || box.tasks.length === 0) {
+//         return [];
+//     }
     
-    const tests = [];
+//     const tests = [];
     
-    box.tasks.forEach(task => {
-        switch (task.action) {
-            case 'play_message':
-                const messageValue = rowData[task.parameters.column];
-                const promptExists = promptsCache.some(prompt => prompt.name === messageValue);
+//     box.tasks.forEach(task => {
+//         switch (task.action) {
+//             case 'play_message':
+//                 const messageValue = rowData[task.parameters.column];
+//                 const promptExists = promptsCache.some(prompt => prompt.name === messageValue);
                 
-                if (promptExists) {
-                    tests.push({
-                        type: 'listen',
-                        description: `Vérifier que le message "${messageValue}" est joué`,
-                        automated: false
-                    });
-                }
-                break;
+//                 if (promptExists) {
+//                     tests.push({
+//                         type: 'listen',
+//                         description: `Vérifier que le message "${messageValue}" est joué`,
+//                         automated: false
+//                     });
+//                 }
+//                 break;
                 
-            case 'identification':
-                tests.push({
-                    type: 'action',
-                    description: `S'authentifier: ${task.parameters.text}`,
-                    automated: false
-                });
-                break;
+//             case 'identification':
+//                 tests.push({
+//                     type: 'action',
+//                     description: `S'authentifier: ${task.parameters.text}`,
+//                     automated: false
+//                 });
+//                 break;
                 
-            case 'client_data':
-                task.parameters.keyValuePairs.forEach(pair => {
-                    tests.push({
-                        type: 'verify',
-                        description: `Vérifier ${pair.key}: ${pair.value}`,
-                        automated: false
-                    });
-                });
-                break;
+//             case 'client_data':
+//                 task.parameters.keyValuePairs.forEach(pair => {
+//                     tests.push({
+//                         type: 'verify',
+//                         description: `Vérifier ${pair.key}: ${pair.value}`,
+//                         automated: false
+//                     });
+//                 });
+//                 break;
                 
-            case 'activation':
-                const activationValue = rowData[task.parameters.column];
-                const isActive = isActivationPositive(activationValue);
+//             case 'activation':
+//                 const activationValue = rowData[task.parameters.column];
+//                 const isActive = isActivationPositive(activationValue);
                 
-                if (isActive) {
-                    tests.push({
-                        type: 'verify',
-                        description: `Vérifier: ${task.parameters.label}`,
-                        automated: false
-                    });
-                }
-                break;
-        }
-    });
+//                 if (isActive) {
+//                     tests.push({
+//                         type: 'verify',
+//                         description: `Vérifier: ${task.parameters.label}`,
+//                         automated: false
+//                     });
+//                 }
+//                 break;
+//         }
+//     });
     
-    return tests;
-}
+//     return tests;
+// }
 
-
-function generateValidationReport_old(flowpath,visualIndex) {
-    console.log('📋 Génération du rapport de validation avec tâches...');
-    validator = flowpath.validator
-    tasks = flowpath.tasks
-    const reportHtml = validator.boxes.map((box, index) => {
-        const status = box.testConfig?.status || 'untested';
-        const description = box.description || `Étape ${index + 1} - ${box.displayName}`;
-        const uniqueBoxId = `visual_${visualIndex}_${box.id}`; // Création d'un ID unique
-        
-        return `
-        <div class="test-case" data-status="${status}" data-box-id="${box.id}" data-visual-index="${visualIndex}">
-            <div class="test-controls">
-                <select class="status-select form-control" 
-                        onchange="updateTestStatusFromSelect('${box.id}', this.value, ${visualIndex})">
-                    <option value="untested" ${status === 'untested' ? 'selected' : ''}>Non testé</option>
-                    <option value="ok" ${status === 'ok' ? 'selected' : ''}>✅ OK</option>
-                    <option value="ko" ${status === 'ko' ? 'selected' : ''}>❌ KO</option>
-                </select>
-            </div>
-            <div class="test-content">
-                <div class="step-header">
-                    <div class="step-info">
-                        <span class="step-name">${description}</span>
-                        <small class="text-muted">(${getDataTableNameById(box.dataTable)})</small>
-                    </div>
-                    <span class="badge badge-${status}">${getStatusLabel(status)}</span>
-                </div>
-                <div class="step-details">
-                    <div class="row">
-                        <div class="col-md-6">
-                            <label>Résultat attendu :</label>
-                            <textarea class="form-control expected-result" rows="2"
-                                      placeholder="Décrivez le comportement attendu..."
-                                      onchange="updateTestField('${box.id}', 'expectedResult', this.value)">${box.testConfig?.expectedResult || ''}</textarea>
-                        </div>
-                        <div class="col-md-6">
-                            <label>Résultat obtenu :</label>
-                            <textarea class="form-control actual-result" rows="2"
-                                      placeholder="Décrivez le résultat observé..."
-                                      onchange="updateTestField('${box.id}', 'actualResult', this.value)">${box.testConfig?.actualResult || ''}</textarea>
-                        </div>
-                    </div>
-                    <div class="row" style="margin-top: 10px;">
-                        <div class="col-md-12">
-                            <label>Commentaires de test :</label>
-                            <textarea class="form-control test-comment" rows="2"
-                                      placeholder="Ajoutez vos observations, remarques..."
-                                      onchange="updateTestField('${box.id}', 'comment', this.value)">${box.testConfig?.comment || ''}</textarea>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>`;
-    }).join('');
-
-    return `
-    <div class="validation-report validation-report-flowpath">
-        <div class="report-header">
-            <div class="row">
-                <div class="col-md-8">
-                    <h4><i class="fa fa-clipboard"></i> Rapport de validation du parcours</h4>
-                    <small class="text-muted">Généré le ${new Date().toLocaleString()}</small>
-                </div>
-            </div>
-            <div class="progress" style="margin: 15px 0;">
-                <div class="progress-bar progress-bar-success" style="width: ${(validator.okCount/validator.total)*100}%"></div>
-                <div class="progress-bar progress-bar-danger" style="width: ${(validator.koCount/validator.total)*100}%"></div>
-                <div class="progress-bar progress-bar-warning" style="width: ${(validator.untestedCount/validator.total)*100}%"></div>
-            </div>
-            <div class="status-summary">
-                <span class="badge badge-success">${validator.okCount} Réussis</span>
-                <span class="badge badge-danger">${validator.koCount} Échoués</span>
-                <span class="badge badge-warning">${validator.untestedCount} Non testés</span>
-                <span class="badge badge-info">${validator.progress}% Complété</span>
-            </div>
-        </div>
-        <div class="test-cases-container">
-            ${reportHtml}
-        </div>
-    </div>`;
-}
 
 /**
  * Mise à jour du statut de test et de l'UI associée
  */
 function updateTestStatusFromSelect(boxId, status, visualIndex) {
-    // Trouver l'élément spécifique à ce visuel
-    const testCase = document.querySelector(`[data-box-id="${boxId}"][data-visual-index="${visualIndex}"]`);
-    if (!testCase) return;
+    const testCases = document.querySelectorAll(`[data-box-id="${boxId}"][data-visual-index="${visualIndex}"]`);
+    if (!testCases || testCases.length === 0) return;
 
-    // Mettre à jour les données stockées pour ce visuel spécifique
     const storedData = JSON.parse(localStorage.getItem('generatedVisuals'));
     if (storedData && storedData.visuals[visualIndex]) {
         const visual = storedData.visuals[visualIndex];
         const box = visual.flowPath.validator.boxes.find(b => b.id === boxId);
         const tasks = visual.flowPath.validator.tasks.find(b => b.id === boxId);
         let tasksValidated = 0;
-        if(tasks){
-            if (tasks.hasTasks){
-                tasks.tasks.forEach(task => {
-                    if (task.taskValidated) tasksValidated++;
-                });
-            }
+        if (tasks && tasks.hasTasks) {
+            tasks.tasks.forEach(task => {
+                if (isTaskValidationResolved(task.taskValidated)) tasksValidated++;
+            });
         }
 
         if (status === 'ok' && tasks && tasks.hasTasks && tasksValidated < tasks.validTasks) {
             console.log(`⚠️ Impossible de marquer comme OK car toutes les tâches ne sont pas validées pour la boîte ${boxId}`);
             flashElementBackground(boxId);
-            status = 'ko'; // Forcer à KO si les tâches ne sont pas toutes validées
-            return;
+            status = 'ko';
         }
+
         if (box) {
-            console.log(`DEBUG tasks`, tasks);
             if (!box.testConfig) box.testConfig = {};
             const oldStatus = box.testConfig.status || 'untested';
             box.testConfig.status = status;
 
-            // Mettre à jour l'UI
-            testCase.setAttribute('data-status', status);
-            const badge = testCase.querySelector('.badge');
-            if (badge) {
-                badge.className = `badge badge-${status}`;
-                badge.textContent = getStatusLabel(status);
-            }
+            testCases.forEach(testCase => {
+                testCase.setAttribute('data-status', status);
+                const badge = testCase.querySelector('.badge');
+                if (badge) {
+                    badge.className = `badge badge-${status}`;
+                    badge.textContent = getStatusLabel(status);
+                }
+                const triSwitch = testCase.querySelector('.tri-switch[data-switch-kind="step-status"]');
+                if (triSwitch) {
+                    setTriSwitchValue(triSwitch, status);
+                }
+            });
 
-            // Mettre à jour les compteurs pour ce visuel
             updateValidatorCounters(visual.flowPath.validator, oldStatus, status);
-            updateValidationReportUI(testCase, visual.flowPath.validator);
-            
-            // Sauvegarder les modifications
+            updateValidationReportUI(testCases[0], visual.flowPath.validator);
             localStorage.setItem('generatedVisuals', JSON.stringify(storedData));
-            
-            // Mettre à jour le résumé global
             updateVisualsHeaderStats(storedData.visuals);
         }
     }
 }
+
 
 function updateTestField(boxId, field, value, visualIndex) {
     const storedData = JSON.parse(localStorage.getItem('generatedVisuals'));
@@ -509,29 +422,93 @@ function updateTestField(boxId, field, value, visualIndex) {
             box.testConfig[field] = value;
             localStorage.setItem('generatedVisuals', JSON.stringify(storedData));
             
-            updateStoredValidation(boxId, { [field]: value }), visualIndex;
+            updateStoredValidation(boxId, { [field]: value }, visualIndex);
         }
     }
 }
 
-function updateTaskValidation(taksId,subTaskId, value, visualIndex) {
-    console.log(`DEBUG updateTaskValidation`, taksId,subTaskId, value, visualIndex);
+function updateTaskValidation(boxId, subTaskId, value, visualIndex) {
+    console.log(`DEBUG updateTaskValidation`, boxId, subTaskId, value, visualIndex);
     const storedData = JSON.parse(localStorage.getItem('generatedVisuals'));
     if (storedData && storedData.visuals[visualIndex]) {
-        
-    console.log(`DEBUG storedData`, storedData);
         const visual = storedData.visuals[visualIndex];
-        const task = visual.flowPath.validator.tasks.find(b => b.id === taksId);
-        if (task) {
-            task.taskValidated = value;
+        const taskGroup = visual.flowPath.validator.tasks.find(t => t.id === boxId);
+        if (taskGroup && Array.isArray(taskGroup.tasks)) {
+            const taskIndex = parseInt((subTaskId || '').split('_task_')[1], 10);
+            if (!Number.isNaN(taskIndex) && taskGroup.tasks[taskIndex]) {
+                taskGroup.tasks[taskIndex].taskValidated = value;
+            }
             localStorage.setItem('generatedVisuals', JSON.stringify(storedData));
-            
-            updateStoredValidation(boxId, { [field]: value }), visualIndex;
+
+            document.querySelectorAll(`.tri-switch[data-switch-kind="task-status"][data-task-id="${subTaskId}"][data-visual-index="${visualIndex}"]`).forEach(switchEl => {
+                setTriSwitchValue(switchEl, normalizeTaskStatusValue(value));
+            });
+
+            updateStoredValidation(boxId, { [subTaskId]: value }, visualIndex);
         }
     }
 }
+function isTaskValidationResolved(value) {
+    const normalized = normalizeTaskStatusValue(value);
+    return normalized === 'ok' || normalized === 'ko';
+}
+
+function normalizeTaskStatusValue(value) {
+    if (value === 'ok' || value === true) return 'ok';
+    if (value === 'ko') return 'ko';
+    return 'untested';
+}
+
+function setTriSwitchValue(switchElement, value) {
+    if (!switchElement) return;
+    switchElement.dataset.value = value;
+    switchElement.querySelectorAll('.tri-switch-option').forEach(option => {
+        const isActive = option.dataset.value === value;
+        option.classList.toggle('is-active', isActive);
+        option.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    });
+}
+
+function createTriSwitchHtml(options) {
+    const orientationClass = options.orientation === 'vertical' ? 'tri-switch-vertical' : 'tri-switch-horizontal';
+    const values = ['ok', 'untested', 'ko'];
+    const labels = {
+        ok: 'OK',
+        untested: 'Non testé',
+        ko: 'KO'
+    };
+    const icons = {
+        ok: 'fa-check',
+        untested: 'fa-minus',
+        ko: 'fa-times'
+    };
+
+    return `
+        <div class="tri-switch ${orientationClass} ${options.extraClass || ''}"
+             data-switch-kind="${options.switchKind}"
+             data-value="${options.currentValue}"
+             ${options.dataTaskId ? `data-task-id="${options.dataTaskId}"` : ''}
+             ${options.dataVisualIndex !== undefined && options.dataVisualIndex !== null ? `data-visual-index="${options.dataVisualIndex}"` : ''}
+             role="group"
+             aria-label="${options.ariaLabel || 'Sélecteur 3 positions'}">
+            ${values.map(value => `
+                <button type="button"
+                        class="tri-switch-option tri-switch-option-${value} ${options.currentValue === value ? 'is-active' : ''}"
+                        data-value="${value}"
+                        title="${labels[value]}"
+                        aria-label="${labels[value]}"
+                        aria-pressed="${options.currentValue === value ? 'true' : 'false'}"
+                        onclick="${options.onChangeFactory(value)}">
+                    <i class="fa ${icons[value]}" aria-hidden="true"></i>
+                </button>
+            `).join('')}
+        </div>
+    `;
+}
 
 
+ 
+ 
 
 
 
@@ -552,9 +529,8 @@ function updateTaskValidation(taksId,subTaskId, value, visualIndex) {
  */
 function generateValidationReport(flowPath, flowIndex) {
     console.log('📋 Génération du rapport de validation avec tâches traitées...');
-    console.log(`DEBUG flowPath`, flowPath);
-    validator = flowPath.validator
-    
+    const validator = flowPath.validator;
+
     if (!flowPath || flowPath.length === 0) {
         return '<div class="alert alert-warning">Aucun parcours à valider</div>';
     }
@@ -583,10 +559,11 @@ function generateValidationReport(flowPath, flowIndex) {
             <div class="test-cases-container">
     `;
 
-    // Parcourir chaque étape du flowPath
     validator.boxes.forEach((step, stepIndex) => {
-        validationHTML += generateStepValidationFromTasks(step,validator.tasks[stepIndex], flowIndex, stepIndex);
+        validationHTML += generateStepValidationFromTasks(step, validator.tasks[stepIndex], flowIndex, stepIndex);
     });
+
+    validationHTML += generateMenuBranchValidationGroups(flowPath, flowIndex);
 
     validationHTML += `
             </div>
@@ -595,29 +572,106 @@ function generateValidationReport(flowPath, flowIndex) {
 
     return validationHTML;
 }
+function generateMenuBranchValidationGroups(flowPath, flowIndex) {
+    console.log(`DEBUG flowPath : `,flowPath);
+    const groups = flowPath.validationGroups || [];
+    if (!groups.length || !flowPath.validator) {
+        return '';
+    }
+
+    const queueByBoxId = new Map();
+    flowPath.validator.boxes.forEach((box, index) => {
+        if (!queueByBoxId.has(box.id)) queueByBoxId.set(box.id, []);
+        queueByBoxId.get(box.id).push({ box, tasks: flowPath.validator.tasks[index], index });
+    });
+
+    let groupsHtml = `<div class="menu-branch-validations-container">`;
+    groups.forEach((group, groupIndex) => {
+        const uniqueGroupId = `flow_${flowIndex}_menu_branch_${groupIndex}`;
+        const uniqueIds = Array.from(new Set(group.boxIds || []));
+        const branchSteps = [];
+
+        uniqueIds.forEach(rawBoxId => {
+            const boxId = resolveValidatorBoxId(rawBoxId, queueByBoxId);
+            if (!boxId) return;
+
+            const queue = queueByBoxId.get(boxId);
+            if (!queue || queue.length === 0) return;
+            const entry = queue.shift();
+            branchSteps.push(generateStepValidationFromTasks(
+                entry.box,
+                entry.tasks,
+                flowIndex,
+                entry.index,
+                {
+                    compact: true,
+                    hideStepDetails: true,
+                    extraClass: 'branch-validation-step',
+                    renderKey: uniqueGroupId
+                }
+            ));
+        });
+
+        if (!branchSteps.length) {
+            console.warn('Aucune étape de validation trouvée pour la branche menu', group);
+            return;
+        }
+
+        groupsHtml += `
+            <div class="menu-branch-validation-group">
+                <button type="button"
+                        class="menu-branch-validation-toggle"
+                        onclick="toggleMenuBranchValidationGroup('${uniqueGroupId}', this)">
+                    <i class="fa fa-chevron-down"></i>
+                    <span class="menu-branch-validation-title">${group.menuLabel || 'Menu'} - ${group.branchLabel || 'Branche'}</span>
+                </button>
+                <div id="${uniqueGroupId}" class="menu-branch-validation-body">
+                    ${branchSteps.join('')}
+                </div>
+            </div>
+        `;
+    });
+
+    groupsHtml += `</div>`;
+    return groupsHtml;
+}
+
+function toggleMenuBranchValidationGroup(groupId, toggleButton) {
+    const body = document.getElementById(groupId);
+    if (!body) return;
+    const icon = toggleButton.querySelector('i');
+    const collapsed = body.style.display === 'none';
+    body.style.display = collapsed ? 'block' : 'none';
+    if (icon) {
+        icon.className = collapsed ? 'fa fa-chevron-down' : 'fa fa-chevron-right';
+    }
+}
+
+
 
 /**
  * Génération de la validation pour une étape basée sur ses tâches
  */
-function generateStepValidationFromTasks(box,tasks, flowIndex, stepIndex) {
-    const stepId = `flow_${flowIndex}_step_${stepIndex}`;
-    console.log(`DEBUG génération de la step box = `, box);
-    console.log(`DEBUG génération de la step avec les tasks `, tasks);
-    console.log(`Datatable Id = ${box.dataTable}`)
-    let keyColumn = box.displayColumn;
-    console.log(`key value = ${box.data[keyColumn]}`)
-
+function generateStepValidationFromTasks(box, tasks, flowIndex, stepIndex, options = {}) {
     const status = box.testConfig?.status || 'untested';
-    const description =`Étape ${stepIndex + 1} - ${box.displayName} (${(box.description || box.data[keyColumn])})`;
+    const keyColumn = box.displayColumn;
+    const description = `Étape ${stepIndex + 1} - ${box.displayName} (${(box.description || box.data[keyColumn])})`;
+    const stepClasses = ['test-case'];
+    if (options.extraClass) stepClasses.push(options.extraClass);
+    const renderKey = options.renderKey || 'main';
+
     let stepHTML = `
-        <div class="test-case" data-status="${status}" data-box-id="${box.id}" data-visual-index="${flowIndex}">
+        <div class="${stepClasses.join(' ')}" data-status="${status}" data-box-id="${box.id}" data-visual-index="${flowIndex}">
             <div class="test-controls">
-                <select class="status-select form-control" 
-                        onchange="updateTestStatusFromSelect('${box.id}', this.value, '${flowIndex}')">
-                    <option value="untested" ${status === 'untested' ? 'selected' : ''}>Non testé</option>
-                    <option value="ok" ${status === 'ok' ? 'selected' : ''}>✅ OK</option>
-                    <option value="ko" ${status === 'ko' ? 'selected' : ''}>❌ KO</option>
-                </select>
+                ${createTriSwitchHtml({
+                    orientation: 'vertical',
+                    currentValue: status,
+                    switchKind: 'step-status',
+                    extraClass: 'step-status-switch',
+                    dataVisualIndex: flowIndex,
+                    ariaLabel: 'Statut de test',
+                    onChangeFactory: value => `updateTestStatusFromSelect('${box.id}', '${value}', '${flowIndex}')`
+                })}
             </div>
             <div class="test-content">
                 <div class="step-header">
@@ -630,13 +684,13 @@ function generateStepValidationFromTasks(box,tasks, flowIndex, stepIndex) {
                 <div class="tasks-details">
     `;
 
-    // Génération des validations pour les tâches
     if (tasks && tasks.hasTasks) {
-        stepHTML += generateTasksValidationFromProcessed(tasks, box.id, flowIndex);
+        stepHTML += generateTasksValidationFromProcessed(tasks, box.id, flowIndex, renderKey);
     }
 
     stepHTML += `
                 </div>
+                ${options.hideStepDetails ? '' : `
                 <div class="step-details">
                     <div class="row">
                         <div class="col-md-6">
@@ -661,18 +715,21 @@ function generateStepValidationFromTasks(box,tasks, flowIndex, stepIndex) {
                         </div>
                     </div>
                 </div>
+                `}
             </div>
-        </div>    `;
+        </div>
+    `;
 
     return stepHTML;
 }
 
+
 /**
  * Génération des validations à partir des tâches traitées
  */
-function generateTasksValidationFromProcessed(taskData, boxId,flowIndex) {
+function generateTasksValidationFromProcessed(taskData, boxId, flowIndex, renderKey = 'main') {
     if (!taskData.hasValidationItems) {
-        return ''; // Aucune validation nécessaire
+        return '';
     }
 
     let tasksHTML = `
@@ -683,7 +740,7 @@ function generateTasksValidationFromProcessed(taskData, boxId,flowIndex) {
 
     taskData.tasks.forEach((task, index) => {
         if (task.requiresValidation) {
-            tasksHTML += generateValidationItemFromTask(task, boxId, index, flowIndex);
+            tasksHTML += generateValidationItemFromTask(task, boxId, index, flowIndex, renderKey);
         } else if (task.errorMessage) {
             tasksHTML += generateTaskErrorItem(task, index);
         }
@@ -697,11 +754,13 @@ function generateTasksValidationFromProcessed(taskData, boxId,flowIndex) {
     return tasksHTML;
 }
 
+
 /**
  * Génération d'un élément de validation à partir d'une tâche traitée
  */
-function generateValidationItemFromTask(task, boxId, taskIndex, flowIndex) {
+function generateValidationItemFromTask(task, boxId, taskIndex, flowIndex, renderKey = 'main') {
     const taskId = `${boxId}_task_${taskIndex}`;
+    const domTaskId = `${taskId}_${renderKey}`;
     const validationData = task.validationData;
     const isTaskValidated = task.taskValidated === true;
     let validationHTML = '';
@@ -711,14 +770,14 @@ function generateValidationItemFromTask(task, boxId, taskIndex, flowIndex) {
             validationHTML = `
                 <div class="task-validation-item" task-id="${taskId}">
                     <div class="form-check">
-                        <input class="form-check-input validation-checkbox task-validation" 
-                               type="checkbox" 
-                               id="${taskId}" 
+                        <input class="form-check-input validation-checkbox task-validation"
+                               type="checkbox"
+                               id="${domTaskId}"
                                data-task-type="${task.action}"
                                data-step-id="${boxId}"
                                onchange="updateTaskValidation('${boxId}','${taskId}', this.checked, '${flowIndex}')"
                                ${isTaskValidated ? 'checked' : ''}>
-                        <label class="form-check-label" for="${taskId}">
+                        <label class="form-check-label" for="${domTaskId}">
                             <i class="fa ${validationData.icon} text-primary"></i>
                             <strong>${validationData.label}</strong>
                         </label>
@@ -728,13 +787,8 @@ function generateValidationItemFromTask(task, boxId, taskIndex, flowIndex) {
             `;
             break;
 
-        case 'ok_ko':
-            // Vérifier si la tâche est déjà validée
-            const isAuthValidated = task.taskValidated === true;
-            const okButtonClass = isAuthValidated ? 'btn btn-success btn-sm validation-btn' : 'btn btn-outline-success btn-sm validation-btn';
-            const koButtonClass = 'btn btn-outline-danger btn-sm validation-btn';
-            const groupDataAttribute = isAuthValidated ? `data-selected-value="ok"` : '';
-            
+        case 'ok_ko': {
+            const taskStatus = normalizeTaskStatusValue(task.taskValidated);
             validationHTML = `
                 <div class="task-validation-item" task-id="${taskId}">
                     <div class="identification-validation">
@@ -742,30 +796,25 @@ function generateValidationItemFromTask(task, boxId, taskIndex, flowIndex) {
                             <i class="fa ${validationData.icon} text-info"></i>
                             <strong>${validationData.label}</strong>
                         </label>
-                        <div class="btn-group validation-choice" role="group" data-task-id="${taskId}" ${groupDataAttribute}>
-                            <button type="button" 
-                                    class="${okButtonClass}" 
-                                    data-value="ok"
-                                    onclick="updateTaskValidation('${boxId}','${taskId}','ok', '${flowIndex}');">
-                                <i class="fa fa-check"></i> OK
-                            </button>
-                            <button type="button" 
-                                    class="${koButtonClass}" 
-                                    data-value="ko"
-                                    onclick="updateTaskValidation('${boxId}','${taskId}','ko', '${flowIndex}');">
-                                <i class="fa fa-times"></i> KO
-                            </button>
-                        </div>
+                        ${createTriSwitchHtml({
+                            orientation: 'horizontal',
+                            currentValue: taskStatus,
+                            switchKind: 'task-status',
+                            extraClass: 'validation-choice-switch',
+                            dataTaskId: taskId,
+                            dataVisualIndex: flowIndex,
+                            ariaLabel: 'Validation identification',
+                            onChangeFactory: value => `updateTaskValidation('${boxId}','${taskId}','${value}', '${flowIndex}')`
+                        })}
                     </div>
                     <small class="text-muted">${validationData.description}</small>
                 </div>
             `;
             break;
+        }
 
-        case 'checkbox_list':
-            // Vérifier si la tâche est déjà validée
+        case 'checkbox_list': {
             const isListValidated = task.taskValidated === true;
-            
             validationHTML = `
                 <div class="task-validation-item" task-id="${taskId}">
                     <label class="validation-label">
@@ -778,14 +827,14 @@ function generateValidationItemFromTask(task, boxId, taskIndex, flowIndex) {
             validationData.items.forEach((item, itemIndex) => {
                 validationHTML += `
                     <div class="form-check">
-                        <input class="form-check-input validation-checkbox task-validation" 
-                            type="checkbox" 
-                            id="${taskId}_item_${itemIndex}" 
+                        <input class="form-check-input validation-checkbox task-validation"
+                            type="checkbox"
+                            id="${domTaskId}_item_${itemIndex}"
                             data-task-type="${task.action}"
                             data-step-id="${boxId}"
                             onchange="updateTaskValidation('${boxId}','${taskId}', this.checked, '${flowIndex}')"
                             ${isListValidated ? 'checked' : ''}>
-                        <label class="form-check-label" for="${taskId}_item_${itemIndex}">
+                        <label class="form-check-label" for="${domTaskId}_item_${itemIndex}">
                             <strong>${item.key}:</strong> ${item.value}
                         </label>
                     </div>
@@ -798,10 +847,12 @@ function generateValidationItemFromTask(task, boxId, taskIndex, flowIndex) {
                 </div>
             `;
             break;
+        }
     }
 
     return validationHTML;
 }
+
 
 /**
  * Génération d'un élément d'erreur pour une tâche
@@ -855,4 +906,27 @@ function flashElementBackground(dataBoxId,selector = '.tasks-validation-section'
     element.classList.remove(animationName);
     document.head.removeChild(style);
   }, totalDuration);
+}
+
+function resolveValidatorBoxId(rawBoxId, queueByBoxId) {
+    if (!rawBoxId) return null;
+    if (queueByBoxId.has(rawBoxId)) return rawBoxId;
+    const availableIds = Array.from(queueByBoxId.keys());
+    const prefixedMatch = availableIds
+        .filter(id => rawBoxId.startsWith(`${id}_`))
+        .sort((a, b) => b.length - a.length)[0];
+    if (prefixedMatch) return prefixedMatch;
+    const containsMatch = availableIds
+        .filter(id => rawBoxId.includes(id))
+        .sort((a, b) => b.length - a.length)[0];
+    if (containsMatch) return containsMatch;
+
+    // Les IDs draw.io de branches peuvent être suffixés (ex: box_12_1).
+    // On retire progressivement le dernier segment jusqu'à retrouver l'ID logique.
+    let candidate = rawBoxId;
+    while (candidate.includes('_')) {
+        candidate = candidate.substring(0, candidate.lastIndexOf('_'));
+        if (queueByBoxId.has(candidate)) return candidate;
+    }
+    return null;
 }

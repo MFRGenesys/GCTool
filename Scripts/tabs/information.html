@@ -4,11 +4,11 @@
         <div class="box box-primary">
             <div class="box-header with-border">
                 <h3 class="box-title">
-                    <i class="fa fa-info-circle"></i> Informations de l'Organisation
+                    <i class="fa fa-info-circle"></i> <span data-i18n="tab.information.title">Informations de l'Organisation</span>
                 </h3>
                 <div class="box-tools pull-right">
                     <button type="button" class="btn btn-box-tool" onclick="refreshInformationPage()">
-                        <i class="fa fa-refresh"></i> Actualiser
+                        <i class="fa fa-refresh"></i> <span data-i18n="tab.information.refresh">Actualiser</span>
                     </button>
                 </div>
             </div>
@@ -19,7 +19,7 @@
                         <div class="small-box bg-aqua">
                             <div class="inner">
                                 <h3 id="dataTablesCount">-</h3>
-                                <p>DataTables</p>
+                                <p data-i18n="tab.information.stats.datatables">DataTables</p>
                             </div>
                             <div class="icon">
                                 <i class="fa fa-table"></i>
@@ -31,7 +31,7 @@
                         <div class="small-box bg-green">
                             <div class="inner">
                                 <h3 id="queuesCount">-</h3>
-                                <p>Queues</p>
+                                <p data-i18n="tab.information.stats.queues">Queues</p>
                             </div>
                             <div class="icon">
                                 <i class="fa fa-phone"></i>
@@ -43,7 +43,7 @@
                         <div class="small-box bg-yellow">
                             <div class="inner">
                                 <h3 id="skillsCount">-</h3>
-                                <p>Skills</p>
+                                <p data-i18n="tab.information.stats.skills">Skills</p>
                             </div>
                             <div class="icon">
                                 <i class="fa fa-star"></i>
@@ -55,7 +55,7 @@
                         <div class="small-box bg-red">
                             <div class="inner">
                                 <h3 id="promptsCount">-</h3>
-                                <p>Prompts</p>
+                                <p data-i18n="tab.information.stats.prompts">Prompts</p>
                             </div>
                             <div class="icon">
                                 <i class="fa fa-volume-up"></i>
@@ -69,30 +69,30 @@
                     <div class="col-md-6">
                         <div class="box box-solid">
                             <div class="box-header">
-                                <h3 class="box-title">Détails de l'Organisation</h3>
+                                <h3 class="box-title" data-i18n="tab.information.org_details">Details de l'Organisation</h3>
                             </div>
                             <div class="box-body">
                                 <table class="table table-bordered">
                                     <tr>
-                                        <td><strong>Région :</strong></td>
+                                        <td><strong data-i18n="tab.information.region">Region :</strong></td>
                                         <td><span id="orgRegion">-</span></td>
                                     </tr>
                                     <tr>
-                                        <td><strong>Organisation :</strong></td>
+                                        <td><strong data-i18n="tab.information.organization">Organisation :</strong></td>
                                         <td><span id="orgName">-</span>
-                                        <button class="btn btn-xs btn-default" onclick="changeOrganization()" title="Changer d'organisation">
+                                        <button class="btn btn-xs btn-default" onclick="changeOrganization()" title="Changer d'organisation" data-i18n-title="tab.information.change_org">
                                         <i class="fa fa-exchange"></i></td>
                                     </tr>
                                     <tr>
-                                        <td><strong>Utilisateur connecté :</strong></td>
+                                        <td><strong data-i18n="tab.information.connected_user">Utilisateur connecte :</strong></td>
                                         <td><span id="currentUserName">-</span></td>
                                     </tr>
                                     <tr>
-                                        <td><strong>ID Utilisateur :</strong></td>
+                                        <td><strong data-i18n="tab.information.user_id">ID Utilisateur :</strong></td>
                                         <td><code id="currentUserIdDisplay">-</code></td>
                                     </tr>
                                     <tr>
-                                        <td><strong>Dernière synchronisation :</strong></td>
+                                        <td><strong data-i18n="tab.information.last_sync">Derniere synchronisation :</strong></td>
                                         <td><span id="lastSyncTime">-</span></td>
                                     </tr>
                                 </table>
@@ -103,17 +103,17 @@
                     <div class="col-md-6">
                         <div class="box box-solid">
                             <div class="box-header">
-                                <h3 class="box-title">Actions Rapides</h3>
+                                <h3 class="box-title" data-i18n="tab.information.quick_actions">Actions Rapides</h3>
                             </div>
                             <div class="box-body">
                                 <button class="btn btn-primary btn-block" onclick="exportOrganizationSummary()">
-                                    <i class="fa fa-download"></i> Exporter Résumé Organisation
+                                    <i class="fa fa-download"></i> <span data-i18n="tab.information.export_summary">Exporter Resume Organisation</span>
                                 </button>
                                 <button class="btn btn-info btn-block" onclick="showDetailedStatistics()">
-                                    <i class="fa fa-chart-bar"></i> Statistiques Détaillées
+                                    <i class="fa fa-chart-bar"></i> <span data-i18n="tab.information.detailed_stats">Statistiques Detaillees</span>
                                 </button>
                                 <button class="btn btn-warning btn-block" onclick="refreshAllData()">
-                                    <i class="fa fa-refresh"></i> Actualiser Toutes les Données
+                                    <i class="fa fa-refresh"></i> <span data-i18n="tab.information.refresh_all">Actualiser Toutes les Donnees</span>
                                 </button>
                             </div>
                         </div>
@@ -125,7 +125,7 @@
                     <div class="col-md-12">
                         <div class="box box-solid">
                             <div class="box-header">
-                                <h3 class="box-title">Répartition des Ressources</h3>
+                                <h3 class="box-title" data-i18n="tab.information.resources_distribution">Repartition des Ressources</h3>
                             </div>
                             <div class="box-body">
                                 <div id="resourcesChart"></div>
