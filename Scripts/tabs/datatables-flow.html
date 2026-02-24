@@ -1,6 +1,16 @@
 <!-- DataTables Flow Designer Tab Content - Version réorganisée -->
 <div class="flow-designer-container">
-    <div class="row flow-designer-row">
+    <div class="box-header with-border">
+        <h3 class="box-title">
+                <i class="fa fa-eye"></i> <span data-i18n="tab.flow.designer.title">Graph Designer</span>
+        </h3>
+        <div class="box-tools pull-right">
+            <button type="button" class="btn btn-box-tool" onclick="toggleDesignerSection()">
+                <i class="fa fa-minus"></i>
+            </button>
+        </div>
+    </div>
+    <div class="row flow-designer-row" id="designerContent">
         <!-- Palette des boîtes à gauche (réduite) -->
         <div class="col-md-2 flow-palette-col">
             <div class="box box-primary">

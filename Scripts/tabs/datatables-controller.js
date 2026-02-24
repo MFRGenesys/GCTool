@@ -5,6 +5,13 @@
  * Date: 05/2025
  */
 
+function i18nDt(key, fallback, params) {
+    if (window.GCToolI18n && typeof window.GCToolI18n.t === 'function') {
+        return window.GCToolI18n.t(key, params, fallback);
+    }
+    return fallback;
+}
+
 // Fonction d'initialisation du contrôleur DataTables
 function initializeDataTablesController() {
     console.log('🔧 Initialisation du contrôleur DataTables');
@@ -66,7 +73,7 @@ function populateDataTableSelectors() {
         const selector = document.getElementById(selectorId);
         if (!selector) return;
         
-        selector.innerHTML = '<option value="">Choisissez une DataTable...</option>';
+        selector.innerHTML = `<option value="">${i18nDt('tab.datatables_controller.select_datatable', 'Choose a DataTable...')}</option>`;
         
         dataTablesCache.forEach(dataTable => {
             const option = document.createElement('option');
@@ -85,86 +92,9 @@ function populateDataTableSelectors() {
     setupDataTableSelector();
 }
 
-const QUICK_REGEX_EXAMPLES = [
-    {
-        label: '^\\d+$',
-        pattern: '^\\d+$',
-        description: 'Nombres entiers uniquement'
-    },
-    {
-        label: '^\\d{1,4}$',
-        pattern: '^\\d{1,4}$',
-        description: 'Nombre entre 0 et 9999'
-    },
-    {
-        label: '^(?:100(?:\\.0)?|(?:[1-9]\\d|\\d)(?:\\.\\d)?)$',
-        pattern: '^(?:100(?:\\.0)?|(?:[1-9]\\d|\\d)(?:\\.\\d)?)$',
-        description: 'Nombre entre 0 et 100'
-    },
-    {
-        label: '^(\\+33)[0-9]{9}$',
-        pattern: '^(\\+33)[0-9]{9}$',
-        description: 'Numero de tel en +33'
-    }
-];
-
-const QUICK_LIST_EXAMPLES = [
-    {
-        label: 'TRUE;FALSE',
-        values: 'TRUE;FALSE',
-        ignoreCase: true,
-        description: '(casse ignoree)'
-    },
-    {
-        label: 'DISSUASION;DISTRIBUTION',
-        values: 'DISSUASION;DISTRIBUTION',
-        ignoreCase: false,
-        description: ''
-    },
-    {
-        label: 'MOTIF;MENU;ACCUEIL;ROUTAGE',
-        values: 'MOTIF;MENU;ACCUEIL;ROUTAGE',
-        ignoreCase: false,
-        description: ''
-    }
-];
-
-function buildRegexQuickExamplesHtml() {
-    return `
-        <div class="regex-quick-examples" style="margin-top: 8px;">
-            <small class="text-muted"><strong>Exemples cliquables:</strong></small><br>
-            ${QUICK_REGEX_EXAMPLES.map((item) => `
-                <button type="button"
-                        class="btn btn-default btn-xs regex-example-btn"
-                        data-pattern="${item.pattern}"
-                        data-description="${item.description}"
-                        style="margin: 2px 4px 2px 0;">
-                    ${item.label}
-                </button>
-            `).join('')}
-        </div>
-    `;
-}
-
-function buildListQuickExamplesHtml() {
-    return `
-        <div class="liste-quick-examples" style="margin-top: 8px;">
-            <small class="text-muted"><strong>Exemples cliquables:</strong></small><br>
-            ${QUICK_LIST_EXAMPLES.map((item) => `
-                <button type="button"
-                        class="btn btn-default btn-xs liste-example-btn"
-                        data-values="${item.values}"
-                        data-ignore-case="${item.ignoreCase ? 'true' : 'false'}"
-                        style="margin: 2px 4px 2px 0;">
-                    ${item.label}${item.description ? ` ${item.description}` : ''}
-                </button>
-            `).join('')}
-        </div>
-    `;
-}
 
 // Affichage de la configuration des colonnes
-function displayColumnsConfiguration(datatableId, properties) {
+/*function displayColumnsConfiguration(datatableId, properties) {
     
     const configDiv = document.getElementById('columnsConfig');
     configDiv.style.display = 'block';
@@ -257,13 +187,6 @@ function displayColumnsConfiguration(datatableId, properties) {
                         </div>
                         
                         ${buildRegexQuickExamplesHtml()}
-                        <small class="text-muted">
-                            <i class="fa fa-info-circle"></i> 
-                            Utilisez les expressions régulières JavaScript standard. Exemples :<br>
-                            • <code>^\\d+$</code> : Nombres entiers uniquement<br>
-                            • <code>^\d{1,3}$</code> : Nombre entre 0 et 999<br>
-                            • <code>^(\+33)[0-9]{9}$</code> : numéro de tel en +33
-                        </small>
                     </div>
                 </div>
                 <div class="col-md-12">
@@ -312,7 +235,7 @@ function displayColumnsConfiguration(datatableId, properties) {
     loadExistingConfiguration(datatableId, configDiv);
     
     configDiv.style.display = 'block';
-}
+}*/
 
 // Affichage de la configuration des colonnes
 function displayColumnsConfigurationInList(datatableId, properties,icon) {
@@ -412,13 +335,6 @@ function displayColumnsConfigurationInList(datatableId, properties,icon) {
                         </div>
                         
                         ${buildRegexQuickExamplesHtml()}
-                        <small class="text-muted">
-                            <i class="fa fa-info-circle"></i> 
-                            Utilisez les expressions régulières JavaScript standard. Exemples :<br>
-                            • <code>^\\d+$</code> : Nombres entiers uniquement<br>
-                            • <code>^\d{1,3}$</code> : Nombre entre 0 et 999<br>
-                            • <code>^(\+33)[0-9]{9}$</code> : numéro de tel en +33
-                        </small>
                     </div>
                 </div>
                 <div class="col-md-12">
@@ -585,7 +501,7 @@ function applyRegexExample(event) {
         regexInput.value = pattern;
         regexInput.dispatchEvent(new Event('input', { bubbles: true }));
     }
-    if (descriptionInput && (!descriptionInput.value || !descriptionInput.value.trim())) {
+    if (descriptionInput) {
         descriptionInput.value = description;
     }
 }
@@ -707,14 +623,14 @@ function parseListeValues(rawValues) {
 function buildDataTableConfigBadgeHtml(datatableId) {
     const hasConfig = !!dataTableConfigurations[datatableId];
     return hasConfig
-        ? '<span class="badge badge-success">Configuré</span>'
-        : '<span class="badge badge-warning">Non configuré</span>';
+        ? `<span class="badge badge-success">${i18nDt('tab.datatables_controller.configured', 'Configured')}</span>`
+        : `<span class="badge badge-warning">${i18nDt('tab.datatables_controller.not_configured', 'Not configured')}</span>`;
 }
 
 function buildDataTableControlButtonHtml(datatableId) {
     const hasConfig = !!dataTableConfigurations[datatableId];
     return hasConfig
-        ? `<button class="btn btn-control btn-sm" onclick="validateDataTable('${datatableId}')">Contrôle</button>`
+        ? `<button class="btn btn-control btn-sm" onclick="validateDataTable('${datatableId}')">${i18nDt('tab.datatables_controller.control', 'Control')}</button>`
         : '';
 }
 
@@ -754,13 +670,13 @@ function displayDataTables() {
                         <small class="text-muted">(${dataTable.id})</small>
                     </div>
                     <div class="col-md-1">
-                        <i class="fa fa-eye preview-icon" style="margin-left: 10px; color: #337ab7;" onclick="toggleDataTablePreview('${dataTable.id}', '${dataTable.name}', this)" title="Cliquez pour voir l'aperçu des données"></i>
+                        <i class="fa fa-eye preview-icon" style="margin-left: 10px; color: #337ab7;" onclick="toggleDataTablePreview('${dataTable.id}', '${dataTable.name}', this)" title="${i18nDt('tab.datatables_controller.help.preview', 'Cliquez pour voir l\'aperçu des données')}"></i>
                     </div>
                     <div class="col-md-1">
-                        <i class="fa fa-gear config-icon" style="margin-left: 10px; color: #337ab7;" onclick="toggleConfigDatatable('${dataTable.id}',this)" title="Configuration de la DT"></i>
+                        <i class="fa fa-gear config-icon" style="margin-left: 10px; color: #337ab7;" onclick="toggleConfigDatatable('${dataTable.id}',this)" title="${i18nDt('tab.datatables_controller.help.config', 'Configuration de la DT')}"></i>
                     </div>
                     <div class="col-md-1">
-                        <i class="fa fa-check-to-slot" style="margin-left: 10px; color: #337ab7;" onclick="searchUnusedRows('${dataTable.id}')" title="Lignes Non utilisées"></i>
+                        <i class="fa fa-check-to-slot" style="margin-left: 10px; color: #337ab7;" onclick="searchUnusedRows('${dataTable.id}')" title="${i18nDt('tab.datatables_controller.help.unusedlines', 'Lignes Non utilisées')}"></i>
                     </div>
                     <div class="col-md-4 text-right">
                         <span id="config-badge-${dataTable.id}">${configBadge}</span>
@@ -804,13 +720,13 @@ async function checkAllDataTablesConfigured() {
     const resultsDiv = document.getElementById('validationResults');
 
     if (feedback) {
-        feedback.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Vérification en cours...';
+        feedback.innerHTML = `<i class="fa fa-spinner fa-spin"></i> ${i18nDt('tab.datatables_controller.validation_checking', 'Checking in progress...')}`;
     }
 
     if(resultsDiv){
         console.log(`DEBUG - Vidage des résultats précédents`);
         resultsDiv.innerHTML = `
-                        <h4>Résultats du contrôle</h4>
+                        <h4>${i18nDt('tab.datatables_controller.results_title', 'Validation results')}</h4>
                         <div id="validationContent"></div>
                         `;
     }
@@ -962,7 +878,7 @@ async function listUnusedTargetRows(targetDatatableId, allSourceConfigs) {
 async function validateDataTable(datatableId, pageNum=1) {
     const config = dataTableConfigurations[datatableId];
     if (!config) {
-        alert('Aucune configuration trouvée pour cette DataTable');
+        alert(i18nDt('tab.datatables_controller.alert.no_config', 'No configuration found for this DataTable'));
         return;
     }
     
@@ -1014,7 +930,7 @@ async function validateDataTable(datatableId, pageNum=1) {
         //hideValidationLoading();
     } catch (err) {
         console.error('❌ Erreur lors de la validation:', err);
-        alert('Erreur lors de la récupération des données de la DataTable');
+        alert(i18nDt('tab.datatables_controller.alert.fetch_error', 'Error while retrieving DataTable data'));
         hideValidationLoading();
     }
 }
@@ -1029,7 +945,7 @@ async function validateCellAsync(value, columnConfig, columnName, rowNumber, cur
                 if (!queueExists) {
                     return {
                         type: 'error',
-                        message: `Ligne ${rowNumber}, Colonne "${columnName}": Queue "${value}" introuvable`,
+                        message: `${i18nDt('tab.datatables_controller.results.line', 'Ligne')} ${rowNumber}, ${i18nDt('tab.datatables_controller.results.column', 'Colonne')} "${columnName}": Queue "${value}" ${i18nDt('tab.datatables_controller.results.notfound', 'introuvable')}`,
                         row: rowNumber,
                         column: columnName,
                         value: value
@@ -1042,7 +958,7 @@ async function validateCellAsync(value, columnConfig, columnName, rowNumber, cur
                 if (!skillExists) {
                     return {
                         type: 'error',
-                        message: `Ligne ${rowNumber}, Colonne "${columnName}": Skill "${value}" introuvable`,
+                        message: `${i18nDt('tab.datatables_controller.results.line', 'Ligne')} ${rowNumber}, ${i18nDt('tab.datatables_controller.results.column', 'Colonne')} "${columnName}": Skill "${value}" ${i18nDt('tab.datatables_controller.results.notfound', 'introuvable')}`,
                         row: rowNumber,
                         column: columnName,
                         value: value
@@ -1055,7 +971,7 @@ async function validateCellAsync(value, columnConfig, columnName, rowNumber, cur
                 if (!scheduleGroupExists) {
                     return {
                         type: 'error',
-                        message: `Ligne ${rowNumber}, Colonne "${columnName}": Schedule Group "${value}" introuvable`,
+                        message: `${i18nDt('tab.datatables_controller.results.line', 'Ligne')} ${rowNumber}, ${i18nDt('tab.datatables_controller.results.column', 'Colonne')} "${columnName}": Schedule Group "${value}" ${i18nDt('tab.datatables_controller.results.notfound', 'introuvable')}`,
                         row: rowNumber,
                         column: columnName,
                         value: value
@@ -1068,7 +984,7 @@ async function validateCellAsync(value, columnConfig, columnName, rowNumber, cur
                 if (!promptExists) {
                     return {
                         type: 'error',
-                        message: `Ligne ${rowNumber}, Colonne "${columnName}": Prompt "${value}" introuvable`,
+                        message: `${i18nDt('tab.datatables_controller.results.line', 'Ligne')} ${rowNumber}, ${i18nDt('tab.datatables_controller.results.column', 'Colonne')} "${columnName}": Prompt "${value}" ${i18nDt('tab.datatables_controller.results.notfound', 'introuvable')}`,
                         row: rowNumber,
                         column: columnName,
                         value: value
@@ -1097,7 +1013,7 @@ async function validateCellAsync(value, columnConfig, columnName, rowNumber, cur
         console.error(`❌ Erreur lors de la validation de la cellule ${columnName}:`, error);
         return {
             type: 'warning',
-            message: `Ligne ${rowNumber}, Colonne "${columnName}": Erreur lors de la validation de "${value}"`,
+            message:  `${i18nDt('tab.datatables_controller.results.line', 'Ligne')} ${rowNumber}, ${i18nDt('tab.datatables_controller.results.column', 'Colonne')} "${columnName}": Erreur lors de la validation de "${value}"`,
             row: rowNumber,
             column: columnName,
             value: value
@@ -1123,7 +1039,7 @@ async function validateLiaisonAsync(value, targetDatatableId, columnName, rowNum
             if (valueNotCaseExists) {
                 return {
                     type: 'warning',
-                    message: `Ligne ${rowNumber}, Colonne "${columnName}": Liaison "${value}" n'a pas la bonne casse dans la DataTable ${getDataTableNameById(targetDatatableId)}`,
+                    message:  `${i18nDt('tab.datatables_controller.results.line', 'Ligne')} ${rowNumber}, ${i18nDt('tab.datatables_controller.results.column', 'Colonne')} "${columnName}": ${i18nDt('tab.datatables_controller.results.liaison', 'Liaison')} "${value}" ${i18nDt('tab.datatables_controller.results.incorrectspell', 'n\'a pas la bonne casse dans la DataTable')} ${getDataTableNameById(targetDatatableId)}`,
                     row: rowNumber,
                     column: columnName,
                     value: value
@@ -1131,7 +1047,7 @@ async function validateLiaisonAsync(value, targetDatatableId, columnName, rowNum
             }else{
                 return {
                     type: 'error',
-                    message: `Ligne ${rowNumber}, Colonne "${columnName}": Liaison "${value}" introuvable dans la DataTable ${getDataTableNameById(targetDatatableId)}`,
+                    message:  `${i18nDt('tab.datatables_controller.results.line', 'Ligne')} ${rowNumber}, ${i18nDt('tab.datatables_controller.results.column', 'Colonne')} "${columnName}": ${i18nDt('tab.datatables_controller.results.liaison', 'Liaison')} "${value}" ${i18nDt('tab.datatables_controller.results.notfoundonDT', 'introuvable dans la DataTable')} ${getDataTableNameById(targetDatatableId)}`,
                     row: rowNumber,
                     column: columnName,
                     value: value
@@ -1145,7 +1061,7 @@ async function validateLiaisonAsync(value, targetDatatableId, columnName, rowNum
         console.error('❌ Erreur lors de la validation de liaison:', err);
         return {
             type: 'warning',
-            message: `Ligne ${rowNumber}, Colonne "${columnName}": Impossible de vérifier la liaison "${value}"`,
+            message:  `${i18nDt('tab.datatables_controller.results.line', 'Ligne')} ${rowNumber}, ${i18nDt('tab.datatables_controller.results.column', 'Colonne')} "${columnName}": Impossible de vérifier la liaison "${value}"`,
             row: rowNumber,
             column: columnName,
             value: value
@@ -1160,7 +1076,7 @@ async function validateLiaisonAutoAsync(value, referenceColumnName, columnName, 
     if (!referenceValue) {
         return {
             type: 'warning',
-            message: `Ligne ${rowNumber}, Colonne "${columnName}": Colonne de référence "${referenceColumnName}" vide`,
+            message:  `${i18nDt('tab.datatables_controller.results.line', 'Ligne')} ${rowNumber}, ${i18nDt('tab.datatables_controller.results.column', 'Colonne')} "${columnName}": Colonne de référence "${referenceColumnName}" vide`,
             row: rowNumber,
             column: columnName,
             value: value
@@ -1172,7 +1088,7 @@ async function validateLiaisonAutoAsync(value, referenceColumnName, columnName, 
     if (!targetDataTableId) {
         return {
             type: 'error',
-            message: `Ligne ${rowNumber}, Colonne "${columnName}": Aucune DataTable configurée pour "${referenceValue}" (colonne ${referenceColumnName})`,
+            message:  `${i18nDt('tab.datatables_controller.results.line', 'Ligne')} ${rowNumber}, ${i18nDt('tab.datatables_controller.results.column', 'Colonne')} "${columnName}": Aucune DataTable configurée pour "${referenceValue}" (colonne ${referenceColumnName})`,
             row: rowNumber,
             column: columnName,
             value: value
@@ -1194,7 +1110,7 @@ function validateListe(value, allowedValues, columnName, rowNumber, allowNull = 
         } else {
             return {
                 type: 'error',
-                message: `Ligne ${rowNumber}, Colonne "${columnName}": Valeur vide non autorisée`,
+                message:  `${i18nDt('tab.datatables_controller.results.line', 'Ligne')} ${rowNumber}, ${i18nDt('tab.datatables_controller.results.column', 'Colonne')} "${columnName}": Valeur vide non autorisée`,
                 row: rowNumber,
                 column: columnName,
                 value: value || '(vide)'
@@ -1205,7 +1121,7 @@ function validateListe(value, allowedValues, columnName, rowNumber, allowNull = 
     if (!allowedValues || allowedValues.length === 0) {
         return {
             type: 'warning',
-            message: `Ligne ${rowNumber}, Colonne "${columnName}": Aucune valeur configurée pour la validation`,
+            message:  `${i18nDt('tab.datatables_controller.results.line', 'Ligne')} ${rowNumber}, ${i18nDt('tab.datatables_controller.results.column', 'Colonne')} "${columnName}": Aucune valeur configurée pour la validation`,
             row: rowNumber,
             column: columnName,
             value: value
@@ -1223,16 +1139,16 @@ function validateListe(value, allowedValues, columnName, rowNumber, allowNull = 
             allowed.toUpperCase() === valueUpperCase
         );
         
-        let errorMessage = `Ligne ${rowNumber}, Colonne "${columnName}": Valeur "${stringValue}" non autorisée`;
+        let errorMessage =  `${i18nDt('tab.datatables_controller.results.line', 'Ligne')} ${rowNumber}, ${i18nDt('tab.datatables_controller.results.column', 'Colonne')} "${columnName}": Valeur "${stringValue}" non autorisée`;
         
         if (possibleMatches.length > 0) {
-            errorMessage += ` (Suggestion: "${possibleMatches[0]}")`;
+            errorMessage += ` (${i18nDt('tab.datatables_controller.results.proposal', 'Suggestion')}: "${possibleMatches[0]}")`;
         }
         
-        errorMessage += `. Valeurs autorisées: ${allowedValues.join(', ')}`;
+        errorMessage += `. ${i18nDt('tab.datatables_controller.results.authorizedvalue', 'Valeurs autorisées')}: ${allowedValues.join(', ')}`;
         
         if (allowNull) {
-            errorMessage += ' (valeurs vides autorisées)';
+            errorMessage += ` (${i18nDt('tab.datatables_controller.results.nullauthorized', 'valeurs vides autorisées')})`;
         }
         
         return {
@@ -1260,7 +1176,7 @@ function validateRegex(value, regexPattern, columnName, rowNumber, allowNull = f
         } else {
             return {
                 type: 'error',
-                message: `Ligne ${rowNumber}, Colonne "${columnName}": Valeur vide non autorisée`,
+                message:  `${i18nDt('tab.datatables_controller.results.line', 'Ligne')} ${rowNumber}, ${i18nDt('tab.datatables_controller.results.column', 'Colonne')} "${columnName}": Valeur vide non autorisée`,
                 row: rowNumber,
                 column: columnName,
                 value: value || '(vide)'
@@ -1271,7 +1187,7 @@ function validateRegex(value, regexPattern, columnName, rowNumber, allowNull = f
     if (!regexPattern) {
         return {
             type: 'warning',
-            message: `Ligne ${rowNumber}, Colonne "${columnName}": Aucune expression régulière configurée`,
+            message:  `${i18nDt('tab.datatables_controller.results.line', 'Ligne')} ${rowNumber}, ${i18nDt('tab.datatables_controller.results.column', 'Colonne')} "${columnName}": Aucune expression régulière configurée`,
             row: rowNumber,
             column: columnName,
             value: value
@@ -1283,13 +1199,13 @@ function validateRegex(value, regexPattern, columnName, rowNumber, allowNull = f
         const stringValue = value.toString();
         
         if (!regex.test(stringValue)) {
-            let errorMessage = `Ligne ${rowNumber}, Colonne "${columnName}": La valeur "${stringValue}" ne respecte pas le format requis`;
+            let errorMessage =  `${i18nDt('tab.datatables_controller.results.line', 'Ligne')} ${rowNumber}, ${i18nDt('tab.datatables_controller.results.column', 'Colonne')} "${columnName}": La valeur "${stringValue}" ne respecte pas le format requis`;
             
             if (description) {
                 errorMessage += ` (${description})`;
             }
             
-            errorMessage += `. Pattern attendu: ${regexPattern}`;
+            errorMessage += `. ${i18nDt('tab.datatables_controller.results.expectedpattern', 'Pattern attendu')}: ${regexPattern}`;
             
             return {
                 type: 'error',
@@ -1307,7 +1223,7 @@ function validateRegex(value, regexPattern, columnName, rowNumber, allowNull = f
     } catch (error) {
         return {
             type: 'warning',
-            message: `Ligne ${rowNumber}, Colonne "${columnName}": Expression régulière invalide (${error.message})`,
+            message:  `${i18nDt('tab.datatables_controller.results.line', 'Ligne')} ${rowNumber}, ${i18nDt('tab.datatables_controller.results.column', 'Colonne')} "${columnName}": Expression régulière invalide (${error.message})`,
             row: rowNumber,
             column: columnName,
             value: value
@@ -1324,22 +1240,22 @@ function displayValidationResults(datatableId, results,pageNum) {
     const dataTableName = dataTablesCache.find(dt => dt.id === datatableId)?.name || datatableId;
     
     console.log(`Analyse de la validation ${pageNum}`)
-    let html = `<h5>Résultats ${pageNum} pour: ${dataTableName}</h5>`;
+    let html = `<h5>${i18nDt('tab.datatables_controller.results.resultstitle', 'Résultats')} ${pageNum} ${i18nDt('tab.datatables_controller.results.authorizedvalue', 'pour')}: ${dataTableName}</h5>`;
     
     if (results.length === 0) {
-        html += '<div class="validation-result validation-success">✅ Aucune erreur détectée</div>';
+        html += `<div class="validation-result validation-success">✅ ${i18nDt('tab.datatables_controller.results.noerrors', 'Aucune erreur détectée')}</div>`;
     } else {
         const errors = results.filter(r => r.type === 'error');
         const warnings = results.filter(r => r.type === 'warning');
         if (errors.length > 0) {
             html += `<div class="validation-result validation-error">
-                <strong>❌ ${errors.length} erreur(s) détectée(s):</strong>
+                <strong>❌ ${errors.length} ${i18nDt('tab.datatables_controller.results.error.detected', 'erreur(s) détectée(s)')}:</strong>
                 <ul>${errors.map(e => `<li>${e.message}</li>`).join('')}</ul>
             </div>`;
         }
         if (warnings.length > 0) {
             html += `<div class="validation-result validation-warning">
-                <strong>⚠️ ${warnings.length} avertissement(s):</strong>
+                <strong>⚠️ ${warnings.length} ${i18nDt('tab.datatables_controller.results.error.warning', 'avertissement(s)')}:</strong>
                 <ul>${warnings.map(w => `<li>${w.message}</li>`).join('')}</ul>
             </div>`;
         }
@@ -1365,12 +1281,12 @@ function showValidationLoading(datatableId) {
         contentDiv.innerHTML += `
             <div class="text-center" id="datatableAnalyseLoading-${datatableId}">
                 <i class="fa fa-spinner fa-spin fa-3x text-primary"></i>
-                <h4>Validation en cours...</h4>
-                <p>Analyse de la DataTable: <strong>${dataTableName}</strong></p>
-                <p><small>Veuillez patienter pendant la vérification des données...</small></p>
+                <h4>${i18nDt('tab.datatables_controller.validation_in_progress', 'Validation in progress...')}</h4>
+                <p>${i18nDt('tab.datatables_controller.validation_analyzing', 'Analyzing DataTable:')} <strong>${dataTableName}</strong></p>
+                <p><small>${i18nDt('tab.datatables_controller.validation_wait', 'Please wait while checking data...')}</small></p>
                 <div class="progress">
                     <div class="progress-bar progress-bar-striped active" role="progressbar" style="width: 100%">
-                        <span class="sr-only">Validation en cours...</span>
+                        <span class="sr-only">${i18nDt('tab.datatables_controller.validation_in_progress', 'Validation in progress...')}</span>
                     </div>
                 </div>
             </div>
@@ -1405,12 +1321,12 @@ function testRegexPattern(columnName, triggerElement) {
     resultDiv.innerHTML = '';
     
     if (!pattern) {
-        resultDiv.innerHTML = '<small class="text-muted">Saisissez une expression régulière pour tester</small>';
+        resultDiv.innerHTML = `<small class="text-muted">${i18nDt('tab.datatables_controller.rules.regex', 'Saisissez une expression régulière pour tester')}</small>`;
         return;
     }
     
     if (!testValue) {
-        resultDiv.innerHTML = '<small class="text-muted">Saisissez une valeur de test</small>';
+        resultDiv.innerHTML = `<small class="text-muted">${i18nDt('tab.datatables_controller.rules.regex1', 'Saisissez une valeur de test')}</small>`;
         return;
     }
     
@@ -1421,13 +1337,13 @@ function testRegexPattern(columnName, triggerElement) {
         if (isMatch) {
             resultDiv.innerHTML = `
                 <div class="alert alert-success" style="padding: 5px; margin: 0;">
-                    <i class="fa fa-check"></i> <strong>✅ Correspond</strong> - La valeur "${testValue}" respecte le pattern
+                    <i class="fa fa-check"></i> <strong>✅ ${i18nDt('tab.datatables_controller.rules.match', 'Correspond')}</strong> - ${i18nDt('tab.datatables_controller.rules.value', 'La valeur')} "${testValue}" ${i18nDt('tab.datatables_controller.rules.patternok', 'respecte le pattern')}
                 </div>
             `;
         } else {
             resultDiv.innerHTML = `
                 <div class="alert alert-danger" style="padding: 5px; margin: 0;">
-                    <i class="fa fa-times"></i> <strong>❌ Ne correspond pas</strong> - La valeur "${testValue}" ne respecte pas le pattern
+                    <i class="fa fa-times"></i> <strong>❌ ${i18nDt('tab.datatables_controller.rules.donotmatch', 'Ne correspond pas')}</strong> - ${i18nDt('tab.datatables_controller.rules.value', 'La valeur')} "${testValue}" ${i18nDt('tab.datatables_controller.results.patternko', 'ne respecte pas le pattern')}
                 </div>
             `;
         }
@@ -1438,7 +1354,7 @@ function testRegexPattern(columnName, triggerElement) {
             if (matches && matches.length > 1) {
                 resultDiv.innerHTML += `
                     <small class="text-info">
-                        <strong>Groupes capturés:</strong> ${matches.slice(1).join(', ')}
+                        <strong>${i18nDt('tab.datatables_controller.rules.groupedcapture', 'Groupes capturés')}:</strong> ${matches.slice(1).join(', ')}
                     </small>
                 `;
             }
@@ -1447,7 +1363,7 @@ function testRegexPattern(columnName, triggerElement) {
     } catch (error) {
         resultDiv.innerHTML = `
             <div class="alert alert-warning" style="padding: 5px; margin: 0;">
-                <i class="fa fa-exclamation-triangle"></i> <strong>⚠️ Expression invalide</strong><br>
+                <i class="fa fa-exclamation-triangle"></i> <strong>⚠️ ${i18nDt('tab.datatables_controller.rules.invalideExpression', 'Expression invalide')}</strong><br>
                 <small>${error.message}</small>
             </div>
         `;
@@ -1557,6 +1473,126 @@ function useRegexPattern(columnName, pattern, description) {
     $('.modal').modal('hide');
     
     console.log(`📋 Pattern appliqué pour ${columnName}: ${pattern}`);
+}
+
+
+const QUICK_REGEX_EXAMPLES = [
+    {
+        label: 'Entier',
+        pattern: '^\\d+$',
+        description: 'Nombres entiers uniquement'
+    },
+    {
+        label: '0-999',
+        pattern: '^\\d{1,4}$',
+        description: 'Nombre entre 0 et 9999'
+    },
+    {
+        label: '0-100',
+        pattern: '^(?:100(?:\\.0)?|(?:[1-9]\\d|\\d)(?:\\.\\d)?)$',
+        description: 'Nombre entre 0 et 100'
+    },
+    {
+        label: 'tel +33',
+        pattern: '^(\\+33)[0-9]{9}$',
+        description: 'Numero de tel en +33'
+    },
+    {
+        label: 'email',
+        pattern: '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$',
+        description: 'Adresse email valide'
+    },
+    {
+        label: 'postal_code_fr',
+        pattern: '^\\d{5}$',
+        description: 'Code postal français (5 chiffres)'
+    },
+    {
+        label: 'siret',
+        pattern: '^\\d{14}$',
+        description: 'Numéro SIRET (14 chiffres)'
+    },
+    {
+        label: 'alphanumeric',
+        pattern: '^[a-zA-Z0-9]+$',
+        description: 'Caractères alphanumériques uniquement'
+    },
+    {
+        label: 'sentence_case',
+        pattern: '^[A-Z][a-z]*$',
+        description: 'Première lettre majuscule, reste en minuscules'
+    },
+    {
+        label: 'uuid',
+        pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
+        description: 'UUID/GUID standard'
+    },
+    {
+        label: 'ip_address',
+        pattern: '^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$',
+        description: 'Adresse IP v4'
+    },
+    {
+        label: 'date_dd_mm_yyyy',
+        pattern: '^\\d{2}/\\d{2}/\\d{4}$',
+        description: 'Date au format DD/MM/YYYY'
+    }
+];
+
+const QUICK_LIST_EXAMPLES = [
+    {
+        label: 'TRUE;FALSE',
+        values: 'TRUE;FALSE',
+        ignoreCase: true,
+        description: '(casse ignoree)'
+    },
+    {
+        label: 'DISSUASION;DISTRIBUTION',
+        values: 'DISSUASION;DISTRIBUTION',
+        ignoreCase: false,
+        description: ''
+    },
+    {
+        label: 'MOTIF;MENU;ACCUEIL;ROUTAGE',
+        values: 'MOTIF;MENU;ACCUEIL;ROUTAGE',
+        ignoreCase: false,
+        description: ''
+    }
+];
+
+function buildRegexQuickExamplesHtml() {
+    return `
+        <div class="regex-quick-examples" style="margin-top: 8px;">
+            <small class="text-muted"><strong>${i18nDt('tab.datatables_controller.rules.regexinfo', 'Utilisez les expressions régulières JavaScript standard. Exemples :')}</strong></small><br>
+            ${QUICK_REGEX_EXAMPLES.map((item) => `
+                <button type="button"
+                        class="btn btn-default btn-xs regex-example-btn"
+                        data-pattern="${item.pattern}"
+                        data-description="${item.description}"
+                        style="margin: 2px 4px 2px 0;">
+                    ${item.label}
+                </button>
+                 : ${item.description}<br>
+            `).join('')}
+        </div>
+    `;
+}
+
+function buildListQuickExamplesHtml() {
+    return `
+        <div class="liste-quick-examples" style="margin-top: 8px;">
+            <small class="text-muted"><strong>${i18nDt('tab.datatables_controller.rules.listinfo', 'Exemples cliquables:')}</strong></small><br>
+            ${QUICK_LIST_EXAMPLES.map((item) => `
+                <button type="button"
+                        class="btn btn-default btn-xs liste-example-btn"
+                        data-values="${item.values}"
+                        data-ignore-case="${item.ignoreCase ? 'true' : 'false'}"
+                        style="margin: 2px 4px 2px 0;">
+                    ${item.label}${item.description ? ` ${item.description}` : ''}
+                </button>
+            `).join('')}
+        </div>
+    `;
 }
 
 /**

@@ -20,6 +20,17 @@ const FLOW_CANVAS_MIN_WIDTH = 700;
 const FLOW_CANVAS_MIN_HEIGHT = 740;
 
 let flowDesignerInitialized = false;
+
+function i18nFlow(key, fallback, params) {
+    if (window.GCToolI18n && typeof window.GCToolI18n.t === 'function') {
+        return window.GCToolI18n.t(key, params || {}, fallback);
+    }
+    if (!params || typeof fallback !== 'string') return fallback;
+    return fallback.replace(/\{(\w+)\}/g, function (_, token) {
+        return Object.prototype.hasOwnProperty.call(params, token) ? String(params[token]) : '';
+    });
+}
+
 // Configuration des types de boites
 const BOX_TYPES = {
     start: {
@@ -200,7 +211,7 @@ function initializeFlowDesigner() {
     
     // Vérifier les dépendances
     if (!checkBootstrapDependencies()) {
-        alert('Erreur : Bootstrap ou jQuery non chargé correctement');
+        alert(i18nFlow('tab.flow.alert.bootstrap_missing', 'Erreur : Bootstrap ou jQuery non charge correctement'));
         return;
     }
     
@@ -350,7 +361,7 @@ function handleCanvasDrop(e) {
     
     // Vérifier si c'est une boîte unique (Start)
     if (BOX_TYPES[draggedBoxType].unique && hasBoxOfType(draggedBoxType)) {
-        alert('Une seule boîte Start est autorisée dans le flux');
+        alert(i18nFlow('tab.flow.alert.single_start', 'Une seule boite Start est autorisee dans le flux'));
         return;
     }
     
@@ -479,7 +490,7 @@ function createBoxSVG(box, config) {
         dataTableText.setAttribute('fill', 'white');
         dataTableText.setAttribute('font-size', '10');
         dataTableText.setAttribute('class', 'datatable-text');
-        dataTableText.textContent = box.dataTable ? getDataTableNameById(box.dataTable) : 'Non configuré';
+        dataTableText.textContent = box.dataTable ? getDataTableNameById(box.dataTable) : i18nFlow('tab.flow.config.not_configured', 'Non configure');
         
         // Texte de la colonne d'affichage
         const columnText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
@@ -609,7 +620,7 @@ function createConnection(from, to) {
     );
     
     if (existingConnection) {
-        alert('Cette sortie est déjà connectée');
+        alert(i18nFlow('tab.flow.alert.output_already_connected', 'Cette sortie est deja connectee'));
         redrawConnection(existingConnection.id)
         return;
     }
@@ -708,7 +719,7 @@ function drawConnection(connection) {
     // Événement pour supprimer la connexion
     connectionGroup.addEventListener('contextmenu', (e) => {
         e.preventDefault();
-        if (confirm('Supprimer cette connexion ?')) {
+        if (confirm(i18nFlow('tab.flow.confirm.delete_connection', 'Supprimer cette connexion ?'))) {
             deleteConnection(connection.id);
         }
     });
@@ -756,7 +767,20 @@ function getFlowStepIconClass(type) {
     return (BOX_TYPES[type] && BOX_TYPES[type].icon) ? BOX_TYPES[type].icon : 'fa-circle';
 }
 
-function extractBoxIdsFromBoxXmlList(boxesXML) {
+function hasFlowBranchContext(branchIndex) {
+    return branchIndex !== undefined && branchIndex !== null && branchIndex !== '';
+}
+
+function buildFlowBranchContext(branchIndex) {
+    return hasFlowBranchContext(branchIndex) ? `branch_${branchIndex}` : '';
+}
+
+function buildFlowInstanceId(baseId, branchIndex) {
+    const context = buildFlowBranchContext(branchIndex);
+    return context ? `${baseId}_${context}` : baseId;
+}
+
+function extractBoxIdsFromBoxXmlList(boxesXML, includeNormalizedAliases = false) {
     if (!boxesXML || !boxesXML.length) return [];
     const ids = [];
     boxesXML.forEach(boxXml => {
@@ -764,10 +788,12 @@ function extractBoxIdsFromBoxXmlList(boxesXML) {
         if (idMatch && idMatch[1]) {
             const rawId = idMatch[1];
             ids.push(rawId);
-            let candidate = rawId;
-            while (candidate.includes('_')) {
-                candidate = candidate.substring(0, candidate.lastIndexOf('_'));
-                ids.push(candidate);
+            if (includeNormalizedAliases) {
+                let candidate = rawId;
+                while (candidate.includes('_')) {
+                    candidate = candidate.substring(0, candidate.lastIndexOf('_'));
+                    ids.push(candidate);
+                }
             }
         }
     });
@@ -817,7 +843,7 @@ function showBoxConfigPanel(boxId) {
     }
     
     // Afficher un loading pendant la génération
-    content.innerHTML = '<div class="text-center"><i class="fa fa-spinner fa-spin"></i> Chargement...</div>';
+    content.innerHTML = `<div class="text-center"><i class="fa fa-spinner fa-spin"></i> ${i18nFlow('tab.flow.loading.config', 'Chargement...')}</div>`;
     configPanel.style.display = 'block';
     
     try {
@@ -825,7 +851,7 @@ function showBoxConfigPanel(boxId) {
         content.innerHTML = configHTML;
     } catch (error) {
         console.error('Erreur lors de la génération de la configuration:', error);
-        content.innerHTML = '<div class="alert alert-danger">Erreur lors du chargement</div>';
+        content.innerHTML = `<div class="alert alert-danger">${i18nFlow('tab.flow.error.config_load', 'Erreur lors du chargement')}</div>`;
     }
 }
 
@@ -870,30 +896,30 @@ function generateBoxConfigHTML(box) {
     //Ajout d'un champ description
     html += `
         <div class="form-group">
-            <label>Description de l'étape (pour les tests) :</label>
+            <label>${i18nFlow('tab.flow.config.step_description_label', "Description de l'etape (pour les tests) :")}</label>
             <textarea class="form-control" id="boxDescription" rows="3" 
                       placeholder="${box.description}"
                       onchange="updateBoxDescription('${box.id}', this.value)">${box.description || ''}</textarea>
-            <small class="text-muted">Cette description apparaîtra dans les rapports de validation</small>
+            <small class="text-muted">${i18nFlow('tab.flow.config.step_description_help', 'Cette description apparaitra dans les rapports de validation')}</small>
         </div>
         <hr>
     `;
     if (box.type === 'error') {
         html += `
             <div class="form-group">
-                <label>Texte d'erreur :</label>
+                <label>${i18nFlow('tab.flow.config.error_text_label', "Texte d'erreur :")}</label>
                 <textarea class="form-control" id="boxErrorText" rows="4" 
-                          placeholder="Saisissez le message d'erreur à afficher..."
+                          placeholder="${i18nFlow('tab.flow.config.error_text_placeholder', "Saisissez le message d'erreur a afficher...")}"
                           onchange="updateBoxErrorText('${box.id}', this.value)">${box.errorText || ''}</textarea>
-                <small class="text-muted">Ce texte sera affiché dans les parcours qui aboutissent à cette boîte d'erreur</small>
+                <small class="text-muted">${i18nFlow('tab.flow.config.error_text_help', "Ce texte sera affiche dans les parcours qui aboutissent a cette boite d'erreur")}</small>
             </div>
             
             <div class="form-group">
-                <label>Aperçu :</label>
+                <label>${i18nFlow('tab.flow.config.preview', 'Apercu :')}</label>
                 <div class="well well-sm">
-                    <strong>Message d'erreur :</strong>
+                    <strong>${i18nFlow('tab.flow.config.error_message_label', "Message d'erreur :")}</strong>
                     <div id="errorTextPreview" class="text-danger">
-                        ${box.errorText || 'Aucun texte défini'}
+                        ${box.errorText || i18nFlow('tab.flow.config.no_text_defined', 'Aucun texte defini')}
                     </div>
                 </div>
             </div>
@@ -901,9 +927,9 @@ function generateBoxConfigHTML(box) {
     } else {        
         html += `
             <div class="form-group">
-                <label>DataTable :</label>
+                <label>${i18nFlow('tab.flow.config.datatable', 'DataTable :')}</label>
                 <select class="form-control" id="boxDataTable" onchange="updateBoxDataTable('${box.id}', this.value)">
-                    <option value="">Sélectionner une DataTable...</option>
+                    <option value="">${i18nFlow('tab.flow.config.select_datatable', 'Selectionner une DataTable...')}</option>
                     ${dataTablesCache.map(dt => 
                         `<option value="${dt.id}" ${dt.id === box.dataTable ? 'selected' : ''}>${dt.name}</option>`
                     ).join('')}
@@ -916,9 +942,9 @@ function generateBoxConfigHTML(box) {
             
             html += `
                 <div class="form-group">
-                    <label>Colonne d'affichage :</label>
+                    <label>${i18nFlow('tab.flow.config.display_column', "Colonne d'affichage :")}</label>
                     <select class="form-control" id="boxDisplayColumn" onchange="updateBoxDisplayColumn('${box.id}', this.value)">
-                        <option value="">Sélectionner une colonne...</option>
+                        <option value="">${i18nFlow('tab.flow.config.select_column', 'Selectionner une colonne...')}</option>
                         ${columns.map(col => 
                             `<option value="${col}" ${col === box.displayColumn ? 'selected' : ''}>${getColumnTitle(box.dataTable,col)}</option>`
                         ).join('')}
@@ -931,7 +957,7 @@ function generateBoxConfigHTML(box) {
                     <div class="outputs-management">
                         <div class="row">
                             <div class="col-md-8">
-                                <h5><i class="fa fa-right-from-bracket"></i> Sorties (${box.currentOutputs}/${config.maxOutputs})</h5>
+                                <h5><i class="fa fa-right-from-bracket"></i> ${i18nFlow('tab.flow.config.outputs', 'Sorties')} (${box.currentOutputs}/${config.maxOutputs})</h5>
                                 <!--<small class="text-muted">Min:${config.minOutputs},Max:${config.maxOutputs}</small>-->
                             </div>
                             <div class="col-md-4 text-right">
@@ -960,7 +986,7 @@ function generateBoxConfigHTML(box) {
     html += `
         <hr>
         <button class="btn btn-danger btn-sm" onclick="deleteBox('${box.id}')">
-            <i class="fa fa-trash"></i> Supprimer
+            <i class="fa fa-trash"></i> ${i18nFlow('tab.flow.config.delete_box', 'Supprimer')}
         </button>
     `;
     
@@ -987,17 +1013,18 @@ function generateOutputConfigHTML(box, outputIndex, columns) {
     const minOutputs = BOX_TYPES[box.type]?.minOutputs ?? 0;
     const removeDisabled = box.currentOutputs <= minOutputs;
     
+    const defaultLabel = condition.isDefault ? `<span class="label label-info">${i18nFlow('tab.flow.output.default', 'Par defaut')}</span>` : '';
     return `
         <div class="output-config" id="output-config-${outputIndex}" style="border: 1px solid #ddd; padding: 10px; margin: 10px 0; border-radius: 5px;">
             <div class="row">
                 <div class="col-md-10">
-                    <h6>Sortie ${outputIndex + 1} ${condition.isDefault ? '<span class="label label-info">Par défaut</span>' : ''}</h6>
+                    <h6>${i18nFlow('tab.flow.output.output', 'Sortie')} ${outputIndex + 1} ${defaultLabel}</h6>
                 </div>
                 <div class="col-md-2 text-right">
                     <button type="button" class="btn btn-xs btn-danger output-remove-btn"
                             onclick="removeOutputAt('${box.id}', ${outputIndex})"
                             ${removeDisabled ? 'disabled' : ''}
-                            title="Supprimer cette sortie">
+                            title="${i18nFlow('tab.flow.output.delete_this_output', 'Supprimer cette sortie')}">
                         <i class="fa fa-trash"></i>
                     </button>
                 </div>
@@ -1005,33 +1032,33 @@ function generateOutputConfigHTML(box, outputIndex, columns) {
             
             <div class="row">
                 <div class="col-md-6">
-                    <label>Colonne de condition :</label>
+                    <label>${i18nFlow('tab.flow.output.condition_column', 'Colonne de condition :')}</label>
                     <select class="form-control output-condition-column" 
                             data-output="${outputIndex}" data-box="${box.id}"
                             onchange="updateOutputCondition('${box.id}', ${outputIndex}, 'column', this.value)">
-                        <option value="">Aucune condition (défaut)</option>
+                        <option value="">${i18nFlow('tab.flow.output.no_condition_default', 'Aucune condition (defaut)')}</option>
                         ${columns.map(col => 
                             `<option value="${col}" ${condition.column === col ? 'selected' : ''}>${getColumnTitle(box.dataTable, col)}</option>`
                         ).join('')}
                     </select>
                 </div>
                 <div class="col-md-6">
-                    <label>Clé cible :</label>
+                    <label>${i18nFlow('tab.flow.output.target_key', 'Cle cible :')}</label>
                     <select class="form-control output-condition-keyValue"
                             data-output="${outputIndex}" data-box="${box.id}"
                             onchange="updateOutputCondition('${box.id}', ${outputIndex}, 'targetKeyColumn', this.value)">
-                        <option value="">Sélectionner une colonne clé...</option>
+                        <option value="">${i18nFlow('tab.flow.output.select_key_column', 'Selectionner une colonne cle...')}</option>
                         ${columns.map(col => 
                             `<option value="${col}" ${condition.targetKeyColumn === col ? 'selected' : ''}>${getColumnTitle(box.dataTable, col)}</option>`
                         ).join('')}
                     </select>
                 </div>
                 <div class="col-md-6">
-                    <label>Valeur attendue :</label>
+                    <label>${i18nFlow('tab.flow.output.expected_value', 'Valeur attendue :')}</label>
                     <input type="text" class="form-control output-condition-value" 
                            data-output="${outputIndex}" data-box="${box.id}"
                            value="${condition.value || ''}" 
-                           placeholder="Valeur à tester"
+                           placeholder="${i18nFlow('tab.flow.output.value_to_test', 'Valeur a tester')}"
                            onchange="updateOutputCondition('${box.id}', ${outputIndex}, 'value', this.value)"
                            ${!condition.column ? 'disabled' : ''}>
                 </div>
@@ -1043,9 +1070,9 @@ function generateOutputConfigHTML(box, outputIndex, columns) {
                         <input type="checkbox" 
                                onchange="updateOutputCondition('${box.id}', ${outputIndex}, 'isDefault', this.checked)"
                                ${condition.isDefault ? 'checked' : ''}>
-                        Utiliser comme sortie par défaut
+                        ${i18nFlow('tab.flow.output.use_default_output', 'Utiliser comme sortie par defaut')}
                     </label>
-                    <small class="text-muted block">Si aucune autre condition n'est remplie, utiliser cette sortie</small>
+                    <small class="text-muted block">${i18nFlow('tab.flow.output.default_help', "Si aucune autre condition n'est remplie, utiliser cette sortie")}</small>
                 </div>
             </div>
         </div>
@@ -1232,7 +1259,7 @@ function updateBoxErrorText(boxId, text) {
     // Mettre à jour l'aperçu en temps réel
     const preview = document.getElementById('errorTextPreview');
     if (preview) {
-        preview.textContent = text || 'Aucun texte défini';
+        preview.textContent = text || i18nFlow('tab.flow.config.no_text_defined', 'Aucun texte defini');
     }
     
     // Mettre à jour la visualisation de la boîte
@@ -1731,7 +1758,7 @@ function startDragBox(e, boxId) {
  * Suppression d'une boîte et de ses connexions
  */
 function deleteBox(boxId) {
-    if (!confirm('êtes-vous sûr de vouloir supprimer cette boîte ?')) {
+    if (!confirm(i18nFlow('tab.flow.confirm.delete_box', 'Etes-vous sur de vouloir supprimer cette boite ?'))) {
         return;
     }
     
@@ -1768,7 +1795,7 @@ function deleteBox(boxId) {
  */
 function clearCanvas(show) {
     if(show){
-        if (!confirm('êtes-vous sûr de vouloir vider complètement le canvas ?')) {
+        if (!confirm(i18nFlow('tab.flow.confirm.clear_canvas', 'Etes-vous sur de vouloir vider completement le canvas ?'))) {
             return;
         }
     }
@@ -1816,11 +1843,11 @@ function validateFlow(show) {
     
     // Validations existantes...
     if (!hasBoxOfType('start')) {
-        errors.push('Le flux doit contenir au moins une boîte Start');
+        errors.push(i18nFlow('tab.flow.validation.error_missing_start', 'Le flux doit contenir au moins une boite Start'));
     }
     
     if (!hasBoxOfType('end')) {
-        errors.push('Le flux doit contenir au moins une boîte End');
+        errors.push(i18nFlow('tab.flow.validation.error_missing_end', 'Le flux doit contenir au moins une boite End'));
     }
     
     // Validation des boîtes
@@ -1833,22 +1860,22 @@ function validateFlow(show) {
 
         // Validation commune pour toutes les boîtes (sauf error)
         if (!box.dataTable) {
-            errors.push(`La boîte ${box.type} (${box.id}) n'a pas de DataTable assignée`);
+            errors.push(i18nFlow('tab.flow.validation.error_no_datatable', "La boite {type} ({id}) n'a pas de DataTable assignee", { type: box.type, id: box.id }));
             continue;
         }
         
         if (!box.displayColumn && box.dataTable) {
-            errors.push(`La boîte ${box.type} (${box.id}) n'a pas de colonne d'affichage`);
+            errors.push(i18nFlow('tab.flow.validation.error_no_display_column', "La boite {type} ({id}) n'a pas de colonne d'affichage", { type: box.type, id: box.id }));
         }
 
         // Validation spécifique pour le composant Message
         if (box.type === 'message') {
             const connectedOutputs = flowConnections.filter(conn => conn.from.boxId === box.id);
             if (connectedOutputs.length === 0) {
-                errors.push(`Le composant Message (${box.id}) doit avoir une sortie connectée`);
+                errors.push(i18nFlow('tab.flow.validation.error_message_no_output', 'Le composant Message ({id}) doit avoir une sortie connectee', { id: box.id }));
             }
             if (connectedOutputs.length > 1) {
-                errors.push(`Le composant Message (${box.id}) ne peut avoir qu'une seule sortie`);
+                errors.push(i18nFlow('tab.flow.validation.error_message_too_many_outputs', "Le composant Message ({id}) ne peut avoir qu'une seule sortie", { id: box.id }));
             }
         }
         
@@ -1856,12 +1883,12 @@ function validateFlow(show) {
         if (box.type === 'calendar') {
             const connectedOutputs = flowConnections.filter(conn => conn.from.boxId === box.id);
             if (connectedOutputs.length !== 3) {
-                errors.push(`Le composant Calendar (${box.id}) doit avoir exactement 3 sorties connectées (Open, Closed, Vacation)`);
+                errors.push(i18nFlow('tab.flow.validation.error_calendar_output_count', 'Le composant Calendar ({id}) doit avoir exactement 3 sorties connectees (Open, Closed, Vacation)', { id: box.id }));
             }
             // Vérifier que les sorties sont dans le bon ordre
             const outputIndices = connectedOutputs.map(conn => conn.from.index);
             if (!outputIndices.includes(0) || !outputIndices.includes(1) || !outputIndices.includes(2)) {
-                errors.push(`Le composant Calendar (${box.id}) doit avoir des connexions pour chaque état (Open, Closed, Vacation)`);
+                errors.push(i18nFlow('tab.flow.validation.error_calendar_missing_states', 'Le composant Calendar ({id}) doit avoir des connexions pour chaque etat (Open, Closed, Vacation)', { id: box.id }));
             }
         }
         
@@ -1884,25 +1911,29 @@ function validateFlow(show) {
                         hasConditions = true;
                     }
                     if (condition.column && !condition.value && !condition.isDefault) {
-                        errors.push(`La sortie ${i + 1} de la boîte ${box.type} (${box.id}) a une colonne mais pas de valeur définie`);
+                        errors.push(i18nFlow('tab.flow.validation.error_output_missing_value', 'La sortie {output} de la boite {type} ({id}) a une colonne mais pas de valeur definie', {
+                            output: i + 1, type: box.type, id: box.id
+                        }));
                     }
                 }
             }
             
             // Vérifier qu'il y a au moins une condition ou une sortie par défaut
             if (!hasDefault && !hasConditions && box.type !== 'end') {
-                errors.push(`La boîte ${box.type} (${box.id}) doit avoir au moins une condition ou une sortie par défaut`);
+                errors.push(i18nFlow('tab.flow.validation.error_missing_condition_or_default', 'La boite {type} ({id}) doit avoir au moins une condition ou une sortie par defaut', {
+                    type: box.type, id: box.id
+                }));
             }
         }
     }
     
     if (errors.length > 0) {
-        alert('Erreurs de validation :\n' + errors.join('\n'));
+        alert(i18nFlow('tab.flow.validation.errors_prefix', 'Erreurs de validation :\n') + errors.join('\n'));
         return false;
     }
     
     if(show) {
-        alert('Flux valide !');
+        alert(i18nFlow('tab.flow.validation.flow_valid', 'Flux valide !'));
     }
     return true;
 }
@@ -1910,6 +1941,45 @@ function validateFlow(show) {
 /**
  * Génération des visuels - Version asynchrone pour gérer les menus
  */
+function escapeXmlAttributeValue(value) {
+    if (value === null || value === undefined) return '';
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}
+
+function setFlowXmlDiagramName(flowXml, diagramName, index) {
+    if (!flowXml) return flowXml;
+
+    const fallbackName = 'Flow Path';
+    const rawName = String(diagramName || '').trim();
+    const safeName = escapeXmlAttributeValue(rawName || fallbackName);
+
+    if (/<diagram\b[^>]*\bname\s*=/i.test(flowXml)) {
+        flowXml = flowXml.replace(
+            /(<diagram\b[^>]*\bname\s*=\s*")[^"]*(")/i,
+            `$1${safeName}$2`
+        );
+    }else if (/<diagram\b/i.test(flowXml)) {
+        flowXml = flowXml.replace(
+            /<diagram\b([^>]*)>/i,
+            `<diagram name="${safeName}"$1>`
+        );
+    }
+
+    if (/<diagram\b[^>]*\bname\s*=/i.test(flowXml)) {
+        flowXml = flowXml.replace(
+            /(<diagram\b[^>]*\bid\s*=\s*")[^"]*(")/i,
+            `$1flow-${index}$2`
+        );
+    }
+
+    return flowXml;
+}
+
 function generateFlowVisuals() {
     if (!validateFlow(false)) {
         return;
@@ -1920,7 +1990,7 @@ function generateFlowVisuals() {
     // Trouver la boîte Start
     const startBox = Array.from(flowBoxes.values()).find(box => box.type === 'start');
     if (!startBox) {
-        alert('Aucune boîte Start trouvée');
+        alert(i18nFlow('tab.flow.validation.no_start', 'Aucune boite Start trouvee'));
         return;
     }
     
@@ -1945,12 +2015,18 @@ function generateFlowVisuals() {
             // Générer tous les visuels de façon asynchrone
             const visualPromises = limitedRows.map((row, index) => 
                 generateConditionalFlowPath(row, startBox)
-                    .then(flowPath => ({
+                    .then(flowPath => {
+                        const flowPathWithNamedDiagram = {
+                            ...flowPath,
+                            xml: setFlowXmlDiagramName(flowPath?.xml, row?.key, index)
+                        };
+                        return ({
                         key: row.key,
                         index,
-                        flowPath,
+                        flowPath: flowPathWithNamedDiagram,
                         row
-                    }))
+                    });
+                    })
             );
             
             return Promise.all(visualPromises);
@@ -1981,7 +2057,7 @@ function generateFlowVisuals() {
             console.error('❌ Erreur lors de la génération:', error);
             visualsContainer.innerHTML = `
                 <div class="alert alert-danger">
-                    <h4>Erreur lors de la génération des visuels</h4>
+                    <h4>${i18nFlow('tab.flow.error.generating_visuals', 'Erreur lors de la generation des visuels')}</h4>
                     <p>${error.message}</p>
                 </div>
             `;
@@ -1995,8 +2071,8 @@ function generateConditionalFlowPath(row, currentBox, keyValue, visitedBoxes = n
     // Prévenir les boucles infinies
     if (depth > 10 || visitedBoxes.has(currentBox.id)) {
         return Promise.resolve({
-            html: '<span class="flow-step error">⚠️ Boucle détectée</span>',
-            details: ['Boucle détectée dans le parcours'],
+            html: `<span class="flow-step error">${i18nFlow('tab.flow.path.loop_detected_html', '⚠️ Boucle detectee')}</span>`,
+            details: [i18nFlow('tab.flow.path.loop_detected_detail', 'Boucle detectee dans le parcours')],
             xml: generateMxGraphModelWrapper([], []),
             validator: validator,
             validationGroups: []
@@ -2004,21 +2080,23 @@ function generateConditionalFlowPath(row, currentBox, keyValue, visitedBoxes = n
     }
 
     visitedBoxes.add(currentBox.id);
-    const position = layoutCalculatorInstance.calculatePosition(currentBox.id, depth, branchIndex);
-    console.log(`DEBUG generateConditionalFlowPath currentBox = `, currentBox);
+    const branchContext = buildFlowBranchContext(branchIndex);
+    const currentBoxInstanceId = buildFlowInstanceId(currentBox.id, branchIndex);
+    const position = layoutCalculatorInstance.calculatePosition(currentBoxInstanceId, depth, branchIndex);
+    //console.log(`DEBUG generateConditionalFlowPath currentBox = `, currentBox);
     //console.log(`DEBUG currentBox KeyValue = `, keyValue);
     //console.log(`DEBUG currentRow = `, row);
     
 
     // Gestion spéciale pour les boîtes d'erreur
     if (currentBox.type === 'error') {
-        const errorText = currentBox.errorText || 'Erreur non définie';
-        const boxXML = generateBoxXML(currentBox,position,"Erreur",branchIndex);
+        const errorText = currentBox.errorText || i18nFlow('tab.flow.path.undefined_error', 'Erreur non definie');
+        const boxXML = generateBoxXML(currentBox, position, i18nFlow('tab.flow.path.error_label', 'Erreur'), branchContext);
         return Promise.resolve({
             html: `<div class="flow-step error">
-                ❌ ERREUR: ${errorText}
+                ${i18nFlow('tab.flow.path.error_prefix', '❌ ERREUR:')} ${errorText}
             </div>`,
-            details: [`Erreur: ${errorText}`],
+            details: [`${i18nFlow('tab.flow.path.error_detail_prefix', 'Erreur:')} ${errorText}`],
             xml: generateMxGraphModelWrapper([boxXML], []),
             validator: validator,
             validationGroups: []
@@ -2033,10 +2111,9 @@ function generateConditionalFlowPath(row, currentBox, keyValue, visitedBoxes = n
     return getDataTableRowsWithCache(currentBox.dataTable)
         .then(dataTableRows => {
             const currentRowData = dataTableRows.find(r => r.key === keyValue) || row;
-            console.log(`DEBUG currentRowData = `, currentRowData);	
+            //console.log(`DEBUG currentRowData = `, currentRowData);	
             
             currentBox.data = currentRowData;
-            validator.addBox(currentBox); 
 
             const stepDisplayText = currentBox.displayColumn
                 ? `${getColumnTitle(currentBox.dataTable,currentBox.displayColumn)}: ${currentRowData[currentBox.displayColumn] || 'N/A'}`
@@ -2048,11 +2125,27 @@ function generateConditionalFlowPath(row, currentBox, keyValue, visitedBoxes = n
 
             let details = [`${currentBox.type}: ${currentRowData[currentBox.displayColumn] || currentBox.displayName}`];
             const label = getColumnTitle(currentBox.dataTable,currentBox.displayColumn) + '/' + currentRowData[currentBox.displayColumn] 
-            const currentBoxXML = generateBoxXML(currentBox,position,label,branchIndex);
+            const currentBoxXML = generateBoxXML(currentBox, position, label, branchContext);
+            const currentBoxXmlId = extractFirstBoxId(currentBoxXML) || currentBoxInstanceId;
+            validator.addBox(currentBox, {
+                instanceId: currentBoxXmlId,
+                xmlId: currentBoxXmlId,
+                xmlIds: [currentBoxXmlId],
+                logicalId: currentBox.id,
+                branchIndex: branchIndex,
+                branchContext: branchContext
+            });
             let allXMLBoxes = [currentBoxXML];
             let allConnections = [];
             
             let task = generateStepTasks(currentBox, currentRowData);
+            if (task) {
+                task.id = currentBoxXmlId;
+                task.logicalId = currentBox.id;
+                task.instanceId = currentBoxXmlId;
+                task.xmlId = currentBoxXmlId;
+                task.xmlIds = [currentBoxXmlId, currentBox.id];
+            }
             validator.addTask(task);
 
             // Si c'est une boîte End, arrêter ici
@@ -2082,7 +2175,7 @@ function generateConditionalFlowPath(row, currentBox, keyValue, visitedBoxes = n
             
             // Gestion spéciale pour les boîtes Menu
             if (currentBox.type === 'menu') {
-                return generateMenuFlowPaths(row, currentBox, currentRowData, visitedBoxes, depth,validator, layoutCalculatorInstance)
+                return generateMenuFlowPaths(row, currentBox, currentRowData, visitedBoxes, depth, branchIndex, validator, layoutCalculatorInstance)
                     .then(menuResult => {
                         html += menuResult.html;
                         details = details.concat(menuResult.details);
@@ -2115,7 +2208,9 @@ function generateConditionalFlowPath(row, currentBox, keyValue, visitedBoxes = n
                         validator,
                         layoutCalculatorInstance
                     ).then(result => {
-                        const connXML = generateConnectionXML(currentBox, targetBox, `conn_${currentBox}_to_${targetBox}`, BOX_TYPES[currentBox.type].outputLabels[idx]);
+                        const currentXmlId = currentBoxXmlId;
+                        const targetXmlId = buildFlowInstanceId(targetBox.id, idx);
+                        const connXML = generateConnectionXML(currentXmlId, targetXmlId, `conn_${currentXmlId}_to_${targetXmlId}`, BOX_TYPES[currentBox.type].outputLabels[idx]);
                         return {
                             output: BOX_TYPES[currentBox.type].outputLabels[idx],
                             result: result,
@@ -2158,8 +2253,7 @@ function generateConditionalFlowPath(row, currentBox, keyValue, visitedBoxes = n
                             const nextData = extractBoxesAndConnectionsFromXML(nextPath.xml);
                             allXMLBoxes = allXMLBoxes.concat(nextData.boxes);
                             allConnections = allConnections.concat(nextData.connections);
-                            const nextBoxXmlId = branchIndex ? `${nextBox.box.id}_${branchIndex}` : nextBox.box.id;
-                            const currentBoxXmlId = branchIndex ? `${currentBox.id}_${branchIndex}` : currentBox.id;
+                            const nextBoxXmlId = buildFlowInstanceId(nextBox.box.id, branchIndex);
                             const connectionXML = generateConnectionXML(
                                 currentBoxXmlId, 
                                 nextBoxXmlId, 
@@ -2177,8 +2271,8 @@ function generateConditionalFlowPath(row, currentBox, keyValue, visitedBoxes = n
 
                         });
                 } else {
-                    html += ' <span class="flow-step error">❌ Aucune sortie trouvée</span>';
-                    details.push(`Erreur: ${nextBox.reason}`);
+                    html += ` <span class="flow-step error">${i18nFlow('tab.flow.path.no_output_found_html', '❌ Aucune sortie trouvee')}</span>`;
+                    details.push(`${i18nFlow('tab.flow.path.error_detail_prefix', 'Erreur:')} ${nextBox.reason}`);
                     return {
                         html,
                         details,
@@ -2192,8 +2286,8 @@ function generateConditionalFlowPath(row, currentBox, keyValue, visitedBoxes = n
         .catch(error => {
             console.error('Erreur lors de la génération du parcours:', error);
             return {
-                html: '<span class="flow-step error">❌ Erreur de données</span>',
-                details: ['Erreur lors de la récupération des données'],
+                html: `<span class="flow-step error">${i18nFlow('tab.flow.path.data_error_html', '❌ Erreur de donnees')}</span>`,
+                details: [i18nFlow('tab.flow.path.data_fetch_error', 'Erreur lors de la recuperation des donnees')],
                 xml: generateMxGraphModelWrapper([],[]),
                 validator: validator,
                 validationGroups: []
@@ -2204,13 +2298,13 @@ function generateConditionalFlowPath(row, currentBox, keyValue, visitedBoxes = n
 /**
  * Génération de tous les parcours possibles pour une boîte Menu
  */
-function generateMenuFlowPaths(row, menuBox, currentRowData, visitedBoxes, depth,validator, layoutCalculatorInstance) {
+function generateMenuFlowPaths(row, menuBox, currentRowData, visitedBoxes, depth, menuBranchIndex, validator, layoutCalculatorInstance) {
     const outgoingConnections = flowConnections.filter(conn => conn.from.boxId === menuBox.id);
     
     if (outgoingConnections.length === 0) {
         return Promise.resolve({
-            html: ' <span class="flow-step error">❌ Aucune connexion sortante</span>',
-            details: ['Erreur: Aucune connexion sortante du menu'],
+            html: ` <span class="flow-step error">${i18nFlow('tab.flow.path.no_outgoing_connection_html', '❌ Aucune connexion sortante')}</span>`,
+            details: [i18nFlow('tab.flow.path.no_outgoing_connection_detail', 'Erreur: Aucune connexion sortante du menu')],
             boxes: [],
             connections: [],
             validationGroups: []
@@ -2253,7 +2347,7 @@ function generateMenuFlowPaths(row, menuBox, currentRowData, visitedBoxes, depth
             let validationGroups = [];
             
             outputResults.forEach((outputResult, index) => {
-                console.log(`DEBUG generateMenuFlowPaths currentMenuBranche = `, outputResult.label);
+                //console.log(`DEBUG generateMenuFlowPaths currentMenuBranche = `, outputResult.label);
     
                 const outputIndex = outputResult.outputIndex;
                 //const isTaken = (parseInt(outputIndex) === takenOutputIndex);
@@ -2290,10 +2384,11 @@ function generateMenuFlowPaths(row, menuBox, currentRowData, visitedBoxes, depth
                 if (outputResult.boxes.length > 0) {
                     const firstBoxId = extractFirstBoxId(outputResult.boxes[0]);
                     if (firstBoxId) {
+                        const menuXmlId = buildFlowInstanceId(menuBox.id, menuBranchIndex);
                         const menuConnectionXML = generateConnectionXML(
-                            menuBox.id,
+                            menuXmlId,
                             firstBoxId,
-                            `conn_${menuBox.id}_${outputIndex}_${firstBoxId}`
+                            `conn_${menuXmlId}_${outputIndex}_${firstBoxId}`
                         );
                         allConnections.push(menuConnectionXML);
                     }
@@ -2319,13 +2414,13 @@ function generateMenuFlowPaths(row, menuBox, currentRowData, visitedBoxes, depth
 function generateMenuOutputPath(row, menuBox, currentRowData, connections, condition,targetKeyColumn, outputIndex, visitedBoxes, depth, branchIndex,validator, layoutCalculatorInstance) {
     const connection = connections[0];
     const targetBox = flowBoxes.get(connection.to.boxId);
-    console.log(`DEBUG generateMenuOutputPath Menu =: `, outputIndex);
+    //console.log(`DEBUG generateMenuOutputPath Menu =: `, outputIndex);
     
     if (!targetBox) {
         return Promise.resolve({
-            label: `Sortie ${parseInt(outputIndex) + 1}`,
-            html: '<span class="flow-step error">❌ Boîte cible introuvable</span>',
-            details: ['Erreur: Boîte cible introuvable'],
+            label: `${i18nFlow('tab.flow.output.output', 'Sortie')} ${parseInt(outputIndex) + 1}`,
+            html: `<span class="flow-step error">${i18nFlow('tab.flow.path.target_box_not_found_html', '❌ Boite cible introuvable')}</span>`,
+            details: [i18nFlow('tab.flow.path.target_box_not_found_detail', 'Erreur: Boite cible introuvable')],
             boxes: [],
             connections: [],
             branchBoxIds: [],
@@ -2334,8 +2429,6 @@ function generateMenuOutputPath(row, menuBox, currentRowData, connections, condi
         });
     }
     
-    const context = `branch_${outputIndex}`;
-
     // Déterminer le label de la sortie
     let label = `Sortie ${parseInt(outputIndex) + 1}`;
     if (condition) {
@@ -2525,10 +2618,10 @@ function updateValidationReportUI(testCase, validator) {
             progressBar.querySelector('.progress-bar-warning').style.width = `${(validator.untestedCount/total)*100}%`;
 
             // Mettre à jour les badges
-            summary.querySelector('.badge-success').textContent = `${validator.okCount} Réussis`;
-            summary.querySelector('.badge-danger').textContent = `${validator.koCount} Échoués`;
-            summary.querySelector('.badge-warning').textContent = `${validator.untestedCount} Non testés`;
-            summary.querySelector('.badge-info').textContent = `${validator.progress}% Complété`;
+            summary.querySelector('.badge-success').textContent = `${validator.okCount} ${i18nFlow('tab.flow.validation.ok', 'Reussis')}`;
+            summary.querySelector('.badge-danger').textContent = `${validator.koCount} ${i18nFlow('tab.flow.validation.ko', 'Echoues')}`;
+            summary.querySelector('.badge-warning').textContent = `${validator.untestedCount} ${i18nFlow('tab.flow.validation.untested', 'Non testes')}`;
+            summary.querySelector('.badge-info').textContent = `${validator.progress}% ${i18nFlow('tab.flow.validation.completed', 'Complete')}`;
         }
     }
 }
@@ -2543,7 +2636,12 @@ function updateStoredValidation(boxId, updates,visualIndex) {
         if (storedData && storedData.visuals[visualIndex]) {
         const visual = storedData.visuals[visualIndex];
 
-            const boxInPath = visual.flowPath.validator.boxes.find(b => b.id === boxId);
+            const boxInPath = visual.flowPath.validator.boxes.find(b =>
+                b.id === boxId ||
+                b.instanceId === boxId ||
+                b.xmlId === boxId ||
+                b.logicalId === boxId
+            );
             if (boxInPath) {
                 // Mettre à jour les données de test
                 if (!boxInPath.testConfig) {
@@ -2572,9 +2670,9 @@ function updateStoredValidation(boxId, updates,visualIndex) {
  */
 function getStatusLabel(status) {
     const labels = {
-        'untested': 'Non testé',
-        'ok': 'Réussi',
-        'ko': 'Échec'
+        'untested': i18nFlow('tab.flow.validation.untested', 'Non teste'),
+        'ok': i18nFlow('tab.flow.validation.ok', 'Reussi'),
+        'ko': i18nFlow('tab.flow.validation.ko', 'Echec')
     };
     return labels[status] || status;
 }
@@ -2685,7 +2783,7 @@ function processFlowImport() {
     const file = fileInput.files[0];
     
     if (!file) {
-        alert('Veuillez sélectionner un fichier');
+        alert(i18nFlow('tab.flow.import.select_file', 'Veuillez selectionner un fichier'));
         return;
     }
     
@@ -2695,7 +2793,7 @@ function processFlowImport() {
             const flowData = JSON.parse(e.target.result);
             
             if (!flowData.boxes || !flowData.connections) {
-                throw new Error('Format de fichier invalide');
+                throw new Error(i18nFlow('tab.flow.import.invalid_file_format', 'Format de fichier invalide'));
             }
             // Vider le canvas actuel
             clearCanvas(true);
@@ -2703,7 +2801,7 @@ function processFlowImport() {
             onFlowChanged();
         } catch (error) {
             console.error('❌ Erreur lors de l\'import:', error);
-            alert('Erreur lors de l\'import : ' + error.message);
+            alert(i18nFlow('tab.flow.import.error_prefix', "Erreur lors de l'import : ") + error.message);
         }
     };
     
@@ -2751,11 +2849,39 @@ function processFlowDataImport(flowData){
 /**
  * Sauvegarde des visuels générés dans le localStorage
  */
+function normalizeDrawioXmlCaseForStorage(xmlContent) {
+    if (!xmlContent) return '';
+    return String(xmlContent)
+        .replace(/<\s*\/\s*mxgraphmodel\b/gi, '</mxGraphModel')
+        .replace(/<\s*mxgraphmodel\b/gi, '<mxGraphModel')
+        .replace(/<\s*\/\s*mxcell\b/gi, '</mxCell')
+        .replace(/<\s*mxcell\b/gi, '<mxCell')
+        .replace(/<\s*\/\s*mxgeometry\b/gi, '</mxGeometry')
+        .replace(/<\s*mxgeometry\b/gi, '<mxGeometry')
+        .replace(/<\s*\/\s*mxpoint\b/gi, '</mxPoint')
+        .replace(/<\s*mxpoint\b/gi, '<mxPoint');
+}
+
+function normalizeVisualsXmlForStorage(visualsData) {
+    if (!Array.isArray(visualsData)) return [];
+    return visualsData.map(item => {
+        if (!item || !item.flowPath) return item;
+        return {
+            ...item,
+            flowPath: {
+                ...item.flowPath,
+                xml: normalizeDrawioXmlCaseForStorage(item.flowPath.xml || '')
+            }
+        };
+    });
+}
+
 function saveGeneratedVisualsToStorage(visualsData) {
     try {
+        const normalizedVisuals = normalizeVisualsXmlForStorage(visualsData);
         localStorage.setItem('generatedVisuals', JSON.stringify({
             timestamp: new Date().toISOString(),
-            visuals: visualsData
+            visuals: normalizedVisuals
         }));
         console.log('📥 Visuels sauvegardés dans le localStorage');
     } catch (error) {
@@ -2781,6 +2907,12 @@ function loadGeneratedVisualsFromStorage() {
         toggleVisualsSection(true);
             
         const visualsData = JSON.parse(savedData);
+        const normalizedVisuals = normalizeVisualsXmlForStorage(visualsData.visuals);
+        visualsData.visuals = normalizedVisuals;
+        localStorage.setItem('generatedVisuals', JSON.stringify({
+            timestamp: visualsData.timestamp || new Date().toISOString(),
+            visuals: normalizedVisuals
+        }));
         const container = document.getElementById('generatedVisualsContent');
         
         if (container) {
@@ -2890,10 +3022,31 @@ class FlowPathValidator {
         this.tasks = [];
     }
 
-    addBox(box) {
-        this.boxes.push(box);
+    addBox(box, metadata = {}) {
+        const snapshot = {
+            ...box,
+            testConfig: box && box.testConfig ? { ...box.testConfig } : box?.testConfig,
+            data: box && box.data && typeof box.data === 'object' ? { ...box.data } : box?.data,
+            logicalId: metadata.logicalId || box?.logicalId || box?.id,
+            branchIndex: metadata.branchIndex !== undefined ? metadata.branchIndex : (box?.branchIndex ?? null),
+            branchContext: metadata.branchContext || box?.branchContext || null
+        };
+
+        const resolvedInstanceId = metadata.instanceId || metadata.xmlId || box?.instanceId || box?.xmlId || box?.id;
+        snapshot.id = resolvedInstanceId;
+        snapshot.instanceId = resolvedInstanceId;
+        snapshot.xmlId = metadata.xmlId || resolvedInstanceId;
+        const explicitXmlIds = Array.isArray(metadata.xmlIds) ? metadata.xmlIds : [];
+        snapshot.xmlIds = Array.from(new Set([
+            ...explicitXmlIds,
+            snapshot.xmlId,
+            snapshot.instanceId,
+            snapshot.logicalId
+        ].filter(Boolean)));
+
+        this.boxes.push(snapshot);
         this.total++;
-        const status = box.testConfig?.status || 'untested';
+        const status = snapshot.testConfig?.status || 'untested';
         switch(status) {
             case 'ok': this.okCount++; break;
             case 'ko': this.koCount++; break;

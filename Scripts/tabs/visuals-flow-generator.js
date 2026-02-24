@@ -1,3 +1,25 @@
+function i18nVisual(key, fallback, params) {
+    if (window.GCToolI18n && typeof window.GCToolI18n.t === 'function') {
+        return window.GCToolI18n.t(key, params || {}, fallback);
+    }
+    if (!params || typeof fallback !== 'string') return fallback;
+    return fallback.replace(/\{(\w+)\}/g, function (_, token) {
+        return Object.prototype.hasOwnProperty.call(params, token) ? String(params[token]) : '';
+    });
+}
+
+function normalizeDrawioXmlTagCase(xmlContent) {
+    if (!xmlContent) return '';
+    return String(xmlContent)
+        .replace(/<\s*\/\s*mxgraphmodel\b/gi, '</mxGraphModel')
+        .replace(/<\s*mxgraphmodel\b/gi, '<mxGraphModel')
+        .replace(/<\s*\/\s*mxcell\b/gi, '</mxCell')
+        .replace(/<\s*mxcell\b/gi, '<mxCell')
+        .replace(/<\s*\/\s*mxgeometry\b/gi, '</mxGeometry')
+        .replace(/<\s*mxgeometry\b/gi, '<mxGeometry')
+        .replace(/<\s*\/\s*mxpoint\b/gi, '</mxPoint')
+        .replace(/<\s*mxpoint\b/gi, '<mxPoint');
+}
 
 /**
  * Génération de l'entête des visuels avec résumé de validation
@@ -8,21 +30,23 @@ function generateVisualsHeader(generatedCount, selectedCount, generatedDate) {
     headerDiv.className = 'visuals-header';
     headerDiv.innerHTML = `
         <div class="alert alert-info">
-            <h4><i class="fa fa-info-circle"></i> Visuels générés</h4>
+            <h4><i class="fa fa-info-circle"></i> ${i18nVisual('tab.flow.visuals.generated_title', 'Visuels generes')}</h4>
             <div class="row">
                 <div class="col-md-6">
-                    <strong>${generatedCount}</strong> visuel(s) généré(s) 
-                    ${selectedCount !== 'all' ? `sur les ${selectedCount} demandé(s)` : '(tous les visuels disponibles)'}
+                    <strong>${generatedCount}</strong> ${i18nVisual('tab.flow.visuals.generated_count', 'visuel(s) genere(s)')}
+                    ${selectedCount !== 'all'
+                        ? i18nVisual('tab.flow.visuals.generated_on_requested', 'sur les {count} demande(s)', { count: selectedCount })
+                        : i18nVisual('tab.flow.visuals.generated_all_available', '(tous les visuels disponibles)')}
                 </div>
                 <div class="col-md-6">
-                    <small><strong>Généré le:</strong> ${generatedDate}</small>
+                    <small><strong>${i18nVisual('tab.flow.visuals.generated_at', 'Genere le:')}</strong> ${generatedDate}</small>
                 </div>
             </div>
             <hr>
             <div class="validation-summary">
-                <h5><i class="fa fa-check-circle"></i> Résumé des validations</h5>
+                <h5><i class="fa fa-check-circle"></i> ${i18nVisual('tab.flow.visuals.validation_summary', 'Resume des validations')}</h5>
                 <div class="loading-indicator">
-                    <i class="fa fa-spinner fa-spin"></i> Chargement des statistiques...
+                    <i class="fa fa-spinner fa-spin"></i> ${i18nVisual('tab.flow.visuals.loading_stats', 'Chargement des statistiques...')}
                 </div>
             </div>
         </div>
@@ -36,7 +60,7 @@ function generateVisualsHeader(generatedCount, selectedCount, generatedDate) {
  */
 function generateValidationSummaryHTML(stats) {
     return `
-        <h5><i class="fa fa-check-circle"></i> Résumé des validations</h5>
+        <h5><i class="fa fa-check-circle"></i> ${i18nVisual('tab.flow.visuals.validation_summary', 'Resume des validations')}</h5>
         <div class="row">
             <div class="col-md-12">
                 <div class="progress" style="margin: 10px 0;">
@@ -45,11 +69,11 @@ function generateValidationSummaryHTML(stats) {
                     <div class="progress-bar progress-bar-warning" style="width: ${(stats.untested/stats.total)*100}%"></div>
                 </div>
                 <div class="validation-stats">
-                    <span class="badge badge-info">${stats.flows} Parcours</span>
-                    <span class="badge badge-success">${stats.ok} Étapes réussies</span>
-                    <span class="badge badge-danger">${stats.ko} Étapes en échec</span>
-                    <span class="badge badge-warning">${stats.untested} Étapes non testées</span>
-                    <span class="badge badge-primary">${stats.progress}% Complété</span>
+                    <span class="badge badge-info">${stats.flows} ${i18nVisual('tab.flow.visuals.flows', 'Parcours')}</span>
+                    <span class="badge badge-success">${stats.ok} ${i18nVisual('tab.flow.visuals.steps_ok', 'Etapes reussies')}</span>
+                    <span class="badge badge-danger">${stats.ko} ${i18nVisual('tab.flow.visuals.steps_ko', 'Etapes en echec')}</span>
+                    <span class="badge badge-warning">${stats.untested} ${i18nVisual('tab.flow.visuals.steps_untested', 'Etapes non testees')}</span>
+                    <span class="badge badge-primary">${stats.progress}% ${i18nVisual('tab.flow.visuals.completed', 'Complete')}</span>
                 </div>
             </div>
         </div>
@@ -62,21 +86,22 @@ function generateValidationSummaryHTML(stats) {
 function generateVisualElement(flowPath, row, index, data) {
     const container = document.createElement('div');
     container.className = 'generated-visual';
+    const rawXml = normalizeDrawioXmlTagCase(flowPath?.xml || '');
     
     container.innerHTML = `
         <div class="visual-container">
             <div class="visual-header">
                 <h5>
-                    <span class="visual-title">Parcours ${index + 1}</span>
-                    <span class="visual-key">Clé: <code>${row.key}</code></span>
+                    <span class="visual-title">${i18nVisual('tab.flow.visuals.flow_label', 'Parcours')} ${index + 1}</span>
+                    <span class="visual-key">${i18nVisual('tab.flow.visuals.key_label', 'Cle')}: <code>${row.key}</code></span>
                     <button class="btn btn-xs btn-success export-drawio-btn">
-                        <i class="fa fa-download"></i> Export
+                        <i class="fa fa-download"></i> ${i18nVisual('common.export', 'Exporter')}
                     </button>
                     <button class="btn btn-xs btn-info toggle-details-btn">
-                        <i class="fa fa-info-circle"></i> Détails
+                        <i class="fa fa-info-circle"></i> ${i18nVisual('tab.flow.visuals.details', 'Details')}
                     </button>
                     <button class="btn btn-xs btn-info toggle-validation-btn">
-                        <i class="fa fa-list-check"></i> validation
+                        <i class="fa fa-list-check"></i> ${i18nVisual('tab.flow.visuals.validation', 'Validation')}
                     </button>
                 </h5>
             </div>
@@ -87,14 +112,13 @@ function generateVisualElement(flowPath, row, index, data) {
             
             <div class="visual-details" id="visual-details-${index}" style="display: none;">
                 <div class="path-details">
-                    <h6><i class="fa fa-list"></i> Détails du parcours :</h6>
+                    <h6><i class="fa fa-list"></i> ${i18nVisual('tab.flow.visuals.path_details', 'Details du parcours :')}</h6>
                     <ul class="list-unstyled">
                         ${flowPath.details.map(detail => `<li><small>${detail}</small></li>`).join('')}
                     </ul>
                 </div>
             </div>
             <div class="visual-xml" id="visual-xml-${index}" style="display: none;">
-                ${flowPath.xml}
             </div>
             <div class="visual-validation-report" id="visual-validation-report-${index}" style="display: none;">
                 ${generateValidationReport(flowPath, index)}
@@ -102,6 +126,12 @@ function generateVisualElement(flowPath, row, index, data) {
         </div>
         <hr>
     `;
+
+    const xmlContainer = container.querySelector(`#visual-xml-${index}`);
+    if (xmlContainer) {
+        // Keep XML as plain text to avoid HTML parser lowercasing draw.io tags.
+        xmlContainer.textContent = rawXml;
+    }
 
     // Ajouter les event listeners
     const toggleBtn = container.querySelector('.toggle-details-btn');
@@ -113,27 +143,27 @@ function generateVisualElement(flowPath, row, index, data) {
     toggleBtn.addEventListener('click', () => {
         if (detailsDiv.style.display === 'none') {
             detailsDiv.style.display = 'block';
-            toggleBtn.innerHTML = '<i class="fa fa-eye-slash"></i> Masquer';
+            toggleBtn.innerHTML = `<i class="fa fa-eye-slash"></i> ${i18nVisual('tab.flow.visuals.hide', 'Masquer')}`;
         } else {
             detailsDiv.style.display = 'none';
-            toggleBtn.innerHTML = '<i class="fa fa-info-circle"></i> Détails';
+            toggleBtn.innerHTML = `<i class="fa fa-info-circle"></i> ${i18nVisual('tab.flow.visuals.details', 'Details')}`;
         }
     });
     
     validationBtn.addEventListener('click', () => {
         if (validationReportDiv.style.display === 'none') {
             validationReportDiv.style.display = 'block';
-            validationBtn.innerHTML = '<i class="fa fa-eye-slash"></i> Masquer validation';
+            validationBtn.innerHTML = `<i class="fa fa-eye-slash"></i> ${i18nVisual('tab.flow.visuals.hide_validation', 'Masquer validation')}`;
         } else {
             validationReportDiv.style.display = 'none';
-            validationBtn.innerHTML = '<i class="fa fa-list-check"></i> validation';
+            validationBtn.innerHTML = `<i class="fa fa-list-check"></i> ${i18nVisual('tab.flow.visuals.validation', 'Validation')}`;
         }
     });
 
     // Event listener pour l'export draw.io
     const exportBtn = container.querySelector('.export-drawio-btn');
     exportBtn.addEventListener('click', () => {
-        exportFlowPathToDrawio(flowPath.xml, `parcours-${index + 1}-${row.key}.drawio`);
+        exportFlowPathToDrawio(rawXml, `parcours-${index + 1}-${row.key}.drawio`);
     });
 
     return container;
@@ -211,8 +241,8 @@ function clearGeneratedVisuals() {
         visualsContainer.innerHTML = `
                             <div class="text-center" id="generatingVisuals">
                                 <i class="fa fa-spinner fa-spin fa-2x"></i>
-                                <h4>Génération des visuels en cours...</h4>
-                                <p>Analyse des parcours avec gestion des menus...</p>
+                                <h4>${i18nVisual('tab.flow.generated_visuals.loading_title', 'Generation des visuels en cours...')}</h4>
+                                <p>${i18nVisual('tab.flow.generated_visuals.loading_desc', 'Analyse des parcours avec gestion des menus...')}</p>
                             </div>`;
     }
     // Si vous avez une section à masquer :
@@ -231,10 +261,10 @@ function updateVisualsCountSelector() {
     
     if (!startBox || !startBox.dataTable) {
         selector.innerHTML = `
-            <option value="1" selected>1 visuel</option>
-            <option value="10">10 visuels</option>
-            <option value="50">50 visuels</option>
-            <option value="all" disabled>Tous les visuels (DataTable non sélectionnée)</option>
+            <option value="1" selected>1 ${i18nVisual('tab.flow.visuals.visual', 'visuel')}</option>
+            <option value="10">10 ${i18nVisual('tab.flow.visuals.visuals', 'visuels')}</option>
+            <option value="50">50 ${i18nVisual('tab.flow.visuals.visuals', 'visuels')}</option>
+            <option value="all" disabled>${i18nVisual('tab.flow.visuals.all_disabled_no_datatable', 'Tous les visuels (DataTable non selectionnee)')}</option>
         `;
         return;
     }
@@ -244,22 +274,40 @@ function updateVisualsCountSelector() {
         .then(rows => {
             const totalRows = rows.length;
             selector.innerHTML = `
-                <option value="1" selected>1 visuel</option>
-                <option value="10">10 visuels</option>
-                <option value="50">50 visuels</option>
-                <option value="all">Tous les visuels (${totalRows} total)</option>
+                <option value="1" selected>1 ${i18nVisual('tab.flow.visuals.visual', 'visuel')}</option>
+                <option value="10">10 ${i18nVisual('tab.flow.visuals.visuals', 'visuels')}</option>
+                <option value="50">50 ${i18nVisual('tab.flow.visuals.visuals', 'visuels')}</option>
+                <option value="all">${i18nVisual('tab.flow.visuals.all_with_total', 'Tous les visuels ({total} total)', { total: totalRows })}</option>
             `;
             
             // Ajouter des avertissements pour les gros volumes
             if (totalRows > 100) {
                 const allOption = selector.querySelector('option[value="all"]');
-                allOption.textContent += ' ⚠️ Performance';
+                allOption.textContent += ` ${i18nVisual('tab.flow.visuals.performance_warning', '⚠️ Performance')}`;
                 allOption.style.color = '#d9534f';
             }
         })
         .catch(error => {
             console.warn('Impossible de récupérer le nombre de lignes:', error);
         });
+}
+
+
+/**
+ * Fonction pour réduire/agrandir la section de création de graph
+ */
+function toggleDesignerSection(force) {
+    const DesignerContainer = document.getElementById('designerContent');
+    if (force){
+        DesignerContainer.style.display = 'block';
+        return;
+    }
+    
+    if (DesignerContainer.style.display === 'none') {
+        DesignerContainer.style.display = 'block';
+    } else {
+        DesignerContainer.style.display = 'none';
+    }
 }
 
 /**
@@ -363,6 +411,24 @@ function toggleGeneratingVisuals(force){
 /**
  * Mise à jour du statut de test et de l'UI associée
  */
+function getValidatorIdentifierCandidates(item) {
+    if (!item) return [];
+    const ids = [];
+    if (Array.isArray(item.xmlIds)) ids.push(...item.xmlIds);
+    ids.push(item.id, item.instanceId, item.xmlId, item.logicalId);
+    return Array.from(new Set(ids.filter(Boolean)));
+}
+
+function findValidatorBoxByIdentifier(validator, boxId) {
+    if (!validator || !Array.isArray(validator.boxes)) return null;
+    return validator.boxes.find(box => getValidatorIdentifierCandidates(box).includes(boxId)) || null;
+}
+
+function findValidatorTaskByIdentifier(validator, boxId) {
+    if (!validator || !Array.isArray(validator.tasks)) return null;
+    return validator.tasks.find(task => getValidatorIdentifierCandidates(task).includes(boxId)) || null;
+}
+
 function updateTestStatusFromSelect(boxId, status, visualIndex) {
     const testCases = document.querySelectorAll(`[data-box-id="${boxId}"][data-visual-index="${visualIndex}"]`);
     if (!testCases || testCases.length === 0) return;
@@ -370,8 +436,8 @@ function updateTestStatusFromSelect(boxId, status, visualIndex) {
     const storedData = JSON.parse(localStorage.getItem('generatedVisuals'));
     if (storedData && storedData.visuals[visualIndex]) {
         const visual = storedData.visuals[visualIndex];
-        const box = visual.flowPath.validator.boxes.find(b => b.id === boxId);
-        const tasks = visual.flowPath.validator.tasks.find(b => b.id === boxId);
+        const box = findValidatorBoxByIdentifier(visual.flowPath.validator, boxId);
+        const tasks = findValidatorTaskByIdentifier(visual.flowPath.validator, boxId);
         let tasksValidated = 0;
         if (tasks && tasks.hasTasks) {
             tasks.tasks.forEach(task => {
@@ -416,7 +482,7 @@ function updateTestField(boxId, field, value, visualIndex) {
     const storedData = JSON.parse(localStorage.getItem('generatedVisuals'));
     if (storedData && storedData.visuals[visualIndex]) {
         const visual = storedData.visuals[visualIndex];
-        const box = visual.flowPath.validator.boxes.find(b => b.id === boxId);
+        const box = findValidatorBoxByIdentifier(visual.flowPath.validator, boxId);
         if (box) {
             if (!box.testConfig) box.testConfig = {};
             box.testConfig[field] = value;
@@ -428,11 +494,11 @@ function updateTestField(boxId, field, value, visualIndex) {
 }
 
 function updateTaskValidation(boxId, subTaskId, value, visualIndex) {
-    console.log(`DEBUG updateTaskValidation`, boxId, subTaskId, value, visualIndex);
+    //console.log(`DEBUG updateTaskValidation`, boxId, subTaskId, value, visualIndex);
     const storedData = JSON.parse(localStorage.getItem('generatedVisuals'));
     if (storedData && storedData.visuals[visualIndex]) {
         const visual = storedData.visuals[visualIndex];
-        const taskGroup = visual.flowPath.validator.tasks.find(t => t.id === boxId);
+        const taskGroup = findValidatorTaskByIdentifier(visual.flowPath.validator, boxId);
         if (taskGroup && Array.isArray(taskGroup.tasks)) {
             const taskIndex = parseInt((subTaskId || '').split('_task_')[1], 10);
             if (!Number.isNaN(taskIndex) && taskGroup.tasks[taskIndex]) {
@@ -473,9 +539,9 @@ function createTriSwitchHtml(options) {
     const orientationClass = options.orientation === 'vertical' ? 'tri-switch-vertical' : 'tri-switch-horizontal';
     const values = ['ok', 'untested', 'ko'];
     const labels = {
-        ok: 'OK',
-        untested: 'Non testé',
-        ko: 'KO'
+        ok: i18nVisual('tab.flow.validation.ok_short', 'OK'),
+        untested: i18nVisual('tab.flow.validation.untested_short', 'Non teste'),
+        ko: i18nVisual('tab.flow.validation.ko_short', 'KO')
     };
     const icons = {
         ok: 'fa-check',
@@ -490,7 +556,7 @@ function createTriSwitchHtml(options) {
              ${options.dataTaskId ? `data-task-id="${options.dataTaskId}"` : ''}
              ${options.dataVisualIndex !== undefined && options.dataVisualIndex !== null ? `data-visual-index="${options.dataVisualIndex}"` : ''}
              role="group"
-             aria-label="${options.ariaLabel || 'Sélecteur 3 positions'}">
+             aria-label="${options.ariaLabel || i18nVisual('tab.flow.validation.three_position_switch', 'Selecteur 3 positions')}">
             ${values.map(value => `
                 <button type="button"
                         class="tri-switch-option tri-switch-option-${value} ${options.currentValue === value ? 'is-active' : ''}"
@@ -532,7 +598,7 @@ function generateValidationReport(flowPath, flowIndex) {
     const validator = flowPath.validator;
 
     if (!flowPath || flowPath.length === 0) {
-        return '<div class="alert alert-warning">Aucun parcours à valider</div>';
+        return `<div class="alert alert-warning">${i18nVisual('tab.flow.validation.no_flow_to_validate', 'Aucun parcours a valider')}</div>`;
     }
 
     let validationHTML = `
@@ -540,8 +606,8 @@ function generateValidationReport(flowPath, flowIndex) {
             <div class="report-header">
                 <div class="row">
                     <div class="col-md-8">
-                        <h4><i class="fa fa-clipboard"></i> Rapport de validation du parcours</h4>
-                        <small class="text-muted">Généré le ${new Date().toLocaleString()}</small>
+                        <h4><i class="fa fa-clipboard"></i> ${i18nVisual('tab.flow.validation.report_title', 'Rapport de validation du parcours')}</h4>
+                        <small class="text-muted">${i18nVisual('tab.flow.validation.generated_on', 'Genere le')} ${new Date().toLocaleString()}</small>
                     </div>
                 </div>
                 <div class="progress" style="margin: 15px 0;">
@@ -550,16 +616,18 @@ function generateValidationReport(flowPath, flowIndex) {
                     <div class="progress-bar progress-bar-warning" style="width: ${(validator.untestedCount/validator.total)*100}%"></div>
                 </div>
                 <div class="status-summary">
-                    <span class="badge badge-success">${validator.okCount} Réussis</span>
-                    <span class="badge badge-danger">${validator.koCount} Échoués</span>
-                    <span class="badge badge-warning">${validator.untestedCount} Non testés</span>
-                    <span class="badge badge-info">${validator.progress}% Complété</span>
+                    <span class="badge badge-success">${validator.okCount} ${i18nVisual('tab.flow.validation.ok', 'Reussis')}</span>
+                    <span class="badge badge-danger">${validator.koCount} ${i18nVisual('tab.flow.validation.ko', 'Echoues')}</span>
+                    <span class="badge badge-warning">${validator.untestedCount} ${i18nVisual('tab.flow.validation.untested', 'Non testes')}</span>
+                    <span class="badge badge-info">${validator.progress}% ${i18nVisual('tab.flow.validation.completed', 'Complete')}</span>
                 </div>
             </div>
             <div class="test-cases-container">
     `;
 
+    const menuBranchIndex = buildMenuBranchIdIndex(flowPath.validationGroups);
     validator.boxes.forEach((step, stepIndex) => {
+        if (isValidatorItemInMenuBranch(step, menuBranchIndex)) return;
         validationHTML += generateStepValidationFromTasks(step, validator.tasks[stepIndex], flowIndex, stepIndex);
     });
 
@@ -572,18 +640,65 @@ function generateValidationReport(flowPath, flowIndex) {
 
     return validationHTML;
 }
+
+function buildMenuBranchIdIndex(validationGroups) {
+    const rawIds = [];
+    (validationGroups || []).forEach(group => {
+        (group?.boxIds || []).forEach(id => {
+            if (id) rawIds.push(String(id));
+        });
+    });
+
+    const exact = new Set(rawIds);
+    const normalized = new Set();
+    rawIds.forEach(rawId => {
+        let candidate = rawId;
+        normalized.add(candidate);
+        while (candidate.includes('_')) {
+            candidate = candidate.substring(0, candidate.lastIndexOf('_'));
+            normalized.add(candidate);
+        }
+    });
+
+    return {
+        rawIds,
+        exact,
+        normalized
+    };
+}
+
+function isValidatorItemInMenuBranch(item, menuBranchIndex) {
+    if (!item || !menuBranchIndex || !menuBranchIndex.rawIds || !menuBranchIndex.rawIds.length) {
+        return false;
+    }
+
+    const ids = getValidatorIdentifierCandidates(item);
+    if (!ids.length) return false;
+
+    for (const id of ids) {
+        if (menuBranchIndex.exact.has(id) || menuBranchIndex.normalized.has(id)) {
+            return true;
+        }
+    }
+
+    return menuBranchIndex.rawIds.some(rawId =>
+        ids.some(id => rawId.startsWith(`${id}_`) || id.startsWith(`${rawId}_`))
+    );
+}
+
 function generateMenuBranchValidationGroups(flowPath, flowIndex) {
-    console.log(`DEBUG flowPath : `,flowPath);
+    //console.log(`DEBUG flowPath : `,flowPath);
     const groups = flowPath.validationGroups || [];
     if (!groups.length || !flowPath.validator) {
         return '';
     }
 
-    const queueByBoxId = new Map();
-    flowPath.validator.boxes.forEach((box, index) => {
-        if (!queueByBoxId.has(box.id)) queueByBoxId.set(box.id, []);
-        queueByBoxId.get(box.id).push({ box, tasks: flowPath.validator.tasks[index], index });
-    });
+    const validatorEntries = flowPath.validator.boxes.map((box, index) => ({
+        box,
+        tasks: flowPath.validator.tasks[index],
+        index,
+        used: false
+    }));
 
     let groupsHtml = `<div class="menu-branch-validations-container">`;
     groups.forEach((group, groupIndex) => {
@@ -592,12 +707,9 @@ function generateMenuBranchValidationGroups(flowPath, flowIndex) {
         const branchSteps = [];
 
         uniqueIds.forEach(rawBoxId => {
-            const boxId = resolveValidatorBoxId(rawBoxId, queueByBoxId);
-            if (!boxId) return;
-
-            const queue = queueByBoxId.get(boxId);
-            if (!queue || queue.length === 0) return;
-            const entry = queue.shift();
+            const entry = resolveValidatorEntry(rawBoxId, validatorEntries);
+            if (!entry) return;
+            entry.used = true;
             branchSteps.push(generateStepValidationFromTasks(
                 entry.box,
                 entry.tasks,
@@ -613,7 +725,7 @@ function generateMenuBranchValidationGroups(flowPath, flowIndex) {
         });
 
         if (!branchSteps.length) {
-            console.warn('Aucune étape de validation trouvée pour la branche menu', group);
+            console.warn(i18nVisual('tab.flow.validation.no_branch_steps', 'Aucune etape de validation trouvee pour la branche menu'), group);
             return;
         }
 
@@ -623,7 +735,7 @@ function generateMenuBranchValidationGroups(flowPath, flowIndex) {
                         class="menu-branch-validation-toggle"
                         onclick="toggleMenuBranchValidationGroup('${uniqueGroupId}', this)">
                     <i class="fa fa-chevron-down"></i>
-                    <span class="menu-branch-validation-title">${group.menuLabel || 'Menu'} - ${group.branchLabel || 'Branche'}</span>
+                    <span class="menu-branch-validation-title">${group.menuLabel || i18nVisual('tab.flow.validation.menu', 'Menu')} - ${group.branchLabel || i18nVisual('tab.flow.validation.branch', 'Branche')}</span>
                 </button>
                 <div id="${uniqueGroupId}" class="menu-branch-validation-body">
                     ${branchSteps.join('')}
@@ -653,15 +765,17 @@ function toggleMenuBranchValidationGroup(groupId, toggleButton) {
  * Génération de la validation pour une étape basée sur ses tâches
  */
 function generateStepValidationFromTasks(box, tasks, flowIndex, stepIndex, options = {}) {
+    const boxValidationId = box.instanceId || box.id;
     const status = box.testConfig?.status || 'untested';
     const keyColumn = box.displayColumn;
-    const description = `Étape ${stepIndex + 1} - ${box.displayName} (${(box.description || box.data[keyColumn])})`;
+    const boxData = box.data || {};
+    const description = `${i18nVisual('tab.flow.validation.step', 'Etape')} ${stepIndex + 1} - ${box.displayName} (${(box.description || boxData[keyColumn])})`;
     const stepClasses = ['test-case'];
     if (options.extraClass) stepClasses.push(options.extraClass);
     const renderKey = options.renderKey || 'main';
 
     let stepHTML = `
-        <div class="${stepClasses.join(' ')}" data-status="${status}" data-box-id="${box.id}" data-visual-index="${flowIndex}">
+        <div class="${stepClasses.join(' ')}" data-status="${status}" data-box-id="${boxValidationId}" data-visual-index="${flowIndex}">
             <div class="test-controls">
                 ${createTriSwitchHtml({
                     orientation: 'vertical',
@@ -669,8 +783,8 @@ function generateStepValidationFromTasks(box, tasks, flowIndex, stepIndex, optio
                     switchKind: 'step-status',
                     extraClass: 'step-status-switch',
                     dataVisualIndex: flowIndex,
-                    ariaLabel: 'Statut de test',
-                    onChangeFactory: value => `updateTestStatusFromSelect('${box.id}', '${value}', '${flowIndex}')`
+                    ariaLabel: i18nVisual('tab.flow.validation.test_status', 'Statut de test'),
+                    onChangeFactory: value => `updateTestStatusFromSelect('${boxValidationId}', '${value}', '${flowIndex}')`
                 })}
             </div>
             <div class="test-content">
@@ -685,7 +799,7 @@ function generateStepValidationFromTasks(box, tasks, flowIndex, stepIndex, optio
     `;
 
     if (tasks && tasks.hasTasks) {
-        stepHTML += generateTasksValidationFromProcessed(tasks, box.id, flowIndex, renderKey);
+        stepHTML += generateTasksValidationFromProcessed(tasks, boxValidationId, flowIndex, renderKey);
     }
 
     stepHTML += `
@@ -694,24 +808,24 @@ function generateStepValidationFromTasks(box, tasks, flowIndex, stepIndex, optio
                 <div class="step-details">
                     <div class="row">
                         <div class="col-md-6">
-                            <label>Résultat attendu :</label>
+                            <label>${i18nVisual('tab.flow.validation.expected_result', 'Resultat attendu :')}</label>
                             <textarea class="form-control expected-result" rows="2"
-                                      placeholder="Décrivez le comportement attendu..."
-                                      onchange="updateTestField('${box.id}', 'expectedResult', '${flowIndex}')">${box.testConfig?.expectedResult || ''}</textarea>
+                                      placeholder="${i18nVisual('tab.flow.validation.expected_result_placeholder', 'Decrivez le comportement attendu...')}"
+                                      onchange="updateTestField('${boxValidationId}', 'expectedResult', '${flowIndex}')">${box.testConfig?.expectedResult || ''}</textarea>
                         </div>
                         <div class="col-md-6">
-                            <label>Résultat obtenu :</label>
+                            <label>${i18nVisual('tab.flow.validation.actual_result', 'Resultat obtenu :')}</label>
                             <textarea class="form-control actual-result" rows="2"
-                                      placeholder="Décrivez le résultat observé..."
-                                      onchange="updateTestField('${box.id}', 'actualResult', '${flowIndex}')">${box.testConfig?.actualResult || ''}</textarea>
+                                      placeholder="${i18nVisual('tab.flow.validation.actual_result_placeholder', 'Decrivez le resultat observe...')}"
+                                      onchange="updateTestField('${boxValidationId}', 'actualResult', '${flowIndex}')">${box.testConfig?.actualResult || ''}</textarea>
                         </div>
                     </div>
                     <div class="row" style="margin-top: 10px;">
                         <div class="col-md-12">
-                            <label>Commentaires de test :</label>
+                            <label>${i18nVisual('tab.flow.validation.comments', 'Commentaires de test :')}</label>
                             <textarea class="form-control test-comment" rows="2"
-                                      placeholder="Ajoutez vos observations, remarques..."
-                                      onchange="updateTestField('${box.id}', 'comment', '${flowIndex}')">${box.testConfig?.comment || ''}</textarea>
+                                      placeholder="${i18nVisual('tab.flow.validation.comments_placeholder', 'Ajoutez vos observations, remarques...')}"
+                                      onchange="updateTestField('${boxValidationId}', 'comment', '${flowIndex}')">${box.testConfig?.comment || ''}</textarea>
                         </div>
                     </div>
                 </div>
@@ -734,7 +848,7 @@ function generateTasksValidationFromProcessed(taskData, boxId, flowIndex, render
 
     let tasksHTML = `
         <div class="tasks-validation-section">
-            <h6><i class="fa fa-tasks"></i> Validation des Tâches (${taskData.validTasks}/${taskData.totalTasks} valides)</h6>
+            <h6><i class="fa fa-tasks"></i> ${i18nVisual('tab.flow.validation.tasks_validation', 'Validation des taches')} (${taskData.validTasks}/${taskData.totalTasks} ${i18nVisual('tab.flow.validation.valid', 'valides')})</h6>
             <div class="tasks-validation-list">
     `;
 
@@ -861,7 +975,7 @@ function generateTaskErrorItem(task, taskIndex) {
     return `
         <div class="task-validation-item warning">
             <i class="fa fa-exclamation-triangle text-warning"></i>
-            <span class="text-muted">Tâche ${taskIndex + 1} (${task.action}): ${task.errorMessage}</span>
+            <span class="text-muted">${i18nVisual('tab.flow.validation.task', 'Tache')} ${taskIndex + 1} (${task.action}): ${task.errorMessage}</span>
         </div>
     `;
 }
@@ -908,25 +1022,36 @@ function flashElementBackground(dataBoxId,selector = '.tasks-validation-section'
   }, totalDuration);
 }
 
-function resolveValidatorBoxId(rawBoxId, queueByBoxId) {
-    if (!rawBoxId) return null;
-    if (queueByBoxId.has(rawBoxId)) return rawBoxId;
-    const availableIds = Array.from(queueByBoxId.keys());
-    const prefixedMatch = availableIds
-        .filter(id => rawBoxId.startsWith(`${id}_`))
-        .sort((a, b) => b.length - a.length)[0];
-    if (prefixedMatch) return prefixedMatch;
-    const containsMatch = availableIds
-        .filter(id => rawBoxId.includes(id))
-        .sort((a, b) => b.length - a.length)[0];
-    if (containsMatch) return containsMatch;
+function resolveValidatorEntry(rawBoxId, entries) {
+    if (!rawBoxId || !Array.isArray(entries)) return null;
 
-    // Les IDs draw.io de branches peuvent être suffixés (ex: box_12_1).
-    // On retire progressivement le dernier segment jusqu'à retrouver l'ID logique.
+    const available = entries.filter(entry => !entry.used);
+    if (!available.length) return null;
+
+    const strictEntry = available.find(entry => {
+        const ids = getValidatorIdentifierCandidates(entry.box);
+        return ids.includes(rawBoxId);
+    });
+    if (strictEntry) return strictEntry;
+
     let candidate = rawBoxId;
+    const normalized = new Set([rawBoxId]);
     while (candidate.includes('_')) {
         candidate = candidate.substring(0, candidate.lastIndexOf('_'));
-        if (queueByBoxId.has(candidate)) return candidate;
+        normalized.add(candidate);
     }
-    return null;
+
+    const normalizedEntry = available.find(entry => {
+        const ids = getValidatorIdentifierCandidates(entry.box);
+        return ids.some(id => normalized.has(id));
+    });
+    if (normalizedEntry) return normalizedEntry;
+
+    return available.find(entry => {
+        const ids = getValidatorIdentifierCandidates(entry.box);
+        return ids.some(id => rawBoxId.startsWith(`${id}_`) || id.startsWith(`${rawBoxId}_`));
+    }) || null;
 }
+
+
+

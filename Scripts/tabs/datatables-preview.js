@@ -604,7 +604,7 @@ function displayPreviewInListWithOrder(rows, datatableName, totalRows, container
                 </div>
                 <div class="col-md-4 text-right">
                     <button class="btn btn-xs btn-default" onclick="openFullPreview('${datatableId}', '${datatableName}')">
-                        <i class="fa fa-expand"></i> Aperçu complet
+                        <i class="fa fa-expand"></i> ${i18nDt('tab.datatables_controller.preview.fullview', 'Aperçu complet')}
                     </button>
                 </div>
             </div>
@@ -681,11 +681,11 @@ function displayPreviewInListWithOrder(rows, datatableName, totalRows, container
  * Affichage d'erreur dans la liste
  */
 function displayPreviewErrorInList(error, container) {
-    let errorMessage = 'Erreur lors du chargement des données';
+    let errorMessage = i18nDt('tab.datatables_controller.error.loading', 'Erreur lors du chargement des données');
     if (error.status === 404) {
-        errorMessage = 'DataTable non trouvée';
+        errorMessage = i18nDt('tab.datatables_controller.error.DTNotfound', 'DataTable non trouvée');
     } else if (error.status === 403) {
-        errorMessage = 'Accès refusé';
+        errorMessage = i18nDt('tab.datatables_controller.error.RefusedAccess', 'Accès refusé');
     }
     
     container.innerHTML = `
@@ -709,7 +709,7 @@ function hideDataTablePreviewInList(datatableId, icon) {
         // Remettre l'icône normale
         icon.className = 'fa fa-eye preview-icon';
         icon.style.color = '#337ab7';
-        icon.title = 'Cliquez pour voir l\'aperçu des données';
+        icon.title = i18nDt('tab.datatables_controller.help.preview', 'Cliquez pour voir l\'aperçu des données');
         
         console.log(`🙈 Aperçu masqué pour: ${datatableId}`);
     }
@@ -731,7 +731,7 @@ function hideDataTableConfigPreviewInList(datatableId, icon) {
         // Remettre l'icône normale
         icon.className = 'fa fa-gear';
         icon.style.color = '#337ab7';
-        icon.title = 'Cliquez pour voir l\'aperçu des données';
+        icon.title = i18nDt('tab.datatables_controller.help.preview', 'Cliquez pour voir l\'aperçu des données');
         
         console.log(`🙈 Aperçu Config masqué pour: ${datatableId}`);
     }
@@ -752,7 +752,8 @@ function closeAllDataTablePreviews() {
     previewIcons.forEach(icon => {
         icon.className = 'fa fa-eye preview-icon';
         icon.style.color = '#337ab7';
-        icon.title = 'Cliquez pour voir l\'aperçu des données';
+        icon.title = i18nDt('tab.datatables_controller.help.preview', 'Cliquez pour voir l\'aperçu des données');
+        
     });
 }
 

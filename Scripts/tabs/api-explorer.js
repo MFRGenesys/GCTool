@@ -18,6 +18,13 @@
     const API_RATE_LIMIT_MAX_RETRIES = 2;
     const RESPONSE_TAB_LIMIT = 5;
     const NODE_VIEW_AUTO_TEXT_THRESHOLD_BYTES = 1024 * 1024;
+    const SWAGGER_ENDPOINT_CANDIDATES = [
+        '/api/v2/docs/swagger',
+        '/api/v2/docs/swagger.json',
+        '/api/v2/docs/swagger?format=json'
+    ];
+    const SWAGGER_SCHEMA_MAX_DEPTH = 6;
+    const SWAGGER_SCHEMA_MAX_FIELDS = 180;
 
     const apiExplorerState = {
         // Etat runtime uniquement (pas de persistance locale, sauf favoris via cookie).
@@ -42,7 +49,13 @@
         responseTabs: [],
         activeResponseTabId: null,
         nextResponseTabSequence: 1,
-        requestTimestamps: []
+        requestTimestamps: [],
+        swaggerLoadPromise: null,
+        swaggerLoaded: false,
+        swaggerSourcePath: null,
+        swaggerByOperationId: {},
+        swaggerByMethodRoute: {},
+        swaggerDefinitions: {}
     };
 
     const batchScaffold = {
@@ -76,7 +89,7 @@
             return;
         }
 
-        if (state.initialized) {
+        if (apiExplorerState.initialized) {
             return;
         }
 
@@ -88,6 +101,7 @@
         renderCatalog();
         renderResponseTabs();
         applyPanelLayoutState();
+        loadSwaggerMetadataAsync();
 
         console.log('[API Explorer] Module initialise.');
     }
@@ -170,6 +184,14 @@
             batchJsonInput.setAttribute('autocorrect', 'off');
             batchJsonInput.setAttribute('autocapitalize', 'off');
             batchJsonInput.addEventListener('input', () => validateBatchJsonEditorRealtime({ silentWhenEmpty: true }));
+        }
+
+        const insertBodyTemplateBtn = document.getElementById('apiExplorerInsertBodyTemplateBtn');
+        if (insertBodyTemplateBtn) {
+            insertBodyTemplateBtn.addEventListener('click', (event) => {
+                if (event) event.preventDefault();
+                insertSwaggerBodyTemplateInEditor();
+            });
         }
 
         const applyProjectionBtn = document.getElementById('apiExplorerApplyProjectionBtn');
@@ -306,13 +328,13 @@
     }
 
     function toggleLeftPanelCollapse() {
-        apiExplorerState.isLeftPanelCollapsed = !state.isLeftPanelCollapsed;
+        apiExplorerState.isLeftPanelCollapsed = !apiExplorerState.isLeftPanelCollapsed;
         applyPanelLayoutState();
     }
 
     function toggleLeftListCollapse() {
-        apiExplorerState.isLeftListCollapsed = !state.isLeftListCollapsed;
-        if (state.isLeftListCollapsed) {
+        apiExplorerState.isLeftListCollapsed = !apiExplorerState.isLeftListCollapsed;
+        if (apiExplorerState.isLeftListCollapsed) {
             // Si on replie la liste, on affiche automatiquement l'aide.
             apiExplorerState.isJsonPathHelpCollapsed = false;
         }
@@ -320,12 +342,12 @@
     }
 
     function toggleJsonPathHelpCollapse() {
-        apiExplorerState.isJsonPathHelpCollapsed = !state.isJsonPathHelpCollapsed;
+        apiExplorerState.isJsonPathHelpCollapsed = !apiExplorerState.isJsonPathHelpCollapsed;
         applyPanelLayoutState();
     }
 
     function toggleRequestPanelCollapse() {
-        apiExplorerState.isRequestPanelCollapsed = !state.isRequestPanelCollapsed;
+        apiExplorerState.isRequestPanelCollapsed = !apiExplorerState.isRequestPanelCollapsed;
         applyPanelLayoutState();
     }
 
@@ -420,10 +442,11 @@
         });
 
         apiExplorerState.catalog = entries;
+        enrichCatalogWithSwaggerMetadata();
     }
 
     function getApiInstance(apiClassName) {
-        if (state.apiInstances[apiClassName]) {
+        if (apiExplorerState.apiInstances[apiClassName]) {
             return apiExplorerState.apiInstances[apiClassName];
         }
 
@@ -461,6 +484,269 @@
             hasBodyParameter,
             expectsBodyFromOptions
         };
+    }
+
+    async function loadSwaggerMetadataAsync() {
+        if (apiExplorerState.swaggerLoaded) {
+            return;
+        }
+
+        if (apiExplorerState.swaggerLoadPromise) {
+            return apiExplorerState.swaggerLoadPromise;
+        }
+
+        apiExplorerState.swaggerLoadPromise = (async () => {
+            const swaggerDoc = await fetchSwaggerDocumentFromCandidates();
+            if (!swaggerDoc) {
+                console.warn('[API Explorer] Swagger non disponible. Le catalogue reste base sur introspection SDK.');
+                return;
+            }
+
+            const indexed = indexSwaggerDocument(swaggerDoc);
+            apiExplorerState.swaggerByOperationId = indexed.byOperationId;
+            apiExplorerState.swaggerByMethodRoute = indexed.byMethodRoute;
+            apiExplorerState.swaggerDefinitions = indexed.definitions;
+            apiExplorerState.swaggerLoaded = true;
+
+            enrichCatalogWithSwaggerMetadata();
+            pruneUnknownFavorites();
+            renderCatalog();
+
+            const selectedEndpoint = getSelectedEndpoint();
+            if (selectedEndpoint) {
+                renderWorkbench(selectedEndpoint, { preserveResponseState: true });
+            }
+
+            console.log('[API Explorer] Swagger charge depuis', apiExplorerState.swaggerSourcePath);
+        })()
+            .catch((error) => {
+                console.warn('[API Explorer] Erreur lors du chargement Swagger', error);
+            })
+            .finally(() => {
+                apiExplorerState.swaggerLoadPromise = null;
+            });
+
+        return apiExplorerState.swaggerLoadPromise;
+    }
+
+    async function fetchSwaggerDocumentFromCandidates() {
+        const apiClient = platformClient && platformClient.ApiClient ? platformClient.ApiClient.instance : null;
+        if (!apiClient || typeof apiClient.callApi !== 'function') {
+            return null;
+        }
+
+        for (let i = 0; i < SWAGGER_ENDPOINT_CANDIDATES.length; i += 1) {
+            const path = SWAGGER_ENDPOINT_CANDIDATES[i];
+            try {
+                console.log('[API Explorer] Tentative chargement Swagger:', path);
+                const rawResponse = await apiClient.callApi(
+                    path,
+                    'GET',
+                    {},
+                    {},
+                    {},
+                    {},
+                    null,
+                    ['PureCloud OAuth'],
+                    [],
+                    ['application/json']
+                );
+                const swaggerDoc = normalizeSwaggerDocument(rawResponse);
+                if (swaggerDoc) {
+                    apiExplorerState.swaggerSourcePath = path;
+                    return swaggerDoc;
+                }
+            } catch (error) {
+                console.warn('[API Explorer] Swagger non trouve sur', path, error && error.status ? '(status ' + error.status + ')' : '');
+            }
+        }
+
+        return null;
+    }
+
+    function normalizeSwaggerDocument(rawResponse) {
+        let payload = rawResponse;
+        if (isPlainObject(payload) && isPlainObject(payload.body) && !isPlainObject(payload.paths)) {
+            payload = payload.body;
+        }
+
+        if (typeof payload === 'string') {
+            try {
+                payload = JSON.parse(payload);
+            } catch (_error) {
+                return null;
+            }
+        }
+
+        if (!isPlainObject(payload)) {
+            return null;
+        }
+
+        if (!isPlainObject(payload.paths)) {
+            return null;
+        }
+
+        return payload;
+    }
+
+    function indexSwaggerDocument(swaggerDoc) {
+        const pathsNode = isPlainObject(swaggerDoc.paths) ? swaggerDoc.paths : {};
+        const definitions = isPlainObject(swaggerDoc.definitions)
+            ? swaggerDoc.definitions
+            : (isPlainObject(swaggerDoc.components) && isPlainObject(swaggerDoc.components.schemas)
+                ? swaggerDoc.components.schemas
+                : {});
+
+        const byOperationId = {};
+        const byMethodRoute = {};
+        const supportedMethods = ['get', 'post', 'put', 'patch', 'delete'];
+
+        Object.keys(pathsNode).forEach((routePath) => {
+            const routeNode = pathsNode[routePath];
+            if (!isPlainObject(routeNode)) return;
+
+            supportedMethods.forEach((method) => {
+                const operation = routeNode[method];
+                if (!isPlainObject(operation)) return;
+
+                const httpMethod = method.toUpperCase();
+                const operationId = typeof operation.operationId === 'string' ? operation.operationId.trim() : '';
+                const bodySchemaDescriptor = extractSwaggerBodySchemaDescriptor(operation);
+                const metadata = {
+                    operationId,
+                    httpMethod,
+                    routePath,
+                    summary: typeof operation.summary === 'string' ? operation.summary.trim() : '',
+                    description: typeof operation.description === 'string' ? operation.description.trim() : '',
+                    tags: Array.isArray(operation.tags) ? operation.tags.filter((tag) => typeof tag === 'string') : [],
+                    bodySchemaDescriptor
+                };
+
+                if (operationId) {
+                    byOperationId[operationId] = metadata;
+                }
+
+                byMethodRoute[buildMethodRouteKey(httpMethod, routePath)] = metadata;
+            });
+        });
+
+        return { byOperationId, byMethodRoute, definitions };
+    }
+
+    function extractSwaggerBodySchemaDescriptor(operation) {
+        if (!isPlainObject(operation)) return null;
+
+        if (Array.isArray(operation.parameters)) {
+            const bodyParameter = operation.parameters.find((parameter) => (
+                isPlainObject(parameter)
+                && parameter.in === 'body'
+                && isPlainObject(parameter.schema)
+            ));
+
+            if (bodyParameter) {
+                return {
+                    schema: bodyParameter.schema,
+                    required: Boolean(bodyParameter.required)
+                };
+            }
+        }
+
+        if (isPlainObject(operation.requestBody)) {
+            const requestBody = operation.requestBody;
+            const content = isPlainObject(requestBody.content) ? requestBody.content : {};
+            const preferredContent = content['application/json']
+                || content['application/*+json']
+                || findFirstJsonLikeContent(content);
+            if (isPlainObject(preferredContent) && isPlainObject(preferredContent.schema)) {
+                return {
+                    schema: preferredContent.schema,
+                    required: Boolean(requestBody.required)
+                };
+            }
+        }
+
+        return null;
+    }
+
+    function findFirstJsonLikeContent(content) {
+        const keys = Object.keys(content || {});
+        for (let i = 0; i < keys.length; i += 1) {
+            const key = keys[i];
+            if (key.toLowerCase().includes('json') && isPlainObject(content[key])) {
+                return content[key];
+            }
+        }
+        return null;
+    }
+
+    function enrichCatalogWithSwaggerMetadata() {
+        if (!Array.isArray(apiExplorerState.catalog) || !apiExplorerState.catalog.length) {
+            return;
+        }
+
+        apiExplorerState.catalog.forEach((endpoint) => {
+            enrichEndpointWithSwaggerMetadata(endpoint);
+        });
+    }
+
+    function enrichEndpointWithSwaggerMetadata(endpoint) {
+        if (!endpoint || !isPlainObject(endpoint)) return endpoint;
+
+        const swaggerMeta = findSwaggerMetadataForEndpoint(endpoint);
+        if (!swaggerMeta) {
+            endpoint.swaggerSummary = '';
+            endpoint.swaggerDescription = '';
+            endpoint.swaggerTags = [];
+            endpoint.swaggerBodySchema = null;
+            endpoint.swaggerBodyRequired = false;
+            endpoint.swaggerBodyModelName = '';
+            endpoint.swaggerBodyPreviewCache = null;
+            return endpoint;
+        }
+
+        endpoint.swaggerSummary = swaggerMeta.summary || '';
+        endpoint.swaggerDescription = swaggerMeta.description || '';
+        endpoint.swaggerTags = Array.isArray(swaggerMeta.tags) ? swaggerMeta.tags : [];
+
+        const bodySchemaDescriptor = swaggerMeta.bodySchemaDescriptor;
+        endpoint.swaggerBodySchema = bodySchemaDescriptor && isPlainObject(bodySchemaDescriptor.schema)
+            ? bodySchemaDescriptor.schema
+            : null;
+        endpoint.swaggerBodyRequired = Boolean(bodySchemaDescriptor && bodySchemaDescriptor.required);
+        endpoint.swaggerBodyModelName = endpoint.swaggerBodySchema
+            ? extractSchemaModelName(endpoint.swaggerBodySchema)
+            : '';
+        endpoint.swaggerBodyPreviewCache = null;
+
+        return endpoint;
+    }
+
+    function findSwaggerMetadataForEndpoint(endpoint) {
+        if (!endpoint) return null;
+
+        const byOperationId = apiExplorerState.swaggerByOperationId || {};
+        const byMethodRoute = apiExplorerState.swaggerByMethodRoute || {};
+        const fromOperationId = endpoint.methodName ? byOperationId[endpoint.methodName] : null;
+        if (fromOperationId) return fromOperationId;
+
+        const fromRoute = byMethodRoute[buildMethodRouteKey(endpoint.httpMethod, endpoint.routePath)];
+        if (fromRoute) return fromRoute;
+
+        return null;
+    }
+
+    function buildMethodRouteKey(httpMethod, routePath) {
+        const safeMethod = String(httpMethod || '').toUpperCase();
+        const safeRoute = String(routePath || '');
+        return safeMethod + ' ' + safeRoute;
+    }
+
+    function extractSchemaModelName(schema) {
+        if (!isPlainObject(schema)) return '';
+        if (typeof schema.$ref !== 'string') return '';
+        const ref = schema.$ref;
+        const parts = ref.split('/');
+        return parts.length ? parts[parts.length - 1] : '';
     }
 
     function extractCallApiArguments(sourceCode) {
@@ -722,7 +1008,7 @@
             const category = toggle.getAttribute('data-category') || '';
             if (!category) return;
 
-            if (state.expandedCategories.has(category)) {
+            if (apiExplorerState.expandedCategories.has(category)) {
                 apiExplorerState.expandedCategories.delete(category);
             } else {
                 apiExplorerState.expandedCategories.add(category);
@@ -800,7 +1086,7 @@
     function toggleFavorite(endpointId) {
         if (!endpointId) return;
 
-        if (state.favorites.has(endpointId)) {
+        if (apiExplorerState.favorites.has(endpointId)) {
             apiExplorerState.favorites.delete(endpointId);
         } else {
             apiExplorerState.favorites.add(endpointId);
@@ -839,7 +1125,7 @@
         const nameEl = document.getElementById('apiExplorerSelectedName');
         const methodEl = document.getElementById('apiExplorerSelectedMethod');
         const pathEl = document.getElementById('apiExplorerSelectedPath');
-        const classEl = document.getElementById('apiExplorerSelectedClass');
+        const descEl = document.getElementById('apiExplorerDescription');
 
         if (nameEl) nameEl.textContent = endpoint.methodName;
         if (methodEl) {
@@ -847,11 +1133,11 @@
             methodEl.className = 'label api-badge-method ' + getMethodLabelClass(endpoint.httpMethod);
         }
         if (pathEl) pathEl.textContent = endpoint.routePath || '(route non detectee)';
-        if (classEl) classEl.textContent = endpoint.apiClassName + ' (arity=' + endpoint.functionArity + ')';
+        if (descEl) descEl.textContent = buildEndpointDescriptionText(endpoint);
 
         renderRequiredParams(endpoint);
         configureBatchInputForEndpoint(endpoint);
-        switchInputMode(state.inputMode);
+        switchInputMode(apiExplorerState.inputMode);
 
         const bodyInput = document.getElementById('apiExplorerBodyJson');
         if (bodyInput) {
@@ -864,6 +1150,7 @@
                 bodyInput.value = '';
             }
         }
+        renderBodySchemaDocumentation(endpoint);
 
         const optionsInput = document.getElementById('apiExplorerOptionsJson');
         if (optionsInput) {
@@ -885,6 +1172,351 @@
             updateResponseStats(null);
             renderResponseText('Aucune reponse pour le moment.');
         }
+    }
+
+    function buildEndpointDescriptionText(endpoint) {
+        const summary = typeof endpoint.swaggerSummary === 'string' ? endpoint.swaggerSummary.trim() : '';
+        const description = typeof endpoint.swaggerDescription === 'string' ? endpoint.swaggerDescription.trim() : '';
+
+        if (summary && description && summary !== description) {
+            return summary + ' | ' + description;
+        }
+        if (summary) return summary;
+        if (description) return description;
+
+        return endpoint.apiClassName + ' (arity=' + endpoint.functionArity + ')';
+    }
+
+    function renderBodySchemaDocumentation(endpoint) {
+        const infoEl = document.getElementById('apiExplorerBodySchemaInfo');
+        const fieldsEl = document.getElementById('apiExplorerBodySchemaFields');
+        const insertBtn = document.getElementById('apiExplorerInsertBodyTemplateBtn');
+
+        if (!infoEl || !fieldsEl || !insertBtn) {
+            return;
+        }
+
+        infoEl.textContent = '';
+        fieldsEl.innerHTML = '';
+        insertBtn.style.display = 'none';
+
+        if (!endpoint || !endpoint.hasBodyParameter) {
+            return;
+        }
+
+        const preview = getEndpointBodySchemaPreview(endpoint);
+        if (!preview) {
+            infoEl.textContent = 'Swagger: schema du body non disponible pour cette API.';
+            return;
+        }
+
+        const modelLabel = preview.modelName ? ('modele ' + preview.modelName) : 'modele inline';
+        infoEl.textContent = 'Swagger: ' + modelLabel + ' | champs detectes: ' + preview.fields.length + '.';
+        fieldsEl.innerHTML = preview.fields.slice(0, 80).map((field) => {
+            const requiredLabel = field.required ? ' requis' : '';
+            return '<div><code>' + escapeHtml(field.path) + '</code> <span class="text-muted">('
+                + escapeHtml(field.type + requiredLabel) + ')</span></div>';
+        }).join('');
+
+        if (preview.fields.length > 80) {
+            const remaining = preview.fields.length - 80;
+            fieldsEl.innerHTML += '<div class="text-muted">... +' + remaining + ' champ(s)</div>';
+        }
+
+        insertBtn.style.display = 'inline-block';
+
+        const bodyInput = document.getElementById('apiExplorerBodyJson');
+        if (bodyInput && !bodyInput.value.trim()) {
+            bodyInput.value = preview.templateText;
+        }
+    }
+
+    function insertSwaggerBodyTemplateInEditor() {
+        const endpoint = getSelectedEndpoint();
+        if (!endpoint || !endpoint.hasBodyParameter) {
+            setExecutionStatus('Aucun body attendu pour cette methode.', 'warning');
+            return;
+        }
+
+        const preview = getEndpointBodySchemaPreview(endpoint);
+        if (!preview) {
+            setExecutionStatus('Template Swagger indisponible pour ce body.', 'warning');
+            return;
+        }
+
+        const bodyInput = document.getElementById('apiExplorerBodyJson');
+        if (!bodyInput) return;
+
+        bodyInput.value = preview.templateText;
+        setExecutionStatus('Template Swagger insere dans le body JSON.', 'success');
+    }
+
+    function getEndpointBodySchemaPreview(endpoint) {
+        if (!endpoint || !isPlainObject(endpoint.swaggerBodySchema)) return null;
+        if (endpoint.swaggerBodyPreviewCache) return endpoint.swaggerBodyPreviewCache;
+
+        const fields = buildSwaggerSchemaFieldList(endpoint.swaggerBodySchema);
+        const templateObject = buildSwaggerTemplateFromSchema(endpoint.swaggerBodySchema);
+        const templateText = JSON.stringify(templateObject, null, 2);
+
+        endpoint.swaggerBodyPreviewCache = {
+            fields,
+            template: templateObject,
+            templateText,
+            modelName: endpoint.swaggerBodyModelName || extractSchemaModelName(endpoint.swaggerBodySchema) || ''
+        };
+
+        return endpoint.swaggerBodyPreviewCache;
+    }
+
+    function buildSwaggerSchemaFieldList(schema) {
+        const fields = [];
+        const seenByPath = Object.create(null);
+        collectSwaggerSchemaFieldsRecursive(schema, '', fields, seenByPath, 0, new Set());
+
+        fields.sort((left, right) => {
+            if (left.required !== right.required) {
+                return left.required ? -1 : 1;
+            }
+            return left.path.localeCompare(right.path);
+        });
+
+        return fields;
+    }
+
+    function collectSwaggerSchemaFieldsRecursive(schema, basePath, fields, seenByPath, depth, visitedRefs) {
+        if (fields.length >= SWAGGER_SCHEMA_MAX_FIELDS) return;
+        if (depth > SWAGGER_SCHEMA_MAX_DEPTH) return;
+
+        const resolved = resolveSwaggerSchemaNode(schema, visitedRefs);
+        if (!resolved) return;
+
+        const schemaType = detectSwaggerSchemaType(resolved);
+        if (schemaType === 'object') {
+            const properties = isPlainObject(resolved.properties) ? resolved.properties : {};
+            const requiredSet = new Set(Array.isArray(resolved.required) ? resolved.required : []);
+            const keys = Object.keys(properties);
+
+            for (let i = 0; i < keys.length; i += 1) {
+                if (fields.length >= SWAGGER_SCHEMA_MAX_FIELDS) return;
+                const key = keys[i];
+                const childSchema = properties[key];
+                const childResolved = resolveSwaggerSchemaNode(childSchema, new Set(visitedRefs));
+                const childType = detectSwaggerSchemaType(childResolved || childSchema);
+                const childPath = basePath ? (basePath + '.' + key) : key;
+                addSwaggerFieldEntry(fields, seenByPath, childPath, childType, requiredSet.has(key));
+
+                if (childType === 'object' || childType === 'array') {
+                    collectSwaggerSchemaFieldsRecursive(childSchema, childPath, fields, seenByPath, depth + 1, new Set(visitedRefs));
+                }
+            }
+
+            return;
+        }
+
+        if (schemaType === 'array') {
+            const itemSchema = isPlainObject(resolved.items) ? resolved.items : null;
+            if (!itemSchema) return;
+
+            const itemPath = basePath ? (basePath + '[]') : '[]';
+            const itemResolved = resolveSwaggerSchemaNode(itemSchema, new Set(visitedRefs));
+            const itemType = detectSwaggerSchemaType(itemResolved || itemSchema);
+            addSwaggerFieldEntry(fields, seenByPath, itemPath, itemType, false);
+
+            if (itemType === 'object' || itemType === 'array') {
+                collectSwaggerSchemaFieldsRecursive(itemSchema, itemPath, fields, seenByPath, depth + 1, new Set(visitedRefs));
+            }
+        }
+    }
+
+    function addSwaggerFieldEntry(fields, seenByPath, path, type, required) {
+        if (!path) return;
+
+        const existing = seenByPath[path];
+        if (existing) {
+            if (required) {
+                existing.required = true;
+            }
+            return;
+        }
+
+        const entry = {
+            path,
+            type: type || 'unknown',
+            required: Boolean(required)
+        };
+        seenByPath[path] = entry;
+        fields.push(entry);
+    }
+
+    function buildSwaggerTemplateFromSchema(schema, depth, visitedRefs) {
+        const currentDepth = typeof depth === 'number' ? depth : 0;
+        const currentVisited = visitedRefs instanceof Set ? visitedRefs : new Set();
+        if (currentDepth > SWAGGER_SCHEMA_MAX_DEPTH) {
+            return null;
+        }
+
+        const resolved = resolveSwaggerSchemaNode(schema, currentVisited);
+        if (!resolved) {
+            return {};
+        }
+
+        const schemaType = detectSwaggerSchemaType(resolved);
+        if (schemaType === 'object') {
+            const properties = isPlainObject(resolved.properties) ? resolved.properties : {};
+            const requiredSet = new Set(Array.isArray(resolved.required) ? resolved.required : []);
+            const keys = Object.keys(properties).sort((left, right) => {
+                const leftRequired = requiredSet.has(left);
+                const rightRequired = requiredSet.has(right);
+                if (leftRequired !== rightRequired) {
+                    return leftRequired ? -1 : 1;
+                }
+                return left.localeCompare(right);
+            });
+
+            const templateObject = {};
+            const maxProperties = 40;
+            for (let i = 0; i < keys.length && i < maxProperties; i += 1) {
+                const key = keys[i];
+                templateObject[key] = buildSwaggerTemplateFromSchema(properties[key], currentDepth + 1, new Set(currentVisited));
+            }
+
+            if (!keys.length && (resolved.additionalProperties === true || isPlainObject(resolved.additionalProperties))) {
+                templateObject.key = 'value';
+            }
+
+            return templateObject;
+        }
+
+        if (schemaType === 'array') {
+            const itemSchema = isPlainObject(resolved.items) ? resolved.items : null;
+            if (!itemSchema) return [];
+            return [buildSwaggerTemplateFromSchema(itemSchema, currentDepth + 1, new Set(currentVisited))];
+        }
+
+        return buildSwaggerScalarPlaceholder(resolved, schemaType);
+    }
+
+    function buildSwaggerScalarPlaceholder(schema, schemaType) {
+        if (Array.isArray(schema.enum) && schema.enum.length) {
+            return schema.enum[0];
+        }
+
+        if (schemaType === 'boolean') return false;
+        if (schemaType === 'integer' || schemaType === 'number') return 0;
+
+        if (schemaType === 'string') {
+            const format = typeof schema.format === 'string' ? schema.format.toLowerCase() : '';
+            if (format === 'uuid') return '00000000-0000-0000-0000-000000000000';
+            if (format === 'date') return '2026-01-01';
+            if (format === 'date-time') return '2026-01-01T00:00:00.000Z';
+            return '';
+        }
+
+        return null;
+    }
+
+    function resolveSwaggerSchemaNode(schema, visitedRefs) {
+        if (!isPlainObject(schema)) return null;
+
+        if (typeof schema.$ref === 'string') {
+            const ref = schema.$ref;
+            const safeVisited = visitedRefs instanceof Set ? visitedRefs : new Set();
+            if (safeVisited.has(ref)) {
+                return null;
+            }
+            safeVisited.add(ref);
+
+            const resolvedRef = resolveSwaggerRef(ref);
+            if (!resolvedRef) {
+                return null;
+            }
+
+            const resolvedNode = resolveSwaggerSchemaNode(resolvedRef, safeVisited) || resolvedRef;
+            const mergedNode = Object.assign({}, resolvedNode, schema);
+            delete mergedNode.$ref;
+            return mergedNode;
+        }
+
+        if (Array.isArray(schema.allOf) && schema.allOf.length) {
+            const merged = { type: 'object', properties: {}, required: [] };
+            let hasObjectPart = false;
+
+            schema.allOf.forEach((item) => {
+                const resolvedPart = resolveSwaggerSchemaNode(item, new Set(visitedRefs instanceof Set ? visitedRefs : []));
+                if (!resolvedPart) return;
+
+                const resolvedType = detectSwaggerSchemaType(resolvedPart);
+                if (resolvedType !== 'object') return;
+
+                hasObjectPart = true;
+                if (isPlainObject(resolvedPart.properties)) {
+                    Object.assign(merged.properties, resolvedPart.properties);
+                }
+                if (Array.isArray(resolvedPart.required)) {
+                    merged.required = merged.required.concat(resolvedPart.required);
+                }
+            });
+
+            if (hasObjectPart) {
+                if (isPlainObject(schema.properties)) {
+                    Object.assign(merged.properties, schema.properties);
+                }
+                if (Array.isArray(schema.required)) {
+                    merged.required = merged.required.concat(schema.required);
+                }
+                merged.required = Array.from(new Set(merged.required));
+                return merged;
+            }
+        }
+
+        if (Array.isArray(schema.oneOf) && schema.oneOf.length) {
+            const first = resolveSwaggerSchemaNode(schema.oneOf[0], new Set(visitedRefs instanceof Set ? visitedRefs : []));
+            if (first) return first;
+        }
+
+        if (Array.isArray(schema.anyOf) && schema.anyOf.length) {
+            const first = resolveSwaggerSchemaNode(schema.anyOf[0], new Set(visitedRefs instanceof Set ? visitedRefs : []));
+            if (first) return first;
+        }
+
+        return schema;
+    }
+
+    function resolveSwaggerRef(ref) {
+        if (typeof ref !== 'string') return null;
+
+        const definitions = apiExplorerState.swaggerDefinitions || {};
+        if (ref.startsWith('#/definitions/')) {
+            const modelName = ref.slice('#/definitions/'.length);
+            return isPlainObject(definitions[modelName]) ? definitions[modelName] : null;
+        }
+
+        if (ref.startsWith('#/components/schemas/')) {
+            const modelName = ref.slice('#/components/schemas/'.length);
+            return isPlainObject(definitions[modelName]) ? definitions[modelName] : null;
+        }
+
+        return null;
+    }
+
+    function detectSwaggerSchemaType(schema) {
+        if (!isPlainObject(schema)) return 'unknown';
+
+        if (typeof schema.type === 'string' && schema.type) {
+            return schema.type.toLowerCase();
+        }
+        if (isPlainObject(schema.properties) || Array.isArray(schema.required)) {
+            return 'object';
+        }
+        if (isPlainObject(schema.items)) {
+            return 'array';
+        }
+        if (Array.isArray(schema.enum) && schema.enum.length) {
+            return typeof schema.enum[0];
+        }
+
+        return 'string';
     }
 
     function renderRequiredParams(endpoint) {
@@ -924,7 +1556,7 @@
         const tabsEl = document.getElementById('apiExplorerResponseTabs');
         if (!container || !tabsEl) return;
 
-        if (!state.responseTabs.length) {
+        if (!apiExplorerState.responseTabs.length) {
             container.style.display = 'none';
             tabsEl.innerHTML = '';
             return;
@@ -967,7 +1599,7 @@
         };
 
         apiExplorerState.responseTabs.push(tab);
-        while (state.responseTabs.length > RESPONSE_TAB_LIMIT) {
+        while (apiExplorerState.responseTabs.length > RESPONSE_TAB_LIMIT) {
             const removed = apiExplorerState.responseTabs.shift();
             if (removed && removed.id === apiExplorerState.activeResponseTabId) {
                 apiExplorerState.activeResponseTabId = null;
@@ -982,8 +1614,8 @@
     }
 
     function getActiveResponseTab() {
-        if (!state.activeResponseTabId) return null;
-        return getTabById(state.activeResponseTabId);
+        if (!apiExplorerState.activeResponseTabId) return null;
+        return getTabById(apiExplorerState.activeResponseTabId);
     }
 
     function resolveExecutionTargetTab(endpoint, targetTabMode) {
@@ -1129,10 +1761,10 @@
         apiExplorerState.lastExecutionMeta = tab.executionMeta || null;
         rebuildProjectionAutocompletePaths();
 
-        if (state.lastProjection !== null && typeof apiExplorerState.lastProjection !== 'undefined') {
-            renderResponseObject(state.lastProjection);
-        } else if (state.lastResponse !== null && typeof apiExplorerState.lastResponse !== 'undefined') {
-            renderResponseObject(state.lastResponse);
+        if (apiExplorerState.lastProjection !== null && typeof apiExplorerState.lastProjection !== 'undefined') {
+            renderResponseObject(apiExplorerState.lastProjection);
+        } else if (apiExplorerState.lastResponse !== null && typeof apiExplorerState.lastResponse !== 'undefined') {
+            renderResponseObject(apiExplorerState.lastResponse);
         } else {
             renderResponseText('Aucune reponse pour cet onglet.');
         }
@@ -1165,7 +1797,7 @@
     }
 
     function getCurrentRenderableResponsePayload() {
-        if (state.lastProjection !== null && typeof apiExplorerState.lastProjection !== 'undefined') {
+        if (apiExplorerState.lastProjection !== null && typeof apiExplorerState.lastProjection !== 'undefined') {
             return apiExplorerState.lastProjection;
         }
 
@@ -1310,7 +1942,7 @@
             return executePostAutoPaging(endpoint, instance);
         }
 
-        if (state.inputMode === 'batch' && allowsBatchMode(endpoint)) {
+        if (apiExplorerState.inputMode === 'batch' && allowsBatchMode(endpoint)) {
             return executeBatchByJsonInputs(endpoint, instance);
         }
 
@@ -1350,7 +1982,7 @@
     async function waitForApiRateWindow(waitContext) {
         while (true) {
             trimRequestTimestamps();
-            if (state.requestTimestamps.length < API_RATE_LIMIT_MAX_PER_MINUTE) {
+            if (apiExplorerState.requestTimestamps.length < API_RATE_LIMIT_MAX_PER_MINUTE) {
                 return;
             }
 
@@ -1364,7 +1996,7 @@
 
     function trimRequestTimestamps() {
         const minTimestamp = Date.now() - API_RATE_LIMIT_WINDOW_MS;
-        while (state.requestTimestamps.length && apiExplorerState.requestTimestamps[0] < minTimestamp) {
+        while (apiExplorerState.requestTimestamps.length && apiExplorerState.requestTimestamps[0] < minTimestamp) {
             apiExplorerState.requestTimestamps.shift();
         }
     }
@@ -2294,14 +2926,14 @@
     function rebuildProjectionAutocompletePaths() {
         ensureProjectionSuggestionDataList();
         clearProjectionAutocompleteDebounce();
-        if (state.lastResponse === null || typeof apiExplorerState.lastResponse === 'undefined') {
+        if (apiExplorerState.lastResponse === null || typeof apiExplorerState.lastResponse === 'undefined') {
             apiExplorerState.projectionAutocompletePaths = [];
             apiExplorerState.currentProjectionSuggestions = [];
             setProjectionSuggestionList([], null);
             return;
         }
 
-        apiExplorerState.projectionAutocompletePaths = buildProjectionAutocompletePaths(state.lastResponse);
+        apiExplorerState.projectionAutocompletePaths = buildProjectionAutocompletePaths(apiExplorerState.lastResponse);
         refreshProjectionAutocompleteSuggestions();
     }
 
@@ -2314,8 +2946,8 @@
     }
 
     function clearProjectionAutocompleteDebounce() {
-        if (state.projectionAutocompleteDebounceId !== null) {
-            clearTimeout(state.projectionAutocompleteDebounceId);
+        if (apiExplorerState.projectionAutocompleteDebounceId !== null) {
+            clearTimeout(apiExplorerState.projectionAutocompleteDebounceId);
             apiExplorerState.projectionAutocompleteDebounceId = null;
         }
     }
@@ -2340,14 +2972,14 @@
 
     function onProjectionPathKeyDown(event) {
         if (!event || event.key !== 'Tab') return;
-        if (!state.currentProjectionSuggestions.length) {
+        if (!apiExplorerState.currentProjectionSuggestions.length) {
             clearProjectionAutocompleteDebounce();
             refreshProjectionAutocompleteSuggestions();
         }
-        if (!state.currentProjectionSuggestions.length) return;
+        if (!apiExplorerState.currentProjectionSuggestions.length) return;
 
         event.preventDefault();
-        applyProjectionSuggestion(state.currentProjectionSuggestions[0]);
+        applyProjectionSuggestion(apiExplorerState.currentProjectionSuggestions[0]);
     }
 
     function applyProjectionSuggestion(suggestion) {
@@ -2473,7 +3105,7 @@
     }
 
     function getProjectionSuggestionCandidates(query, limit) {
-        const allPaths = Array.isArray(state.projectionAutocompletePaths) ? apiExplorerState.projectionAutocompletePaths : [];
+        const allPaths = Array.isArray(apiExplorerState.projectionAutocompletePaths) ? apiExplorerState.projectionAutocompletePaths : [];
         if (!allPaths.length) return [];
 
         const cappedLimit = Math.max(1, Number(limit) || 40);
@@ -2531,12 +3163,12 @@
     // =======================================
     async function applyProjection() {
         // Projection simple: path unique. Projection multiple: "pathA,pathB,...".
-        if (state.lastResponse === null) {
+        if (apiExplorerState.lastResponse === null) {
             setExecutionStatus('Aucune reponse a projeter.', 'warning');
             return;
         }
 
-        if (state.isProjectionProcessing) {
+        if (apiExplorerState.isProjectionProcessing) {
             return;
         }
 
@@ -2553,14 +3185,14 @@
 
             if (!projectionPaths.length) {
                 apiExplorerState.lastProjection = apiExplorerState.lastResponse;
-                renderResponseObject(state.lastProjection);
+                renderResponseObject(apiExplorerState.lastProjection);
                 updateActiveTabFromCurrentState();
                 setExecutionStatus('Projection vide: affichage de la reponse complete.', 'info');
                 return;
             }
 
             if (projectionPaths.length === 1) {
-                const projected = evaluateProjectionExpression(state.lastResponse, projectionPaths[0]);
+                const projected = evaluateProjectionExpression(apiExplorerState.lastResponse, projectionPaths[0]);
                 if (typeof projected === 'undefined') {
                     setExecutionStatus('Projection introuvable: ' + projectionPaths[0], 'warning');
                     return;
@@ -2573,7 +3205,7 @@
                 return;
             }
 
-            const multipleProjection = buildMultipleProjectionResult(state.lastResponse, projectionPaths, {
+            const multipleProjection = buildMultipleProjectionResult(apiExplorerState.lastResponse, projectionPaths, {
                 groupByObject
             });
             if (!multipleProjection.hasData) {
@@ -2618,13 +3250,13 @@
     }
 
     function resetProjection() {
-        if (state.lastResponse === null) {
+        if (apiExplorerState.lastResponse === null) {
             setExecutionStatus('Aucune reponse a reinitialiser.', 'warning');
             return;
         }
 
         apiExplorerState.lastProjection = apiExplorerState.lastResponse;
-        renderResponseObject(state.lastProjection);
+        renderResponseObject(apiExplorerState.lastProjection);
         updateActiveTabFromCurrentState();
         setExecutionStatus('Projection reinitialisee.', 'info');
     }
@@ -3813,10 +4445,10 @@
 
     function pruneUnknownFavorites() {
         // Nettoie les favoris devenus obsoletes apres evolution SDK/catalogue.
-        const knownIds = new Set(state.catalog.map((item) => item.id));
+        const knownIds = new Set(apiExplorerState.catalog.map((item) => item.id));
         let changed = false;
 
-        Array.from(state.favorites).forEach((favoriteId) => {
+        Array.from(apiExplorerState.favorites).forEach((favoriteId) => {
             if (!knownIds.has(favoriteId)) {
                 apiExplorerState.favorites.delete(favoriteId);
                 changed = true;
@@ -3829,7 +4461,7 @@
     }
 
     function saveFavoritesToCookie() {
-        const serialized = encodeURIComponent(JSON.stringify(Array.from(state.favorites)));
+        const serialized = encodeURIComponent(JSON.stringify(Array.from(apiExplorerState.favorites)));
         const maxAge = FAVORITES_COOKIE_TTL_DAYS * 24 * 60 * 60;
         document.cookie = FAVORITES_COOKIE_NAME + '=' + serialized + '; max-age=' + maxAge + '; path=/; SameSite=Lax';
     }

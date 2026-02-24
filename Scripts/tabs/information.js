@@ -5,6 +5,13 @@
  * Date: 05/2025
  */
 
+function i18nInfo(key, fallback, params) {
+    if (window.GCToolI18n && typeof window.GCToolI18n.t === 'function') {
+        return window.GCToolI18n.t(key, params, fallback);
+    }
+    return fallback;
+}
+
 /**
  * Initialisation de la page Information
  */
@@ -58,7 +65,7 @@ function updateDetailedInformation() {
     // Région
     const orgRegionElement = document.getElementById('orgRegion');
     if (orgRegionElement) {
-        orgRegionElement.textContent = ORGREGION || 'Non définie';
+        orgRegionElement.textContent = ORGREGION || i18nInfo('tab.information.value.not_defined', 'Not defined');
     }
     
     // Utilisateur actuel
@@ -68,13 +75,13 @@ function updateDetailedInformation() {
     
     if (appState.currentUser) {
         if (userNameElement) {
-            userNameElement.textContent = appState.currentUser.name || 'Nom non disponible';
+            userNameElement.textContent = appState.currentUser.name || i18nInfo('tab.information.value.name_unavailable', 'Name unavailable');
         }
         if (userIdElement) {
-            userIdElement.textContent = appState.currentUser.id || 'ID non disponible';
+            userIdElement.textContent = appState.currentUser.id || i18nInfo('tab.information.value.id_unavailable', 'ID unavailable');
         }
         if (orgNameElement) {
-            orgNameElement.textContent = appState.currentUser.selectedOrgConfig.name || 'Org Name non disponible';
+            orgNameElement.textContent = appState.currentUser.selectedOrgConfig.name || i18nInfo('tab.information.value.org_name_unavailable', 'Organization name unavailable');
         }
     }
     
@@ -93,10 +100,10 @@ function createResourcesChart() {
     if (!chartContainer) return;
     
     const data = [
-        { label: 'DataTables', value: dataTablesCache.length, color: '#3c8dbc' },
-        { label: 'Queues', value: queuesCache.length, color: '#00a65a' },
-        { label: 'Skills', value: skillsCache.length, color: '#f39c12' },
-        { label: 'Prompts', value: promptsCache.length, color: '#dd4b39' }
+        { label: i18nInfo('tab.information.stats.datatables', 'DataTables'), value: dataTablesCache.length, color: '#3c8dbc' },
+        { label: i18nInfo('tab.information.stats.queues', 'Queues'), value: queuesCache.length, color: '#00a65a' },
+        { label: i18nInfo('tab.information.stats.skills', 'Skills'), value: skillsCache.length, color: '#f39c12' },
+        { label: i18nInfo('tab.information.stats.prompts', 'Prompts'), value: promptsCache.length, color: '#dd4b39' }
     ];
     
     // Créer un graphique simple avec des barres
@@ -187,10 +194,10 @@ function showDetailedStatistics() {
     if (detailedStats.style.display === 'none') {
         detailedStats.innerHTML = generateDetailedStatsHTML();
         detailedStats.style.display = 'block';
-        event.target.innerHTML = '<i class="fa fa-chart-bar"></i> Masquer Statistiques';
+        event.target.innerHTML = `<i class="fa fa-chart-bar"></i> ${i18nInfo('tab.information.detailed_stats_hide', 'Hide statistics')}`;
     } else {
         detailedStats.style.display = 'none';
-        event.target.innerHTML = '<i class="fa fa-chart-bar"></i> Statistiques Détaillées';
+        event.target.innerHTML = `<i class="fa fa-chart-bar"></i> ${i18nInfo('tab.information.detailed_stats', 'Detailed Statistics')}`;
     }
 }
 
@@ -201,25 +208,25 @@ function generateDetailedStatsHTML() {
     return `
         <div class="row" style="margin-top: 20px;">
             <div class="col-md-3">
-                <h4>DataTables Top 10</h4>
+                <h4>${i18nInfo('tab.information.top10.datatables', 'Top 10 DataTables')}</h4>
                 <ul class="list-unstyled">
                     ${dataTablesCache.slice(0, 10).map(dt => `<li><small>${dt.name}</small></li>`).join('')}
                 </ul>
             </div>
             <div class="col-md-3">
-                <h4>Queues Top 10</h4>
+                <h4>${i18nInfo('tab.information.top10.queues', 'Top 10 Queues')}</h4>
                 <ul class="list-unstyled">
                     ${queuesCache.slice(0, 10).map(q => `<li><small>${q.name}</small></li>`).join('')}
                 </ul>
             </div>
             <div class="col-md-3">
-                <h4>Skills Top 10</h4>
+                <h4>${i18nInfo('tab.information.top10.skills', 'Top 10 Skills')}</h4>
                 <ul class="list-unstyled">
                     ${skillsCache.slice(0, 10).map(s => `<li><small>${s.name}</small></li>`).join('')}
                 </ul>
             </div>
             <div class="col-md-3">
-                <h4>Prompts Top 10</h4>
+                <h4>${i18nInfo('tab.information.top10.prompts', 'Top 10 Prompts')}</h4>
                 <ul class="list-unstyled">
                     ${promptsCache.slice(0, 10).map(p => `<li><small>${p.name}</small></li>`).join('')}
                 </ul>
@@ -232,7 +239,7 @@ function generateDetailedStatsHTML() {
  * Actualisation de toutes les données
  */
 function refreshAllData() {
-    if (confirm('Actualiser toutes les données ? Cette opération peut prendre quelques secondes.')) {
+    if (confirm(i18nInfo('tab.information.confirm.refresh_all', 'Refresh all data? This operation can take a few seconds.'))) {
         // Afficher le loading
         const loadingOverlay = document.getElementById('loadingOverlay');
         if (loadingOverlay) {
@@ -245,12 +252,15 @@ function refreshAllData() {
                 // Actualiser l'affichage
                 refreshInformationPage();
                 hideLoading();
-                alert('✅ Données actualisées avec succès !');
+                alert(i18nInfo('tab.information.alert.refresh_success', 'Data refreshed successfully!'));
             })
             .catch((error) => {
                 hideLoading();
-                alert('❌ Erreur lors de l\'actualisation des données');
+                alert(i18nInfo('tab.information.alert.refresh_error', 'Error while refreshing data'));
                 console.error(error);
             });
     }
 }
+
+
+

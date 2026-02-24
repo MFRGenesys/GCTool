@@ -2,6 +2,13 @@
 
 //############################        START CONFIG        #############################
 
+function i18nConfig(key, fallback, params) {
+    if (window.GCToolI18n && typeof window.GCToolI18n.t === 'function') {
+        return window.GCToolI18n.t(key, params, fallback);
+    }
+    return fallback;
+}
+
 
 // Chargement d'une configuration existante - Version mise à jour
 function loadExistingConfiguration(datatableId, scopeRoot) {
@@ -75,13 +82,13 @@ function loadExistingConfiguration(datatableId, scopeRoot) {
 function saveConfiguration(datatableId) {
     const resolvedDatatableId = datatableId;
     if (!resolvedDatatableId) {
-        alert('Erreur interne: DataTable introuvable pour la sauvegarde.');
+        alert(i18nConfig('tab.datatables_controller.config.alert.internal_missing_datatable', 'Internal error: DataTable not found for save.'));
         return;
     }
 
     const scopeRoot = document.getElementById(`config-${resolvedDatatableId}`) || document.getElementById('columnsConfig');
     if (!scopeRoot) {
-        alert('Erreur interne: zone de configuration introuvable.');
+        alert(i18nConfig('tab.datatables_controller.config.alert.internal_missing_config_zone', 'Internal error: configuration zone not found.'));
         return;
     }
 
@@ -126,13 +133,13 @@ function saveConfiguration(datatableId) {
                         // Ajouter l'option pour la casse
                         configuration.columns[columnName].ignoreCase = ignoreCaseCheckbox ? ignoreCaseCheckbox.checked : false;
                     } else {
-                        alert(`Veuillez saisir au moins une valeur pour la colonne "${columnName}"`);
+                        alert(i18nConfig('tab.datatables_controller.config.alert.list_min_one_value', 'Please enter at least one value for column "{column}"', { column: columnName }));
                         listeTextarea.focus();
                         hasErrors = true;
                         return;
                     }
                 } else {
-                    alert(`Veuillez configurer les valeurs possibles pour la colonne "${columnName}"`);
+                    alert(i18nConfig('tab.datatables_controller.config.alert.list_missing_values', 'Please configure possible values for column "{column}"', { column: columnName }));
                     hasErrors = true;
                     return;
                 }
@@ -151,13 +158,13 @@ function saveConfiguration(datatableId) {
                         configuration.columns[columnName].regexDescription = descriptionInput ? descriptionInput.value.trim() : '';
                         configuration.columns[columnName].allowNull = allowNullCheckbox ? allowNullCheckbox.checked : false;
                     } catch (error) {
-                        alert(`Expression régulière invalide pour la colonne "${columnName}": ${error.message}`);
+                        alert(i18nConfig('tab.datatables_controller.config.alert.regex_invalid', 'Invalid regex for column "{column}": {error}', { column: columnName, error: error.message }));
                         regexInput.focus();
                         hasErrors = true;
                         return;
                     }
                 } else {
-                    alert(`Veuillez saisir une expression régulière pour la colonne "${columnName}"`);
+                    alert(i18nConfig('tab.datatables_controller.config.alert.regex_required', 'Please enter a regex for column "{column}"', { column: columnName }));
                     hasErrors = true;
                     return;
                 }
@@ -215,11 +222,11 @@ function toggleImportExportSection() {
     
     if (section.style.display === 'none') {
         section.style.display = 'block';
-        button.innerHTML = '<i class="fa fa-times"></i> Fermer Import/Export';
+        button.innerHTML = `<i class="fa fa-times"></i> ${i18nConfig('tab.datatables_controller.import_export.close', 'Close import/export')}`;
         updateCurrentConfigInfo();
     } else {
         section.style.display = 'none';
-        button.innerHTML = '<i class="fa fa-exchange"></i> Gérer Import/Export';
+        button.innerHTML = `<i class="fa fa-exchange"></i> ${i18nConfig('tab.datatables_controller.import_export.manage', 'Manage import/export')}`;
     }
 }
 
@@ -333,12 +340,12 @@ function exportCompleteConfiguration() {
         // Sauvegarder la date d'export
         saveLastExportTime();
         
-        alert(`✅ Configuration exportée avec succès dans le fichier: ${filename}`);
+        alert(i18nConfig('tab.datatables_controller.config.alert.export_success', 'Configuration exported successfully to file: {filename}', { filename }));
         console.log('✅ Export terminé avec succès');
         
     } catch (error) {
         console.error('❌ Erreur lors de l\'export:', error);
-        alert('Erreur lors de l\'export de la configuration. Consultez la console pour plus de détails.');
+        alert(i18nConfig('tab.datatables_controller.config.alert.export_error', 'Error while exporting configuration. Check console for details.'));
     }
 }
 
@@ -440,7 +447,7 @@ function importCompleteConfiguration(event) {
     
     reader.onerror = function() {
         hideImportProgress();
-        alert('Erreur lors de la lecture du fichier');
+        alert(i18nConfig('tab.datatables_controller.config.alert.read_file_error', 'Error while reading file'));
     };
     
     reader.readAsText(file);
@@ -590,9 +597,10 @@ function hideImportProgress() {
  * Affichage du résultat d'import
  */
 function showImportResultDialog(message, isSuccess) {
-    const icon = isSuccess ? '✅' : '❌';
-    const title = isSuccess ? 'Import Réussi' : 'Erreur d\'Import';
-    
+    const icon = isSuccess ? '[OK]' : '[ERR]';
+    const title = isSuccess
+        ? i18nConfig('tab.datatables_controller.config.import.success_title', 'Import successful')
+        : i18nConfig('tab.datatables_controller.config.import.error_title', 'Import error');
     alert(`${icon} ${title}\n\n${message}`);
 }
 
@@ -642,7 +650,7 @@ function validateDataTableCompatibility(importedConfigs) {
 function exportSpecificDataTable(datatableId) {
     const config = dataTableConfigurations[datatableId];
     if (!config) {
-        alert('Aucune configuration trouvée pour cette DataTable');
+        alert(i18nConfig('tab.datatables_controller.config.alert.no_config_for_datatable', 'No configuration found for this DataTable'));
         return;
     }
     
@@ -717,7 +725,7 @@ function toggleMappingDisplay(triggerElement) {
         
         // Changer le texte du bouton
         if (toggleBtn) {
-            toggleBtn.innerHTML = '<i class="fa fa-times"></i> Fermer';
+            toggleBtn.innerHTML = `<i class="fa fa-times"></i> ${i18nConfig('tab.datatables_controller.mapping.close', 'Close')}`;
         }
     } else {
         mappingDiv.style.display = 'none';
@@ -725,7 +733,7 @@ function toggleMappingDisplay(triggerElement) {
         
         // Restaurer le texte du bouton
         if (toggleBtn) {
-            toggleBtn.innerHTML = '<i class="fa fa-cog"></i> Gérer le Mapping';
+            toggleBtn.innerHTML = `<i class="fa fa-cog"></i> ${i18nConfig('tab.datatables_controller.mapping.manage', 'Manage mapping')}`;
         }
     }
 }
@@ -733,7 +741,7 @@ function toggleMappingDisplay(triggerElement) {
 // Fonction pour mettre à jour le sélecteur de datatables dans la section mapping
 function updateMappingDataTableSelector() {
     const selector = document.getElementById('newMappingDataTable');
-    selector.innerHTML = '<option value="">Sélectionner une DataTable...</option>';
+    selector.innerHTML = `<option value="">${i18nConfig('tab.datatables_controller.mapping.select_datatable', 'Select a DataTable...')}</option>`;
     
     dataTablesCache.forEach(dataTable => {
         const option = document.createElement('option');
@@ -752,7 +760,7 @@ function displayCurrentMapping() {
     mappingList.innerHTML = '';
     
     if (Object.keys(tempLiaisonMapping).length === 0) {
-        mappingList.innerHTML = '<p class="text-muted"><i class="fa fa-info-circle"></i> Aucun mapping configuré</p>';
+        mappingList.innerHTML = `<p class="text-muted"><i class="fa fa-info-circle"></i> ${i18nConfig('tab.datatables_controller.mapping.none_configured', 'No mapping configured')}</p>`;
         return;
     }
     
@@ -773,7 +781,7 @@ function displayCurrentMapping() {
                 </div>
                 <div class="col-md-2 text-right">
                     <button type="button" class="btn-remove-mapping"
-                            title="Supprimer ce mapping">
+                            title="${i18nConfig('tab.datatables_controller.mapping.delete_title', 'Delete this mapping')}">
                         <i class="fa fa-trash"></i>
                     </button>
                 </div>
@@ -798,20 +806,20 @@ function addNewMapping() {
     
     // Validation
     if (!newKey) {
-        alert('Veuillez saisir une valeur de référence');
+        alert(i18nConfig('tab.datatables_controller.mapping.alert.enter_reference', 'Please enter a reference value'));
         keyInput.focus();
         return;
     }
     
     if (!selectedDataTable) {
-        alert('Veuillez sélectionner une DataTable');
+        alert(i18nConfig('tab.datatables_controller.mapping.alert.select_datatable', 'Please select a DataTable'));
         datatableSelect.focus();
         return;
     }
     
     // Vérifier si la clé existe déjà 
     if (tempLiaisonMapping[newKey]) {
-        if (!confirm(`La valeur "${newKey}" existe déjà. Voulez-vous la remplacer ?`)) {
+        if (!confirm(i18nConfig('tab.datatables_controller.mapping.confirm.replace_existing', 'Value "{key}" already exists. Replace it?', { key: newKey }))) {
             return;
         }
     }
@@ -832,7 +840,7 @@ function addNewMapping() {
 
 // Fonction pour supprimer un mapping
 function removeMappingKey(key) {
-    if (confirm(`Êtes-vous sûr de vouloir supprimer le mapping "${key}" ?`)) {
+    if (confirm(i18nConfig('tab.datatables_controller.mapping.confirm.delete_mapping', 'Are you sure you want to delete mapping "{key}"?', { key }))) {
         delete tempLiaisonMapping[key];
         displayCurrentMapping();
         console.log(`Mapping supprimé: ${key}`);
@@ -842,7 +850,7 @@ function removeMappingKey(key) {
 // Fonction pour sauvegarder les modifications du mapping
 function saveMappingConfiguration() {
     if (Object.keys(tempLiaisonMapping).length === 0) {
-        if (!confirm('Aucun mapping configuré. Voulez-vous vraiment vider la configuration ?')) {
+        if (!confirm(i18nConfig('tab.datatables_controller.mapping.confirm.clear_empty', 'No mapping configured. Do you really want to clear configuration?'))) {
             return;
         }
     }
@@ -859,7 +867,7 @@ function saveMappingConfiguration() {
     // Sauvegarder dans les cookies
     saveLiaisonMappingToCookie();
     
-    alert('Configuration du mapping sauvegardée avec succès !');
+    alert(i18nConfig('tab.datatables_controller.mapping.alert.save_success', 'Mapping configuration saved successfully!'));
     
     // Fermer la section de gestion
     toggleMappingDisplay(document.getElementById('toggleMappingBtn'));
@@ -869,7 +877,7 @@ function saveMappingConfiguration() {
 
 // Fonction pour annuler les modifications
 function cancelMappingChanges() {
-    if (confirm('Êtes-vous sûr de vouloir annuler les modifications ?')) {
+    if (confirm(i18nConfig('tab.datatables_controller.mapping.confirm.cancel_changes', 'Are you sure you want to cancel changes?'))) {
         // Restaurer le mapping temporaire
         tempLiaisonMapping = { ...LIAISON_MAPPING };
         
@@ -942,7 +950,7 @@ function importMappingConfiguration(event) {
                     LIAISON_MAPPING[key] = importedData.mapping[key];
                 });
                 saveLiaisonMappingToCookie();
-                alert('Mapping importé avec succès !');
+                alert(i18nConfig('tab.datatables_controller.mapping.alert.import_success', 'Mapping imported successfully!'));
                 
                 if (mappingDisplayed) {
                     tempLiaisonMapping = { ...LIAISON_MAPPING };
@@ -950,7 +958,7 @@ function importMappingConfiguration(event) {
                 }
             }
         } catch (error) {
-            alert('Erreur lors de l\'importation : fichier invalide');
+            alert(i18nConfig('tab.datatables_controller.mapping.alert.import_error', 'Error while importing: invalid file'));
             console.error('Erreur d\'importation:', error);
         }
     };

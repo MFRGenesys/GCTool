@@ -8,11 +8,11 @@ async function getDataTableRowsWithCache(datatableId) {
         return [];
     }
     if (liaisonDataCache.has(datatableId)) {
-        console.log(`Récupération des données de la DT `,datatableId,` déjà en cache.`)
+        //console.log(`Récupération des données de la DT `,datatableId,` déjà en cache.`)
         return liaisonDataCache.get(datatableId);
     }
     if (liaisonDataPromiseCache.has(datatableId)) {
-        console.log(`Reutilisation du chargement en cours pour la DT ${datatableId}`);
+        //console.log(`Reutilisation du chargement en cours pour la DT ${datatableId}`);
         return liaisonDataPromiseCache.get(datatableId);
     }
 
@@ -194,7 +194,7 @@ function loadDataTableColumns(datatableId) {
             console.log('DataTable détaillée:', dataTable);
             // Afficher l'aperçu des données
             displayDataTablePreview(datatableId, dataTable.name);
-            displayColumnsConfiguration(datatableId, dataTable.schema.properties);
+            displayColumnsConfigurationInList(datatableId, dataTable.schema.properties);
         })
         .catch((err) => {
             console.error('Erreur lors du chargement des colonnes:', err);

@@ -1,12 +1,19 @@
 /**
  * Export de tous les visuels en PDF (1 visuel par page)
  */
+function i18nPdf(key, fallback, params) {
+    if (window.GCToolI18n && typeof window.GCToolI18n.t === 'function') {
+        return window.GCToolI18n.t(key, params, fallback);
+    }
+    return fallback;
+}
+
 async function exportAllVisualsAsPDF() {
     const visualsContainer = document.getElementById('generatedVisualsContent');
     const visualElements = visualsContainer.querySelectorAll('.generated-visual');
     
     if (visualElements.length === 0) {
-        alert('Aucun visuel à exporter');
+        alert(i18nPdf('tab.flow.export_pdf.no_visual', 'No visual to export'));
         return;
     }
     
@@ -38,12 +45,16 @@ async function exportAllVisualsAsPDF() {
             // Ajouter un en-tête de page
             doc.setFontSize(16);
             doc.setFont('helvetica', 'bold');
-            doc.text(`Visuel ${i + 1}/${visualElements.length}`, margin, margin + 10);
+            doc.text(
+                i18nPdf('tab.flow.export_pdf.visual_counter', 'Visual {current}/{total}', { current: i + 1, total: visualElements.length }),
+                margin,
+                margin + 10
+            );
             
             // Ajouter la date de génération
             doc.setFontSize(10);
             doc.setFont('helvetica', 'normal');
-            doc.text(`Généré le ${new Date().toLocaleString()}`, margin, margin + 20);
+            doc.text(i18nPdf('tab.flow.export_pdf.generated_on', 'Generated on {date}', { date: new Date().toLocaleString() }), margin, margin + 20);
             
             // Convertir l'élément en image
             const canvas = await html2canvas(visualElement, {
@@ -84,7 +95,7 @@ async function exportAllVisualsAsPDF() {
     } catch (error) {
         console.error('❌ Erreur lors de la génération du PDF:', error);
         hideExportProgress();
-        alert('Erreur lors de la génération du PDF');
+        alert(i18nPdf('tab.flow.export_pdf.error_generation', 'Error while generating PDF'));
     }
 }
 
@@ -104,7 +115,7 @@ function showExportProgress(current, total) {
                 <div class="modal-content">
                     <div class="modal-header">
                         <h4 class="modal-title">
-                            <i class="fa fa-file-pdf-o"></i> Export PDF en cours...
+                            <i class="fa fa-file-pdf-o"></i> ${i18nPdf('tab.flow.export_pdf.progress_title', 'PDF export in progress...')}
                         </h4>
                     </div>
                     <div class="modal-body text-center">
@@ -112,8 +123,8 @@ function showExportProgress(current, total) {
                             <div class="progress-bar progress-bar-success" id="exportProgressBar" 
                                  style="width: 0%"></div>
                         </div>
-                        <p id="exportProgressText">Préparation...</p>
-                        <small class="text-muted">Veuillez patienter pendant la génération du PDF</small>
+                        <p id="exportProgressText">${i18nPdf('tab.flow.export_pdf.preparing', 'Preparing...')}</p>
+                        <small class="text-muted">${i18nPdf('tab.flow.export_pdf.please_wait', 'Please wait while generating the PDF')}</small>
                     </div>
                 </div>
             </div>
@@ -127,7 +138,7 @@ function showExportProgress(current, total) {
     
     const percentage = Math.round((current / total) * 100);
     progressBar.style.width = percentage + '%';
-    progressText.textContent = `Traitement du visuel ${current}/${total}`;
+    progressText.textContent = i18nPdf('tab.flow.export_pdf.progress', 'Processing visual {current}/{total}', { current, total });
     
     // Afficher la modal
     $(progressModal).modal({
@@ -160,12 +171,12 @@ function showPDFExportOptions() {
                     <div class="modal-header">
                         <button type="button" class="close" data-dismiss="modal">&times;</button>
                         <h4 class="modal-title">
-                            <i class="fa fa-file-pdf-o"></i> Options d'export PDF
+                            <i class="fa fa-file-pdf-o"></i> ${i18nPdf('tab.flow.export_pdf.options_title', 'PDF export options')}
                         </h4>
                     </div>
                     <div class="modal-body">
                         <div class="form-group">
-                            <label>Format de page :</label>
+                            <label>${i18nPdf('tab.flow.export_pdf.page_format', 'Page format:')}</label>
                             <select class="form-control" id="pdfPageFormat">
                                 <option value="a4">A4 (210 x 297 mm)</option>
                                 <option value="a3">A3 (297 x 420 mm)</option>
@@ -174,40 +185,40 @@ function showPDFExportOptions() {
                         </div>
                         
                         <div class="form-group">
-                            <label>Orientation :</label>
+                            <label>${i18nPdf('tab.flow.export_pdf.orientation', 'Orientation:')}</label>
                             <select class="form-control" id="pdfOrientation">
-                                <option value="portrait">Portrait</option>
-                                <option value="landscape">Paysage</option>
+                                <option value="portrait">${i18nPdf('tab.flow.export_pdf.orientation_portrait', 'Portrait')}</option>
+                                <option value="landscape">${i18nPdf('tab.flow.export_pdf.orientation_landscape', 'Landscape')}</option>
                             </select>
                         </div>
                         
                         <div class="form-group">
-                            <label>Qualité d'image :</label>
+                            <label>${i18nPdf('tab.flow.export_pdf.image_quality', 'Image quality:')}</label>
                             <select class="form-control" id="pdfQuality">
-                                <option value="1">Standard (x1)</option>
-                                <option value="2" selected>Haute (x2)</option>
-                                <option value="3">Très haute (x3)</option>
+                                <option value="1">${i18nPdf('tab.flow.export_pdf.quality_standard', 'Standard (x1)')}</option>
+                                <option value="2" selected>${i18nPdf('tab.flow.export_pdf.quality_high', 'High (x2)')}</option>
+                                <option value="3">${i18nPdf('tab.flow.export_pdf.quality_very_high', 'Very high (x3)')}</option>
                             </select>
                         </div>
                         
                         <div class="checkbox">
                             <label>
                                 <input type="checkbox" id="pdfIncludeHeader" checked>
-                                Inclure les en-têtes de page
+                                ${i18nPdf('tab.flow.export_pdf.include_header', 'Include page headers')}
                             </label>
                         </div>
                         
                         <div class="checkbox">
                             <label>
                                 <input type="checkbox" id="pdfIncludeFooter">
-                                Inclure les pieds de page
+                                ${i18nPdf('tab.flow.export_pdf.include_footer', 'Include page footers')}
                             </label>
                         </div>
                     </div>
                     <div class="modal-footer">
-                        <button type="button" class="btn btn-default" data-dismiss="modal">Annuler</button>
+                        <button type="button" class="btn btn-default" data-dismiss="modal">${i18nPdf('common.cancel', 'Cancel')}</button>
                         <button type="button" class="btn btn-primary" onclick="exportPDFWithOptions()">
-                            <i class="fa fa-download"></i> Générer PDF
+                            <i class="fa fa-download"></i> ${i18nPdf('tab.flow.export_pdf.generate', 'Generate PDF')}
                         </button>
                     </div>
                 </div>
@@ -248,7 +259,7 @@ async function exportAllVisualsAsPDFWithOptions(options) {
     const visualElements = visualsContainer.querySelectorAll('.generated-visual');
     
     if (visualElements.length === 0) {
-        alert('Aucun visuel à exporter');
+        alert(i18nPdf('tab.flow.export_pdf.no_visual', 'No visual to export'));
         return;
     }
     
@@ -280,11 +291,15 @@ async function exportAllVisualsAsPDFWithOptions(options) {
             if (options.includeHeader) {
                 doc.setFontSize(14);
                 doc.setFont('helvetica', 'bold');
-                doc.text(`Rapport de Flux - Visuel ${i + 1}/${visualElements.length}`, margin, margin + 10);
+                doc.text(
+                    i18nPdf('tab.flow.export_pdf.report_visual_counter', 'Flow Report - Visual {current}/{total}', { current: i + 1, total: visualElements.length }),
+                    margin,
+                    margin + 10
+                );
                 
                 doc.setFontSize(9);
                 doc.setFont('helvetica', 'normal');
-                doc.text(`Généré le ${new Date().toLocaleString()}`, margin, margin + 18);
+                doc.text(i18nPdf('tab.flow.export_pdf.generated_on', 'Generated on {date}', { date: new Date().toLocaleString() }), margin, margin + 18);
                 
                 // Ligne de séparation
                 doc.setDrawColor(200, 200, 200);
@@ -317,7 +332,7 @@ async function exportAllVisualsAsPDFWithOptions(options) {
                 doc.setFontSize(8);
                 doc.setFont('helvetica', 'normal');
                 doc.text(
-                    `Page ${i + 1}/${visualElements.length}`, 
+                    i18nPdf('tab.flow.export_pdf.page_counter', 'Page {current}/{total}', { current: i + 1, total: visualElements.length }),
                     pageWidth - margin - 20, 
                     pageHeight - margin
                 );
@@ -335,6 +350,8 @@ async function exportAllVisualsAsPDFWithOptions(options) {
     } catch (error) {
         console.error('❌ Erreur lors de la génération du PDF:', error);
         hideExportProgress();
-        alert('Erreur lors de la génération du PDF');
+        alert(i18nPdf('tab.flow.export_pdf.error_generation', 'Error while generating PDF'));
     }
 }
+
+

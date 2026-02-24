@@ -24,6 +24,13 @@ const SCHEMA_LAYOUT = {
     columnCharWidth: 6.1
 };
 
+function i18nSchema(key, fallback, params) {
+    if (window.GCToolI18n && typeof window.GCToolI18n.t === 'function') {
+        return window.GCToolI18n.t(key, params, fallback);
+    }
+    return fallback;
+}
+
 /**
  * Configuration des icônes par type
  */
@@ -48,10 +55,10 @@ function toggleDataTableSchemaSection() {
     if (section.style.display === 'none') {
         section.style.display = 'block';
         generateDataTableSchema();
-        button.innerHTML = '<i class="fa fa-eye-slash"></i> Masquer le Schéma';
+        button.innerHTML = `<i class="fa fa-eye-slash"></i> ${i18nSchema('tab.datatables_controller.schema_hide', 'Hide diagram')}`;
     } else {
         section.style.display = 'none';
-        button.innerHTML = '<i class="fa fa-sitemap"></i> Afficher le Schéma';
+        button.innerHTML = `<i class="fa fa-sitemap"></i> ${i18nSchema('tab.datatables_controller.schema_show', 'Show diagram')}`;
     }
 }
 
@@ -949,7 +956,7 @@ function buildSchemaTableLabel(table) {
 
 function exportDataTableSchemaDrawio() {
     if (!schemaData || !Array.isArray(schemaData.tables) || schemaData.tables.length === 0) {
-        alert('Aucun schema a exporter');
+        alert(i18nSchema('tab.datatables_controller.schema.alert.no_schema', 'No diagram to export'));
         return;
     }
 
@@ -1001,7 +1008,7 @@ function exportDataTableSchema(format = 'png') {
     const bounds = getSchemaExportBounds();
     const exportSvg = buildSchemaExportSvg(bounds);
     if (!exportSvg) {
-        alert('Erreur: schema introuvable');
+        alert(i18nSchema('tab.datatables_controller.schema.alert.not_found', 'Error: diagram not found'));
         return;
     }
 
@@ -1028,7 +1035,7 @@ function exportDataTableSchema(format = 'png') {
 
         if (!ctx) {
             URL.revokeObjectURL(svgUrl);
-            alert('Impossible de generer le PNG');
+            alert(i18nSchema('tab.datatables_controller.schema.alert.png_generate_error', 'Unable to generate PNG'));
             return;
         }
 
@@ -1039,7 +1046,7 @@ function exportDataTableSchema(format = 'png') {
         canvas.toBlob((blob) => {
             if (!blob) {
                 URL.revokeObjectURL(svgUrl);
-                alert('Erreur lors de la creation du PNG');
+                alert(i18nSchema('tab.datatables_controller.schema.alert.png_create_error', 'Error while creating PNG'));
                 return;
             }
             downloadBlobFile(blob, `schema-datatables-${new Date().toISOString().split('T')[0]}.png`);
@@ -1049,7 +1056,7 @@ function exportDataTableSchema(format = 'png') {
 
     img.onerror = function() {
         URL.revokeObjectURL(svgUrl);
-        alert('Erreur lors du rendu SVG vers PNG');
+        alert(i18nSchema('tab.datatables_controller.schema.alert.svg_render_error', 'Error while rendering SVG to PNG'));
     };
 
     img.src = svgUrl;

@@ -1,3 +1,10 @@
+function i18nCallback(key, fallback, params) {
+    if (window.GCToolI18n && typeof window.GCToolI18n.t === 'function') {
+        return window.GCToolI18n.t(key, params, fallback);
+    }
+    return fallback;
+}
+
 // Remplir la liste déroulante avec les queues
 const queueSelect = document.getElementById('queueSelect');
 for (const [key, value] of Object.entries(queuesCache)) {
@@ -55,17 +62,17 @@ function fetchCallbacks(queueId) {
 
 function displayCallbacks(callbacks) {
     const callbacksList = document.getElementById('callbacksList');
-    callbacksList.innerHTML = '<h4>Callbacks en attente :</h4>';
+    callbacksList.innerHTML = `<h4>${i18nCallback('tab.callback.pending_title', 'Pending callbacks:')}</h4>`;
 
     if (callbacks.length === 0) {
-        callbacksList.innerHTML += '<p>Aucun callback en attente.</p>';
+        callbacksList.innerHTML += `<p>${i18nCallback('tab.callback.pending_none', 'No pending callbacks.')}</p>`;
         return;
     }
 
     const list = document.createElement('ul');
     callbacks.forEach(callback => {
         const item = document.createElement('li');
-        item.textContent = `Callback ID: ${callback.id} - Heure de début: ${callback.conversationStart}`;
+        item.textContent = i18nCallback('tab.callback.pending_item', 'Callback ID: {id} - Start time: {start}', { id: callback.id, start: callback.conversationStart });
         list.appendChild(item);
     });
     callbacksList.appendChild(list);

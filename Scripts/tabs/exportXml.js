@@ -1,12 +1,38 @@
 
+function i18nExport(key, fallback, params) {
+    if (window.GCToolI18n && typeof window.GCToolI18n.t === 'function') {
+        return window.GCToolI18n.t(key, params || {}, fallback);
+    }
+    if (!params || typeof fallback !== 'string') return fallback;
+    return fallback.replace(/\{(\w+)\}/g, function (_, token) {
+        return Object.prototype.hasOwnProperty.call(params, token) ? String(params[token]) : '';
+    });
+}
+
+function normalizeDrawioXmlForExport(xmlContent) {
+    if (typeof normalizeDrawioXmlTagCase === 'function') {
+        return normalizeDrawioXmlTagCase(xmlContent);
+    }
+    if (!xmlContent) return '';
+    return String(xmlContent)
+        .replace(/<\s*\/\s*mxgraphmodel\b/gi, '</mxGraphModel')
+        .replace(/<\s*mxgraphmodel\b/gi, '<mxGraphModel')
+        .replace(/<\s*\/\s*mxcell\b/gi, '</mxCell')
+        .replace(/<\s*mxcell\b/gi, '<mxCell')
+        .replace(/<\s*\/\s*mxgeometry\b/gi, '</mxGeometry')
+        .replace(/<\s*mxgeometry\b/gi, '<mxGeometry')
+        .replace(/<\s*\/\s*mxpoint\b/gi, '</mxPoint')
+        .replace(/<\s*mxpoint\b/gi, '<mxPoint');
+}
+
 function exportAllVisualsToDrawio() {
-    const xmlElements = document.querySelectorAll('[id^="visual-xml-"]');
+    const xmlElements = document.querySelectorAll('[id^=visual-xml-]');
     
     if (xmlElements.length === 0) {
-        alert('Aucun visuel XML trouvé à exporter');
+        alert(i18nExport('tab.flow.export.no_xml_visual', 'Aucun visuel XML trouve a exporter'));
         return;
     }
-    console.log(`📊 ${xmlElements.length} visuel(s) XML trouvé(s)`);
+    console.log(`📊 ${xmlElements.length} visuel(s) XML trouvé(s) : `,xmlElements);
     
     
     // Tableau pour stocker tous les diagrammes
@@ -15,8 +41,9 @@ function exportAllVisualsToDrawio() {
     // Parcourir chaque élément XML
     xmlElements.forEach((element, index) => {
         // Récupérer le contenu XML
-        const xmlContent = element.textContent || element.innerHTML;
-        
+        const xmlContent = normalizeDrawioXmlForExport((element.textContent || element.innerHTML || '').trim());
+        //console.log(`xml content `,index,` : `,xmlContent);
+
         if (xmlContent && xmlContent.trim()) {
             // Extraire l'index depuis l'ID (visual-xml-0, visual-xml-1, etc.)
             const idMatch = element.id.match(/visual-xml-(\d+)/);
@@ -34,7 +61,7 @@ function exportAllVisualsToDrawio() {
     });
     
     if (allDiagrams.length === 0) {
-        alert('Aucun contenu XML valide trouvé');
+        alert(i18nExport('tab.flow.export.no_valid_xml', 'Aucun contenu XML valide trouve'));
         return;
     }
     
@@ -54,19 +81,11 @@ function generateMultipageDrawioFile(diagrams) {
 <mxfile host="app.diagrams.net" modified="${timestamp}" agent="Genesys Flow Designer" version="1.0">`;
     
     // Ajouter chaque diagramme comme une page
-    diagrams.forEach((diagram, index) => {
-        const diagramId = `diagram_${index + 1}`;
-        const escapedName = escapeXmlAttribute(diagram.name);
-        
-        xmlContent += `
-  <diagram name="${escapedName}" id="${diagramId}">
-    ${diagram.xml}
-  </diagram>`;
-    });
-    
+    diagrams.forEach((diagram, index) => {        
+        xmlContent += `${diagram.xml}`});
     // Fermeture du fichier
     xmlContent += `
-</mxfile>`;
+        </mxfile>`;
     
     // Télécharger le fichier
     downloadDrawioFile(xmlContent, diagrams.length);
@@ -106,11 +125,11 @@ function downloadDrawioFile(xmlContent, diagramCount) {
         URL.revokeObjectURL(url);
         
         console.log(`📤 Fichier draw.io généré avec ${diagramCount} page(s)`);
-        alert(`✅ Export réussi ! ${diagramCount} visuel(s) exporté(s) vers draw.io`);
+        alert(i18nExport('tab.flow.export.success_message', 'Export reussi ! {count} visuel(s) exporte(s) vers draw.io', { count: diagramCount }));
         
     } catch (error) {
         console.error('❌ Erreur lors du téléchargement:', error);
-        alert('Erreur lors de la génération du fichier');
+        alert(i18nExport('tab.flow.export.error_generating_file', 'Erreur lors de la generation du fichier'));
     }
 }
 function escapeXml(str) {
@@ -188,15 +207,18 @@ function escapeXmlValue(value) {
  * Génération du wrapper mxGraphModel avec boîtes et connexions
  */
 function generateMxGraphModelWrapper(boxesXML, connectionsXML) {
-    const xmlGraph = `<mxGraphModel dx="1422" dy="794" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1200" pageHeight="1600" math="0" shadow="0">
-      <root>
+    const xmlGraphHeader = `<diagram name="Flow Path" id="flow-diagram">
+        <mxGraphModel dx="1422" dy="794" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1200" pageHeight="1600" math="0" shadow="0">
+        <root>
         <mxCell id="0"/>
         <mxCell id="1" parent="0"/>`;
+    const xmlGraphFooter = `</root>
+            </mxGraphModel></diagram>`;
     
     const boxesContent = boxesXML.filter(xml => xml && xml.trim()).join('\n        ');
     const connectionsContent = connectionsXML.filter(xml => xml && xml.trim()).join('\n        ');
     
-    return (xmlGraph + '\n        ' + boxesContent + '\n        ' + connectionsContent);
+    return (xmlGraphHeader + '\n        ' + boxesContent + '\n        ' + connectionsContent + '\n      ' + xmlGraphFooter);
 }
 
 /**
@@ -247,20 +269,17 @@ function generateConnectionXML(fromBoxId, toBoxId, connectionId, label = "") {
  */
 function exportFlowPathToDrawio(xmlContent, filename = 'flow-path.drawio') {
     if (!xmlContent) {
-        alert('Aucun contenu XML à exporter');
+        alert(i18nExport('tab.flow.export.no_xml_content', 'Aucun contenu XML a exporter'));
         return;
     }
+    const normalizedXmlContent = normalizeDrawioXmlForExport(xmlContent);
         
-    const xmlFooter = `
-            </root>
-            </mxGraphModel>
-        </diagram>
-        </mxfile>`;
     const xmlHeader = `<?xml version="1.0" encoding="UTF-8"?>
-        <mxfile host="app.diagrams.net" modified="${new Date().toISOString()}" agent="Genesys Flow Designer" version="1.0">
-        <diagram name="Flow Path" id="flow-diagram">`;
-
-    xmlContent = xmlHeader + '\n      ' + xmlContent + xmlFooter;
+        <mxfile host="app.diagrams.net" modified="${new Date().toISOString()}" agent="Genesys Flow Designer" version="1.0">`;
+    const xmlFooter = `
+        </mxfile>`;
+    
+    xmlContent = xmlHeader + '\n      ' + normalizedXmlContent + xmlFooter;
 
     const blob = new Blob([xmlContent], { type: 'application/xml' });
     const link = document.createElement('a');

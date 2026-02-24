@@ -4,6 +4,16 @@
 let editingTaskBoxId = null;
 let editingTaskIndex = -1;
 
+function i18nTask(key, fallback, params) {
+    if (window.GCToolI18n && typeof window.GCToolI18n.t === 'function') {
+        return window.GCToolI18n.t(key, params || {}, fallback);
+    }
+    if (!params || typeof fallback !== 'string') return fallback;
+    return fallback.replace(/\{(\w+)\}/g, function (_, token) {
+        return Object.prototype.hasOwnProperty.call(params, token) ? String(params[token]) : '';
+    });
+}
+
 /**
  * Afficher le formulaire d'ajout de tâche
  */
@@ -169,7 +179,7 @@ function saveTask(boxId) {
     const selectedAction = actionSelect.value;
     
     if (!selectedAction) {
-        alert('Veuillez sélectionner une action');
+        alert(i18nTask('tab.flow.tasks.alert.select_action', 'Veuillez selectionner une action'));
         return;
     }
     
@@ -183,7 +193,7 @@ function saveTask(boxId) {
         case 'play_message':
             const column = document.getElementById(`taskColumn_${boxId}`).value;
             if (!column) {
-                alert('Veuillez sélectionner une colonne');
+                alert(i18nTask('tab.flow.tasks.alert.select_column', 'Veuillez selectionner une colonne'));
                 return;
             }
             taskData.parameters.column = column;
@@ -192,7 +202,7 @@ function saveTask(boxId) {
         case 'identification':
             const text = document.getElementById(`taskText_${boxId}`).value;
             if (!text) {
-                alert('Veuillez saisir un texte');
+                alert(i18nTask('tab.flow.tasks.alert.enter_text', 'Veuillez saisir un texte'));
                 return;
             }
             taskData.parameters.text = text;
@@ -208,7 +218,7 @@ function saveTask(boxId) {
                 }
             });
             if (pairs.length === 0) {
-                alert('Veuillez ajouter au moins une paire clé/valeur');
+                alert(i18nTask('tab.flow.tasks.alert.add_pair', 'Veuillez ajouter au moins une paire cle/valeur'));
                 return;
             }
             taskData.parameters.keyValuePairs = pairs;
@@ -218,7 +228,7 @@ function saveTask(boxId) {
             const activationColumn = document.getElementById(`taskColumn_${boxId}`).value;
             const label = document.getElementById(`taskLabel_${boxId}`).value;
             if (!activationColumn || !label) {
-                alert('Veuillez remplir tous les champs');
+                alert(i18nTask('tab.flow.tasks.alert.fill_all_fields', 'Veuillez remplir tous les champs'));
                 return;
             }
             taskData.parameters.column = activationColumn;
@@ -250,7 +260,7 @@ function saveTask(boxId) {
  * Supprimer une tâche
  */
 function deleteTask(boxId, taskIndex) {
-    if (confirm('Êtes-vous sûr de vouloir supprimer cette tâche ?')) {
+    if (confirm(i18nTask('tab.flow.tasks.confirm.delete_task', 'Etes-vous sur de vouloir supprimer cette tache ?'))) {
         const box = flowBoxes.get(boxId);
         box.tasks.splice(taskIndex, 1);
         refreshBoxConfigPanel(boxId);
@@ -715,6 +725,300 @@ function isActivationPositive(value) {
     return false;
 }
 
+// i18n overrides for task editor UI (same function names on purpose).
+function updateTaskParameters(boxId) {
+    const actionSelect = document.getElementById(`taskAction_${boxId}`);
+    const parametersDiv = document.getElementById(`taskParameters_${boxId}`);
+    const selectedAction = actionSelect.value;
+
+    if (!selectedAction) {
+        parametersDiv.innerHTML = '';
+        return;
+    }
+
+    const box = flowBoxes.get(boxId);
+    let html = '';
+
+    switch (selectedAction) {
+        case 'play_message': {
+            const columns = getDataTableColumns(box.dataTable);
+            html = `
+                <div class="form-group">
+                    <label>${i18nTask('tab.flow.tasks.column_message', 'Colonne du message :')}</label>
+                    <select id="taskColumn_${boxId}" class="form-control" required>
+                        <option value="">${i18nTask('tab.flow.tasks.select_column', 'Selectionner une colonne')}</option>
+                        ${columns.map(col =>
+                            `<option value="${col}">${getColumnTitle(box.dataTable, col)}</option>`
+                        ).join('')}
+                    </select>
+                </div>
+            `;
+            break;
+        }
+        case 'identification':
+            html = `
+                <div class="form-group">
+                    <label>${i18nTask('tab.flow.tasks.identification_text', "Texte d'identification :")}</label>
+                    <input type="text" id="taskText_${boxId}" class="form-control"
+                           placeholder="${i18nTask('tab.flow.tasks.identification_placeholder', 'Ex: Authentification requise')}" required>
+                </div>
+            `;
+            break;
+        case 'client_data':
+            html = `
+                <div class="form-group">
+                    <label>${i18nTask('tab.flow.tasks.key_value_pairs', 'Paires Cle/Valeur :')}</label>
+                    <div id="keyValuePairs_${boxId}">
+                        <div class="key-value-pair">
+                            <div class="row">
+                                <div class="col-md-5">
+                                    <input type="text" class="form-control key-input" placeholder="${i18nTask('tab.flow.tasks.key', 'Cle')}">
+                                </div>
+                                <div class="col-md-5">
+                                    <input type="text" class="form-control value-input" placeholder="${i18nTask('tab.flow.tasks.value', 'Valeur')}">
+                                </div>
+                                <div class="col-md-2">
+                                    <button type="button" class="btn btn-danger btn-sm" onclick="removeKeyValuePair(this)">
+                                        <i class="fa fa-minus"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <button type="button" class="btn btn-success btn-sm" onclick="addKeyValuePair('${boxId}')">
+                        <i class="fa fa-plus"></i> ${i18nTask('tab.flow.tasks.add_pair', 'Ajouter une paire')}
+                    </button>
+                </div>
+            `;
+            break;
+        case 'activation': {
+            const columns = getDataTableColumns(box.dataTable);
+            html = `
+                <div class="form-group">
+                    <label>${i18nTask('tab.flow.tasks.control_column', 'Colonne de controle :')}</label>
+                    <select id="taskColumn_${boxId}" class="form-control" required>
+                        <option value="">${i18nTask('tab.flow.tasks.select_column', 'Selectionner une colonne')}</option>
+                        ${columns.map(col =>
+                            `<option value="${col}">${getColumnTitle(box.dataTable, col)}</option>`
+                        ).join('')}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>${i18nTask('tab.flow.tasks.label', 'Libelle :')}</label>
+                    <input type="text" id="taskLabel_${boxId}" class="form-control"
+                           placeholder="${i18nTask('tab.flow.tasks.label_placeholder', 'Ex: Fonction activee')}" required>
+                </div>
+            `;
+            break;
+        }
+    }
+
+    parametersDiv.innerHTML = html;
+}
+
+function addKeyValuePair(boxId) {
+    const container = document.getElementById(`keyValuePairs_${boxId}`);
+    const newPair = document.createElement('div');
+    newPair.className = 'key-value-pair';
+    newPair.innerHTML = `
+        <div class="row">
+            <div class="col-md-5">
+                <input type="text" class="form-control key-input" placeholder="${i18nTask('tab.flow.tasks.key', 'Cle')}">
+            </div>
+            <div class="col-md-5">
+                <input type="text" class="form-control value-input" placeholder="${i18nTask('tab.flow.tasks.value', 'Valeur')}">
+            </div>
+            <div class="col-md-2">
+                <button type="button" class="btn btn-danger btn-sm" onclick="removeKeyValuePair(this)">
+                    <i class="fa fa-minus"></i>
+                </button>
+            </div>
+        </div>
+    `;
+    container.appendChild(newPair);
+}
+
+function saveTask(boxId) {
+    const actionSelect = document.getElementById(`taskAction_${boxId}`);
+    const selectedAction = actionSelect.value;
+
+    if (!selectedAction) {
+        alert(i18nTask('tab.flow.tasks.alert.select_action', 'Veuillez selectionner une action'));
+        return;
+    }
+
+    const taskData = { action: selectedAction, parameters: {} };
+
+    switch (selectedAction) {
+        case 'play_message': {
+            const column = document.getElementById(`taskColumn_${boxId}`).value;
+            if (!column) {
+                alert(i18nTask('tab.flow.tasks.alert.select_column', 'Veuillez selectionner une colonne'));
+                return;
+            }
+            taskData.parameters.column = column;
+            break;
+        }
+        case 'identification': {
+            const text = document.getElementById(`taskText_${boxId}`).value;
+            if (!text) {
+                alert(i18nTask('tab.flow.tasks.alert.enter_text', 'Veuillez saisir un texte'));
+                return;
+            }
+            taskData.parameters.text = text;
+            break;
+        }
+        case 'client_data': {
+            const pairs = [];
+            document.querySelectorAll(`#keyValuePairs_${boxId} .key-value-pair`).forEach((pairDiv) => {
+                const key = pairDiv.querySelector('.key-input').value;
+                const value = pairDiv.querySelector('.value-input').value;
+                if (key && value) pairs.push({ key, value });
+            });
+            if (pairs.length === 0) {
+                alert(i18nTask('tab.flow.tasks.alert.add_pair', 'Veuillez ajouter au moins une paire cle/valeur'));
+                return;
+            }
+            taskData.parameters.keyValuePairs = pairs;
+            break;
+        }
+        case 'activation': {
+            const activationColumn = document.getElementById(`taskColumn_${boxId}`).value;
+            const label = document.getElementById(`taskLabel_${boxId}`).value;
+            if (!activationColumn || !label) {
+                alert(i18nTask('tab.flow.tasks.alert.fill_all_fields', 'Veuillez remplir tous les champs'));
+                return;
+            }
+            taskData.parameters.column = activationColumn;
+            taskData.parameters.label = label;
+            break;
+        }
+    }
+
+    const box = flowBoxes.get(boxId);
+    if (!box.tasks) box.tasks = [];
+    if (editingTaskIndex >= 0) box.tasks[editingTaskIndex] = taskData;
+    else box.tasks.push(taskData);
+    refreshBoxConfigPanel(boxId);
+    recreateBoxSVG(boxId);
+}
+
+function deleteTask(boxId, taskIndex) {
+    if (!confirm(i18nTask('tab.flow.tasks.confirm.delete_task', 'Etes-vous sur de vouloir supprimer cette tache ?'))) {
+        return;
+    }
+    const box = flowBoxes.get(boxId);
+    box.tasks.splice(taskIndex, 1);
+    refreshBoxConfigPanel(boxId);
+    recreateBoxSVG(boxId);
+}
+
+function formatTaskDetails(task) {
+    const labels = {
+        column: i18nTask('tab.flow.tasks.detail.column', 'Colonne'),
+        text: i18nTask('tab.flow.tasks.detail.text', 'Texte'),
+        pairs: i18nTask('tab.flow.tasks.detail.pairs', 'paire(s) cle/valeur'),
+        label: i18nTask('tab.flow.tasks.detail.label', 'Libelle')
+    };
+
+    let details = '';
+    switch (task.action) {
+        case 'play_message':
+            details = `${labels.column}: ${task.parameters.column}`;
+            break;
+        case 'identification':
+            details = `${labels.text}: ${task.parameters.text}`;
+            break;
+        case 'client_data': {
+            const pairs = task.parameters.keyValuePairs || [];
+            details = `${pairs.length} ${labels.pairs}`;
+            break;
+        }
+        case 'activation':
+            details = `${labels.column}: ${task.parameters.column}, ${labels.label}: ${task.parameters.label}`;
+            break;
+    }
+    return `<small class="text-muted">${details}</small>`;
+}
+
+function generateTasksConfigSection(box) {
+    const tasks = box.tasks || [];
+    let html = `
+        <div class="config-section">
+            <div class="row">
+                <div class="col-md-8">
+                <h5>
+                    <i class="fa fa-tasks"></i> ${i18nTask('tab.flow.tasks.management', 'Gestion des Taches')}
+                    <span class="badge badge-info">${tasks.length}</span>
+                </h5>
+                </div>
+                <div class="col-md-4 text-right">
+                    <button type="button" class="btn btn-xs btn-success" onclick="showTaskForm('${box.id}')">
+                        <i class="fa fa-plus"></i>
+                    </button>
+                </div>
+            </div>
+            <div id="tasksContainer">
+    `;
+
+    if (tasks.length > 0) {
+        html += `<div class="existing-tasks">`;
+        tasks.forEach((task, index) => {
+            const action = TASK_ACTIONS[task.action];
+            html += `
+                <div class="task-item" data-task-index="${index}">
+                    <div class="task-header">
+                        <span class="task-type">
+                            <i class="fa ${action.icon}" style="color: ${action.color}"></i>
+                            <strong>${action.name}</strong>
+                        </span>
+                        <div class="task-actions">
+                            <button type="button" class="btn btn-xs btn-primary" onclick="editTask('${box.id}', ${index})">
+                                <i class="fa fa-edit"></i>
+                            </button>
+                            <button type="button" class="btn btn-xs btn-danger" onclick="deleteTask('${box.id}', ${index})">
+                                <i class="fa fa-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="task-details">
+                        <small class="text-muted">${formatTaskDetails(task)}</small>
+                    </div>
+                </div>
+            `;
+        });
+        html += `</div>`;
+    } else {
+        html += `<p class="text-muted">${i18nTask('tab.flow.tasks.none_configured', 'Aucune tache configuree')}</p>`;
+    }
+
+    html += `
+            <div class="task-form" id="taskForm_${box.id}" style="display: none;">
+                <h6>${i18nTask('tab.flow.tasks.task_configuration', 'Configuration de la tache')}</h6>
+                <div class="form-group">
+                    <label>${i18nTask('tab.flow.tasks.action', 'Action :')}</label>
+                    <select id="taskAction_${box.id}" class="form-control" onchange="updateTaskParameters('${box.id}')">
+                        <option value="">${i18nTask('tab.flow.tasks.select_action', 'Selectionner une action')}</option>
+                        ${generateTaskActionOptions()}
+                    </select>
+                </div>
+                <div id="taskParameters_${box.id}"></div>
+                <div class="form-group">
+                    <button type="button" class="btn btn-success btn-sm" onclick="saveTask('${box.id}')">
+                        <i class="fa fa-save"></i> ${i18nTask('tab.flow.tasks.save', 'Sauvegarder')}
+                    </button>
+                    <button type="button" class="btn btn-secondary btn-sm" onclick="cancelTaskEdit('${box.id}')">
+                        <i class="fa fa-times"></i> ${i18nTask('tab.flow.tasks.cancel', 'Annuler')}
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    `;
+
+    return html;
+}
+
 
 
 /**
@@ -726,7 +1030,7 @@ function generateTaskSubSteps(box, rowData) {
     }
     
     let subStepsHtml = '';
-    console.log(`DEBUG Generate SubTask `,box.tasks);
+    //console.log(`DEBUG Generate SubTask `,box.tasks);
 
 
     box.tasks.forEach(task => {
