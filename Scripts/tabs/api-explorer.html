@@ -183,6 +183,9 @@
               </div>
             </div>
             <div id="apiExplorerRequestPanelBody" class="panel-body">
+              <div id="apiExplorerRequestTabsContainer" class="api-response-tabs-container" style="display:none; margin-bottom:10px;">
+                <ul id="apiExplorerRequestTabs" class="nav nav-tabs api-response-tabs api-request-tabs"></ul>
+              </div>
               <div class="row">
                 <div class="col-md-6">
                   <h5 data-i18n="tab.api_explorer.required_params">Parametres requis</h5>
@@ -193,24 +196,44 @@
                   <div id="apiExplorerParamsForm"></div>
                   <div id="apiExplorerBatchPanel" style="display:none;">
                     <div class="small text-muted" style="margin-bottom:6px;" data-i18n-html="tab.api_explorer.batch_expected_json">
-                      JSON attendu: tableau d'objets avec les parametres requis. Optionnel: <code>body</code> et <code>options</code>.
+                      JSON attendu: tableau d'objets avec les parametres requis. Si un seul parametre requis, une liste simple est acceptee. Optionnel: <code>body</code> et <code>options</code>.
                     </div>
                     <textarea id="apiExplorerBatchJson" class="form-control" rows="8" placeholder='[{"id":"..."}]' spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off"></textarea>
                     <div id="apiExplorerBatchJsonValidation" class="small text-muted" style="margin-top:6px;">
                       <span data-i18n="tab.api_explorer.batch_waiting">JSON lot: en attente de saisie.</span>
                     </div>
                   </div>
-                  <div id="apiExplorerBodySchemaInfo" class="small text-muted" style="margin-top:6px;"></div>
-                  <div id="apiExplorerBodySchemaFields" class="small" style="max-height:140px; overflow:auto; margin-top:4px; margin-bottom:6px;"></div>
-                  <button id="apiExplorerInsertBodyTemplateBtn" type="button" class="btn btn-default btn-xs" style="display:none; margin-bottom:8px;">
-                    <i class="fa fa-magic"></i> Inserer template Swagger
-                  </button>
+                  <div id="apiExplorerBodyBuilderSection" class="api-body-builder" style="display:none;">
+                      <div class="api-body-builder-header">
+                        <strong>Swagger body builder</strong>
+                        <button id="apiExplorerBodyBuilderResetBtn" type="button" class="btn btn-default btn-xs">
+                          <i class="fa fa-undo"></i> Reinitialiser
+                        </button>
+                      </div>
+                      <div id="apiExplorerBodyBuilderRoot" class="api-body-builder-root"></div>
+                    </div>
+                    <div id="apiExplorerBodySchemaFields" class="small api-body-builder-legend" style="margin-top:4px; margin-bottom:6px;"></div>
+                    <button id="apiExplorerInsertBodyTemplateBtn" type="button" class="btn btn-default btn-xs" style="display:none; margin-bottom:8px;">
+                      <i class="fa fa-magic"></i> Inserer full template Swagger
+                    </button>
                 </div>
                 <div class="col-md-6">
                   <div class="form-group">
                     <label for="apiExplorerBodyJson" data-i18n="tab.api_explorer.body_json">Body JSON (POST/PATCH/PUT)</label>
-                    <textarea id="apiExplorerBodyJson" class="form-control" rows="7" placeholder='{"key":"value"}'></textarea>
-                    
+                    <textarea id="apiExplorerBodyJson" class="form-control" rows="15" placeholder='{"key":"value"}'></textarea>
+                    <div id="apiExplorerBodyJsonValidation" class="small text-muted" style="margin-top:4px;">Body JSON: en attente de saisie.</div>
+                    <div class="api-post-template-toolbar">
+                      <button id="apiExplorerSavePostTemplateBtn" type="button" class="btn btn-default btn-xs" title="Enregistrer le JSON courant">
+                        <i class="fa fa-floppy-o"></i>
+                      </button>
+                      <div class="btn-group">
+                        <button id="apiExplorerPostTemplateDropdownBtn" type="button" class="btn btn-default btn-xs dropdown-toggle" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" title="Templates POST enregistres">
+                          Templates POST <span class="caret"></span>
+                        </button>
+                        <ul id="apiExplorerPostTemplateList" class="dropdown-menu dropdown-menu-right api-post-template-list"></ul>
+                      </div>
+                    </div>
+                    <div id="apiExplorerPostTemplateInfo" class="small text-muted" style="margin-top:4px;"></div>
                   </div>
                   <div class="form-group">
                     <label for="apiExplorerOptionsJson" data-i18n="tab.api_explorer.options_json">Options JSON (params optionnels / query)</label>
@@ -273,10 +296,21 @@
                   <ul class="dropdown-menu dropdown-menu-right">
                     <li><a id="apiExplorerExportCsvBtn" href="#" data-i18n="tab.api_explorer.export_csv">Exporter CSV</a></li>
                     <li><a id="apiExplorerExportJsonBtn" href="#" data-i18n="tab.api_explorer.export_json">Exporter JSON</a></li>
+                    <li><a id="apiExplorerExportFullJsonBtn" href="#" data-i18n="tab.api_explorer.export_full_json">Exporter JSON complet</a></li>
                   </ul>
                 </div>
               </div>
-              <div id="apiExplorerResponse" class="api-response" data-i18n="tab.api_explorer.no_response">Aucune reponse pour le moment.</div>
+              <div class="api-response-wrapper">
+                <div class="api-response-actions">
+                  <button id="apiExplorerCopyResponseTextBtn" type="button" class="btn btn-default btn-xs api-response-copy-btn" title="Copier la reponse en texte JSON" data-i18n-title="tab.api_explorer.copy_text_title">
+                    <i class="fa fa-copy"></i>
+                  </button>
+                  <button id="apiExplorerCopyResponseBatchBtn" type="button" class="btn btn-default btn-xs api-response-copy-btn" title="Copier en JSON batch (parametre requis)" data-i18n-title="tab.api_explorer.copy_batch_title">
+                    <i class="fa fa-list"></i>
+                  </button>
+                </div>
+                <div id="apiExplorerResponse" class="api-response" data-i18n="tab.api_explorer.no_response">Aucune reponse pour le moment.</div>
+              </div>
               <div class="api-response-meta">
                 <div id="apiExplorerResponseSize" class="small text-muted api-response-size" data-i18n="tab.api_explorer.response_size">Taille reponse: -</div>
                 <div class="api-response-view-switch">

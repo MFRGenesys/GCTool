@@ -72,7 +72,8 @@ function updateDetailedInformation() {
     const userNameElement = document.getElementById('currentUserName');
     const userIdElement = document.getElementById('currentUserIdDisplay');
     const orgNameElement = document.getElementById('orgName');
-    
+    const orgInfo = document.getElementById('orgInfo');
+
     if (appState.currentUser) {
         if (userNameElement) {
             userNameElement.textContent = appState.currentUser.name || i18nInfo('tab.information.value.name_unavailable', 'Name unavailable');
@@ -82,6 +83,12 @@ function updateDetailedInformation() {
         }
         if (orgNameElement) {
             orgNameElement.textContent = appState.currentUser.selectedOrgConfig.name || i18nInfo('tab.information.value.org_name_unavailable', 'Organization name unavailable');
+        }
+        if (orgInfo) {
+            orgInfo.textContent = i18nText('main.user.region_label', 'Region: {region} | ID: {id}', {
+            region: ORGREGION,
+            id: appState.currentUser.selectedOrgConfig.name
+        });
         }
     }
     

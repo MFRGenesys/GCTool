@@ -8,7 +8,10 @@
     'use strict';
     const ARRAY_WILDCARD_TOKEN = '__ARRAY_ALL__';
     const FAVORITES_COOKIE_NAME = 'gctool_api_explorer_favorites';
+    const POST_BODY_TEMPLATES_STORAGE_KEY = 'gctool_api_post_templates';
+    const POST_BODY_TEMPLATES_LEGACY_COOKIE_NAME = 'gctool_api_post_templates';
     const FAVORITES_COOKIE_TTL_DAYS = 365;
+    const POST_BODY_TEMPLATES_MAX_ITEMS = 200;
     const PROJECTION_AUTOCOMPLETE_DEBOUNCE_MS = 140;
     const PROJECTION_AUTOCOMPLETE_MIN_CHARS = 2;
     const PROJECTION_AUTOCOMPLETE_LIMIT = 20;
@@ -17,6 +20,7 @@
     const API_RATE_LIMIT_RETRY_FALLBACK_MS = 10 * 1000;
     const API_RATE_LIMIT_MAX_RETRIES = 2;
     const RESPONSE_TAB_LIMIT = 5;
+    const REQUEST_TAB_LIMIT = 12;
     const NODE_VIEW_AUTO_TEXT_THRESHOLD_BYTES = 1024 * 1024;
     const SWAGGER_ENDPOINT_CANDIDATES = [
         '/api/v2/docs/swagger',
@@ -46,6 +50,9 @@
         isLeftListCollapsed: false,
         isJsonPathHelpCollapsed: true,
         isRequestPanelCollapsed: false,
+        requestTabs: [],
+        activeRequestTabId: null,
+        nextRequestTabSequence: 1,
         responseTabs: [],
         activeResponseTabId: null,
         nextResponseTabSequence: 1,
@@ -55,7 +62,13 @@
         swaggerSourcePath: null,
         swaggerByOperationId: {},
         swaggerByMethodRoute: {},
-        swaggerDefinitions: {}
+        swaggerDefinitions: {},
+        bodyBuilderEndpointId: null,
+        bodyBuilderValue: null,
+        bodyBuilderExpandedPaths: new Set(),
+        bodyBuilderTopLevelInclusion: {},
+        bodyBuilderIntervalDrafts: {},
+        postBodyTemplates: []
     };
 
     const batchScaffold = {
@@ -95,11 +108,14 @@
 
         apiExplorerState.initialized = true;
         loadFavoritesFromCookie();
+        loadPostBodyTemplatesFromStorage();
         bindUiEvents();
         buildCatalog();
         pruneUnknownFavorites();
         renderCatalog();
+        renderRequestTabs();
         renderResponseTabs();
+        renderPostBodyTemplatesDropdown();
         applyPanelLayoutState();
         loadSwaggerMetadataAsync();
 
@@ -108,6 +124,7 @@
 
     function bindUiEvents() {
         ensureBatchValidationElement();
+        ensureBodyValidationElement();
         ensureProjectionSuggestionDataList();
 
         const searchInput = document.getElementById('apiExplorerSearchInput');
@@ -186,11 +203,46 @@
             batchJsonInput.addEventListener('input', () => validateBatchJsonEditorRealtime({ silentWhenEmpty: true }));
         }
 
+        const bodyJsonInput = document.getElementById('apiExplorerBodyJson');
+        if (bodyJsonInput) {
+            bodyJsonInput.setAttribute('spellcheck', 'false');
+            bodyJsonInput.setAttribute('autocomplete', 'off');
+            bodyJsonInput.addEventListener('input', () => validateBodyJsonEditorRealtime({ silentWhenEmpty: true }));
+        }
+
         const insertBodyTemplateBtn = document.getElementById('apiExplorerInsertBodyTemplateBtn');
         if (insertBodyTemplateBtn) {
             insertBodyTemplateBtn.addEventListener('click', (event) => {
                 if (event) event.preventDefault();
                 insertSwaggerBodyTemplateInEditor();
+            });
+        }
+
+        const savePostTemplateBtn = document.getElementById('apiExplorerSavePostTemplateBtn');
+        if (savePostTemplateBtn) {
+            savePostTemplateBtn.addEventListener('click', (event) => {
+                if (event) event.preventDefault();
+                saveCurrentBodyAsPostTemplate();
+            });
+        }
+
+        const postTemplateList = document.getElementById('apiExplorerPostTemplateList');
+        if (postTemplateList) {
+            postTemplateList.addEventListener('click', onPostTemplateListClicked);
+        }
+
+        const bodyBuilderRoot = document.getElementById('apiExplorerBodyBuilderRoot');
+        if (bodyBuilderRoot) {
+            bodyBuilderRoot.addEventListener('click', onBodyBuilderRootClicked);
+            bodyBuilderRoot.addEventListener('input', onBodyBuilderRootInputChanged);
+            bodyBuilderRoot.addEventListener('change', onBodyBuilderRootInputChanged);
+        }
+
+        const bodyBuilderResetBtn = document.getElementById('apiExplorerBodyBuilderResetBtn');
+        if (bodyBuilderResetBtn) {
+            bodyBuilderResetBtn.addEventListener('click', (event) => {
+                if (event) event.preventDefault();
+                resetBodyBuilderFromSwaggerTemplate();
             });
         }
 
@@ -220,6 +272,30 @@
             });
         }
 
+        const exportFullJsonBtn = document.getElementById('apiExplorerExportFullJsonBtn');
+        if (exportFullJsonBtn) {
+            exportFullJsonBtn.addEventListener('click', (event) => {
+                if (event) event.preventDefault();
+                exportFullResponseToJson();
+            });
+        }
+
+        const copyResponseTextBtn = document.getElementById('apiExplorerCopyResponseTextBtn');
+        if (copyResponseTextBtn) {
+            copyResponseTextBtn.addEventListener('click', (event) => {
+                if (event) event.preventDefault();
+                copyCurrentResponseAsText();
+            });
+        }
+
+        const copyResponseBatchBtn = document.getElementById('apiExplorerCopyResponseBatchBtn');
+        if (copyResponseBatchBtn) {
+            copyResponseBatchBtn.addEventListener('click', (event) => {
+                if (event) event.preventDefault();
+                copyCurrentResponseAsBatchJson();
+            });
+        }
+
         const responseViewer = document.getElementById('apiExplorerResponse');
         if (responseViewer) {
             responseViewer.addEventListener('click', onResponseViewerClicked);
@@ -228,6 +304,11 @@
         const responseTabs = document.getElementById('apiExplorerResponseTabs');
         if (responseTabs) {
             responseTabs.addEventListener('click', onResponseTabsClicked);
+        }
+
+        const requestTabs = document.getElementById('apiExplorerRequestTabs');
+        if (requestTabs) {
+            requestTabs.addEventListener('click', onRequestTabsClicked);
         }
 
         const projectionPathInput = document.getElementById('apiExplorerProjectionPath');
@@ -261,6 +342,25 @@
         statusEl.textContent = 'JSON lot: en attente de saisie.';
         if (batchInput.parentNode) {
             batchInput.parentNode.appendChild(statusEl);
+        }
+
+        return statusEl;
+    }
+
+    function ensureBodyValidationElement() {
+        const bodyInput = document.getElementById('apiExplorerBodyJson');
+        if (!bodyInput) return null;
+
+        let statusEl = document.getElementById('apiExplorerBodyJsonValidation');
+        if (statusEl) return statusEl;
+
+        statusEl = document.createElement('div');
+        statusEl.id = 'apiExplorerBodyJsonValidation';
+        statusEl.className = 'small text-muted';
+        statusEl.style.marginTop = '4px';
+        statusEl.textContent = 'Body JSON: en attente de saisie.';
+        if (bodyInput.parentNode) {
+            bodyInput.parentNode.appendChild(statusEl);
         }
 
         return statusEl;
@@ -443,6 +543,7 @@
 
         apiExplorerState.catalog = entries;
         enrichCatalogWithSwaggerMetadata();
+        pruneUnknownRequestTabs();
     }
 
     function getApiInstance(apiClassName) {
@@ -1097,21 +1198,23 @@
     }
 
     function selectEndpoint(endpointId) {
+        persistActiveRequestTabContext();
+
         const endpoint = apiExplorerState.catalog.find((item) => item.id === endpointId);
         if (!endpoint) return;
 
-        apiExplorerState.selectedEndpointId = endpointId;
-        apiExplorerState.lastResponse = null;
-        apiExplorerState.lastProjection = null;
-        apiExplorerState.lastExecutionMeta = null;
-        apiExplorerState.projectionAutocompletePaths = [];
-        apiExplorerState.currentProjectionSuggestions = [];
-        clearProjectionAutocompleteDebounce();
-        apiExplorerState.activeResponseTabId = null;
-
-        renderCatalog();
-        renderResponseTabs();
-        renderWorkbench(endpoint);
+        const requestTab = ensureRequestTabForEndpoint(endpoint);
+        if (requestTab) {
+            activateRequestTab(requestTab.id);
+        } else {
+            apiExplorerState.selectedEndpointId = endpointId;
+            apiExplorerState.activeResponseTabId = null;
+            renderCatalog();
+            renderRequestTabs();
+            renderResponseTabs();
+            renderWorkbench(endpoint);
+        }
+        persistActiveRequestTabContext();
     }
 
     function renderWorkbench(endpoint, options) {
@@ -1150,7 +1253,9 @@
                 bodyInput.value = '';
             }
         }
+        updatePostTemplateControlsState(endpoint);
         renderBodySchemaDocumentation(endpoint);
+        validateBodyJsonEditorRealtime({ silentWhenEmpty: true, endpoint });
 
         const optionsInput = document.getElementById('apiExplorerOptionsJson');
         if (optionsInput) {
@@ -1188,46 +1293,55 @@
     }
 
     function renderBodySchemaDocumentation(endpoint) {
-        const infoEl = document.getElementById('apiExplorerBodySchemaInfo');
         const fieldsEl = document.getElementById('apiExplorerBodySchemaFields');
         const insertBtn = document.getElementById('apiExplorerInsertBodyTemplateBtn');
+        const builderSectionEl = document.getElementById('apiExplorerBodyBuilderSection');
+        const builderRootEl = document.getElementById('apiExplorerBodyBuilderRoot');
+        const templateInfoEl = document.getElementById('apiExplorerPostTemplateInfo');
 
-        if (!infoEl || !fieldsEl || !insertBtn) {
+        if (!fieldsEl || !insertBtn || !builderSectionEl || !builderRootEl) {
             return;
         }
 
-        infoEl.textContent = '';
         fieldsEl.innerHTML = '';
         insertBtn.style.display = 'none';
+        builderSectionEl.style.display = 'none';
+        builderRootEl.innerHTML = '';
+        if (templateInfoEl && !endpoint) {
+            templateInfoEl.textContent = '';
+        }
 
         if (!endpoint || !endpoint.hasBodyParameter) {
+            resetBodyBuilderState();
+            if (templateInfoEl) {
+                templateInfoEl.textContent = 'Templates POST disponibles: ' + apiExplorerState.postBodyTemplates.length + '.';
+            }
             return;
         }
 
         const preview = getEndpointBodySchemaPreview(endpoint);
         if (!preview) {
-            infoEl.textContent = 'Swagger: schema du body non disponible pour cette API.';
+            if (templateInfoEl) {
+                templateInfoEl.textContent = 'Swagger indisponible pour cette API. Templates POST disponibles: ' + apiExplorerState.postBodyTemplates.length + '.';
+            }
+            resetBodyBuilderState();
             return;
         }
 
         const modelLabel = preview.modelName ? ('modele ' + preview.modelName) : 'modele inline';
-        infoEl.textContent = 'Swagger: ' + modelLabel + ' | champs detectes: ' + preview.fields.length + '.';
-        fieldsEl.innerHTML = preview.fields.slice(0, 80).map((field) => {
-            const requiredLabel = field.required ? ' requis' : '';
-            return '<div><code>' + escapeHtml(field.path) + '</code> <span class="text-muted">('
-                + escapeHtml(field.type + requiredLabel) + ')</span></div>';
-        }).join('');
-
-        if (preview.fields.length > 80) {
-            const remaining = preview.fields.length - 80;
-            fieldsEl.innerHTML += '<div class="text-muted">... +' + remaining + ' champ(s)</div>';
+        if (templateInfoEl) {
+            templateInfoEl.textContent = 'Swagger ' + modelLabel + ' | champs: ' + preview.fields.length
+                + ' | templates POST: ' + apiExplorerState.postBodyTemplates.length + '.';
         }
+        builderSectionEl.style.display = 'block';
+        initializeBodyBuilderForEndpoint(endpoint, preview);
+        renderBodyBuilderUi(endpoint);
 
         insertBtn.style.display = 'inline-block';
 
         const bodyInput = document.getElementById('apiExplorerBodyJson');
-        if (bodyInput && !bodyInput.value.trim()) {
-            bodyInput.value = preview.templateText;
+        if (bodyInput && !bodyInput.value.trim() && isPlainObject(apiExplorerState.bodyBuilderValue)) {
+            bodyInput.value = JSON.stringify(apiExplorerState.bodyBuilderValue, null, 2);
         }
     }
 
@@ -1248,7 +1362,239 @@
         if (!bodyInput) return;
 
         bodyInput.value = preview.templateText;
+        resetBodyBuilderState();
+        initializeBodyBuilderForEndpoint(endpoint, preview);
+        renderBodyBuilderUi(endpoint);
+        validateBodyJsonEditorRealtime({ silentWhenEmpty: true, endpoint });
         setExecutionStatus('Template Swagger insere dans le body JSON.', 'success');
+    }
+
+    function updatePostTemplateControlsState(endpoint) {
+        const saveBtn = document.getElementById('apiExplorerSavePostTemplateBtn');
+        if (saveBtn) {
+            const canSave = Boolean(endpoint && endpoint.hasBodyParameter);
+            saveBtn.disabled = !canSave;
+            saveBtn.title = canSave
+                ? 'Enregistrer le JSON courant'
+                : 'Selectionnez une API qui utilise un body JSON';
+        }
+
+        renderPostBodyTemplatesDropdown();
+    }
+
+    function renderPostBodyTemplatesDropdown() {
+        const listEl = document.getElementById('apiExplorerPostTemplateList');
+        const dropdownBtn = document.getElementById('apiExplorerPostTemplateDropdownBtn');
+        if (!listEl) return;
+
+        const templates = Array.isArray(apiExplorerState.postBodyTemplates)
+            ? apiExplorerState.postBodyTemplates
+            : [];
+
+        if (dropdownBtn) {
+            dropdownBtn.innerHTML = 'Templates POST (' + templates.length + ') <span class="caret"></span>';
+        }
+
+        if (!templates.length) {
+            listEl.innerHTML = '<li class="api-post-template-empty">Aucun template POST enregistre.</li>';
+            return;
+        }
+
+        listEl.innerHTML = templates.map((entry) => {
+            const tooltipText = truncateText(entry.bodyJson || '', 1400);
+            return '<li class="api-post-template-item">'
+                + '<div class="api-post-template-row">'
+                + '<button type="button" class="api-post-template-load" data-post-template-load-id="' + escapeAttribute(entry.id)
+                + '" title="' + escapeAttribute(tooltipText) + '">'
+                + '<span class="api-post-template-name">' + escapeHtml(entry.name || 'Template') + '</span>'
+                + '<span class="api-post-template-origin">' + escapeHtml(entry.originLabel || 'API inconnue') + '</span>'
+                + '</button>'
+                + '<button type="button" class="api-post-template-delete" data-post-template-delete-id="' + escapeAttribute(entry.id)
+                + '" title="Supprimer">'
+                + '<i class="fa fa-trash"></i>'
+                + '</button>'
+                + '</div>'
+                + '</li>';
+        }).join('');
+    }
+
+    function onPostTemplateListClicked(event) {
+        const deleteBtn = event.target.closest('[data-post-template-delete-id]');
+        if (deleteBtn) {
+            event.preventDefault();
+            event.stopPropagation();
+            const templateId = deleteBtn.getAttribute('data-post-template-delete-id');
+            if (templateId) {
+                removePostTemplateById(templateId);
+            }
+            return;
+        }
+
+        const loadBtn = event.target.closest('[data-post-template-load-id]');
+        if (!loadBtn) return;
+
+        event.preventDefault();
+        const templateId = loadBtn.getAttribute('data-post-template-load-id');
+        if (!templateId) return;
+
+        applyPostTemplateById(templateId);
+        closePostTemplateDropdown();
+    }
+
+    function saveCurrentBodyAsPostTemplate() {
+        const bodyInput = document.getElementById('apiExplorerBodyJson');
+        if (!bodyInput) return;
+
+        const raw = String(bodyInput.value || '').trim();
+        if (!raw) {
+            setExecutionStatus('Body JSON vide: rien a enregistrer.', 'warning');
+            return;
+        }
+
+        let parsed;
+        try {
+            parsed = JSON.parse(raw);
+        } catch (_error) {
+            setExecutionStatus('Body JSON invalide: impossible d enregistrer le template.', 'danger');
+            return;
+        }
+
+        const canonicalJson = JSON.stringify(parsed, null, 2);
+        const endpoint = getSelectedEndpoint();
+        const originLabel = endpoint
+            ? (endpoint.httpMethod + ' ' + endpoint.methodName + ' (' + (endpoint.routePath || '-') + ')')
+            : 'API inconnue';
+        const suggestedTemplateName = generatePostTemplateName(parsed);
+        const templateName = askPostTemplateName(suggestedTemplateName);
+        if (templateName === null) {
+            setExecutionStatus('Enregistrement annule.', 'info');
+            return;
+        }
+
+        const endpointId = endpoint ? endpoint.id : '';
+        let newTemplates = apiExplorerState.postBodyTemplates.slice();
+        newTemplates.unshift({
+            id: buildPostTemplateId(),
+            name: templateName,
+            originApiId: endpointId,
+            originLabel,
+            bodyJson: canonicalJson,
+            createdAt: new Date().toISOString()
+        });
+
+        if (newTemplates.length > POST_BODY_TEMPLATES_MAX_ITEMS) {
+            newTemplates = newTemplates.slice(0, POST_BODY_TEMPLATES_MAX_ITEMS);
+        }
+
+        const previousTemplates = apiExplorerState.postBodyTemplates.slice();
+        apiExplorerState.postBodyTemplates = newTemplates;
+        const saved = savePostBodyTemplatesToStorage();
+        if (!saved) {
+            apiExplorerState.postBodyTemplates = previousTemplates;
+            setExecutionStatus('Impossible d enregistrer le template dans le stockage local.', 'warning');
+            return;
+        }
+
+        renderPostBodyTemplatesDropdown();
+        const endpointForUi = getSelectedEndpoint();
+        updatePostTemplateControlsState(endpointForUi);
+        renderBodySchemaDocumentation(endpointForUi);
+        setExecutionStatus('Template POST enregistre.', 'success');
+    }
+
+    function applyPostTemplateById(templateId) {
+        const template = apiExplorerState.postBodyTemplates.find((item) => item.id === templateId);
+        if (!template) return;
+
+        const bodyInput = document.getElementById('apiExplorerBodyJson');
+        if (!bodyInput) return;
+
+        bodyInput.value = template.bodyJson || '';
+        validateBodyJsonEditorRealtime({ silentWhenEmpty: true, endpoint: getSelectedEndpoint() });
+
+        const endpoint = getSelectedEndpoint();
+        if (endpoint && endpoint.hasBodyParameter) {
+            const preview = getEndpointBodySchemaPreview(endpoint);
+            if (preview) {
+                resetBodyBuilderState();
+                initializeBodyBuilderForEndpoint(endpoint, preview);
+                renderBodyBuilderUi(endpoint);
+            }
+        }
+
+        setExecutionStatus('Template charge: ' + (template.name || 'template'), 'success');
+    }
+
+    function removePostTemplateById(templateId) {
+        const previousLength = apiExplorerState.postBodyTemplates.length;
+        apiExplorerState.postBodyTemplates = apiExplorerState.postBodyTemplates.filter((item) => item.id !== templateId);
+
+        if (apiExplorerState.postBodyTemplates.length === previousLength) {
+            return;
+        }
+
+        savePostBodyTemplatesToStorage();
+        const endpoint = getSelectedEndpoint();
+        updatePostTemplateControlsState(endpoint);
+        renderBodySchemaDocumentation(endpoint);
+        setExecutionStatus('Template supprime.', 'info');
+    }
+
+    function closePostTemplateDropdown() {
+        const listEl = document.getElementById('apiExplorerPostTemplateList');
+        if (!listEl) return;
+
+        const btnGroup = listEl.closest('.btn-group');
+        if (btnGroup) {
+            btnGroup.classList.remove('open');
+        }
+    }
+
+    function generatePostTemplateName(payload) {
+        if (isPlainObject(payload)) {
+            const preferredKeys = ['name', 'type', 'queryType', 'query', 'interval'];
+            for (let i = 0; i < preferredKeys.length; i += 1) {
+                const key = preferredKeys[i];
+                if (!Object.prototype.hasOwnProperty.call(payload, key)) continue;
+                const value = payload[key];
+                if (typeof value === 'string' && value.trim()) {
+                    return truncateText(key + ': ' + value.trim(), 40);
+                }
+            }
+
+            const keys = Object.keys(payload);
+            if (keys.length) {
+                return truncateText(keys.slice(0, 3).join(', '), 40);
+            }
+        }
+
+        if (Array.isArray(payload)) {
+            return 'array[' + payload.length + ']';
+        }
+
+        return 'template-post';
+    }
+
+    function askPostTemplateName(suggestedName) {
+        const fallbackName = String(suggestedName || 'template-post').trim() || 'template-post';
+        const userValue = window.prompt('Nom du template POST', fallbackName);
+        if (userValue === null) {
+            return null;
+        }
+
+        const sanitized = String(userValue || '').trim();
+        return sanitized || fallbackName;
+    }
+
+    function buildPostTemplateId() {
+        return 'posttpl_' + Date.now().toString(36) + '_' + Math.floor(Math.random() * 100000).toString(36);
+    }
+
+    function truncateText(text, maxLength) {
+        const source = String(text || '');
+        const limit = Math.max(8, Number(maxLength) || 80);
+        if (source.length <= limit) return source;
+        return source.slice(0, limit - 3) + '...';
     }
 
     function getEndpointBodySchemaPreview(endpoint) {
@@ -1267,6 +1613,668 @@
         };
 
         return endpoint.swaggerBodyPreviewCache;
+    }
+
+    function resetBodyBuilderState() {
+        apiExplorerState.bodyBuilderEndpointId = null;
+        apiExplorerState.bodyBuilderValue = null;
+        apiExplorerState.bodyBuilderExpandedPaths = new Set();
+        apiExplorerState.bodyBuilderTopLevelInclusion = {};
+        apiExplorerState.bodyBuilderIntervalDrafts = {};
+    }
+
+    function initializeBodyBuilderForEndpoint(endpoint, preview) {
+        if (!endpoint || !preview || !isPlainObject(endpoint.swaggerBodySchema)) {
+            resetBodyBuilderState();
+            return;
+        }
+
+        const sameEndpoint = apiExplorerState.bodyBuilderEndpointId === endpoint.id;
+        if (sameEndpoint && isPlainObject(apiExplorerState.bodyBuilderValue)) {
+            return;
+        }
+
+        const topSchema = resolveSwaggerSchemaNode(endpoint.swaggerBodySchema, new Set()) || endpoint.swaggerBodySchema;
+        let initialBody = tryParseBodyEditorAsJson();
+        const hasExistingEditorJson = isPlainObject(initialBody);
+
+        if (!hasExistingEditorJson) {
+            initialBody = cloneJsonValue(preview.template);
+        }
+        if (!isPlainObject(initialBody)) {
+            initialBody = {};
+        }
+
+        const inclusion = {};
+        if (detectSwaggerSchemaType(topSchema) === 'object') {
+            const properties = isPlainObject(topSchema.properties) ? topSchema.properties : {};
+            const requiredSet = new Set(Array.isArray(topSchema.required) ? topSchema.required : []);
+            const topKeys = Object.keys(properties);
+
+            topKeys.forEach((key) => {
+                const required = requiredSet.has(key);
+                const existsInJson = Object.prototype.hasOwnProperty.call(initialBody, key);
+                const include = required || (hasExistingEditorJson && existsInJson);
+                inclusion[key] = include;
+
+                if (include && !existsInJson) {
+                    initialBody[key] = buildSwaggerTemplateFromSchema(properties[key]);
+                }
+
+                if (!include && existsInJson) {
+                    delete initialBody[key];
+                }
+            });
+        }
+
+        apiExplorerState.bodyBuilderEndpointId = endpoint.id;
+        apiExplorerState.bodyBuilderValue = initialBody;
+        apiExplorerState.bodyBuilderExpandedPaths = new Set();
+        apiExplorerState.bodyBuilderTopLevelInclusion = inclusion;
+        apiExplorerState.bodyBuilderIntervalDrafts = {};
+        syncBodyEditorFromBuilderState();
+    }
+
+    function renderBodyBuilderUi(endpoint) {
+        const rootEl = document.getElementById('apiExplorerBodyBuilderRoot');
+        if (!rootEl) return;
+
+        if (!endpoint || endpoint.id !== apiExplorerState.bodyBuilderEndpointId || !isPlainObject(apiExplorerState.bodyBuilderValue)) {
+            rootEl.innerHTML = '<div class="text-muted">Builder indisponible pour ce body.</div>';
+            return;
+        }
+
+        const topSchema = resolveSwaggerSchemaNode(endpoint.swaggerBodySchema, new Set()) || endpoint.swaggerBodySchema;
+        const topType = detectSwaggerSchemaType(topSchema);
+        if (topType !== 'object') {
+            rootEl.innerHTML = '<div class="text-muted">Schema body non objet: edition via JSON direct recommandee.</div>';
+            return;
+        }
+
+        const properties = isPlainObject(topSchema.properties) ? topSchema.properties : {};
+        const requiredSet = new Set(Array.isArray(topSchema.required) ? topSchema.required : []);
+        const keys = Object.keys(properties).sort((left, right) => {
+            const leftRequired = requiredSet.has(left);
+            const rightRequired = requiredSet.has(right);
+            if (leftRequired !== rightRequired) return leftRequired ? -1 : 1;
+            return left.localeCompare(right);
+        });
+
+        if (!keys.length) {
+            rootEl.innerHTML = '<div class="text-muted">Aucun champ detecte au premier niveau.</div>';
+            return;
+        }
+
+        rootEl.innerHTML = keys.map((key) => {
+            const fieldSchema = properties[key];
+            const required = requiredSet.has(key);
+            return buildTopLevelBodyBuilderRowHtml(endpoint, key, fieldSchema, required);
+        }).join('');
+    }
+
+    function buildTopLevelBodyBuilderRowHtml(endpoint, key, fieldSchema, required) {
+        const path = key;
+        const schema = resolveSwaggerSchemaNode(fieldSchema, new Set()) || fieldSchema;
+        const fieldType = detectSwaggerSchemaType(schema);
+        const included = required || Boolean(apiExplorerState.bodyBuilderTopLevelInclusion[key]);
+        const isComposite = fieldType === 'object' || fieldType === 'array';
+        const expanded = included && isComposite && isBodyBuilderPathExpanded(path);
+        const value = getBodyBuilderValueAtPath(path);
+
+        const includeControl = required
+            ? '<span class="label label-primary">requis</span>'
+            : '<button type="button" class="btn btn-default btn-xs" data-builder-top-toggle-key="' + escapeAttribute(key)
+                + '" data-builder-top-toggle-include="' + (included ? '0' : '1') + '">'
+                + (included ? '<i class="fa fa-minus"></i> retirer' : '<i class="fa fa-plus"></i> ajouter')
+                + '</button>';
+
+        const toggleControl = isComposite && included
+            ? '<button type="button" class="btn btn-default btn-xs" data-builder-toggle-path="' + escapeAttribute(path) + '">'
+                + '<i class="fa ' + (expanded ? 'fa-chevron-down' : 'fa-chevron-right') + '"></i></button>'
+            : '<span style="width:24px; display:inline-block;"></span>';
+
+        let html = '<div class="api-body-builder-row">'
+            + '<div class="api-body-builder-line">'
+            + toggleControl
+            + '<code>' + escapeHtml(key) + '</code>'
+            + '<span class="api-body-builder-type">(' + escapeHtml(fieldType) + ')</span>'
+            + includeControl;
+
+        if (included && !isComposite) {
+            html += renderBodyBuilderPrimitiveInput(path, schema, value);
+        }
+
+        html += '</div>';
+
+        if (included && isComposite && expanded) {
+            html += buildBodyBuilderCompositeChildrenHtml(endpoint, path, schema, 1);
+        }
+
+        if (!included) {
+            html += '<div class="small text-muted api-body-builder-indent-1">champ optionnel non inclus</div>';
+        }
+
+        html += '</div>';
+        return html;
+    }
+
+    function buildBodyBuilderCompositeChildrenHtml(endpoint, path, schema, depth) {
+        const schemaType = detectSwaggerSchemaType(schema);
+        if (schemaType === 'object') {
+            const properties = isPlainObject(schema.properties) ? schema.properties : {};
+            const requiredSet = new Set(Array.isArray(schema.required) ? schema.required : []);
+            const keys = Object.keys(properties).sort((left, right) => {
+                const leftRequired = requiredSet.has(left);
+                const rightRequired = requiredSet.has(right);
+                if (leftRequired !== rightRequired) return leftRequired ? -1 : 1;
+                return left.localeCompare(right);
+            });
+
+            if (!keys.length) {
+                return '<div class="small text-muted ' + buildBodyBuilderIndentClass(depth) + '">objet sans propriete explicite</div>';
+            }
+
+            return keys.map((key) => {
+                const childPath = path + '.' + key;
+                const childSchema = resolveSwaggerSchemaNode(properties[key], new Set()) || properties[key];
+                const childType = detectSwaggerSchemaType(childSchema);
+                const childComposite = childType === 'object' || childType === 'array';
+                const childExpanded = childComposite && isBodyBuilderPathExpanded(childPath);
+                const childValue = getBodyBuilderValueAtPath(childPath);
+
+                let rowHtml = '<div class="api-body-builder-row ' + buildBodyBuilderIndentClass(depth) + '">'
+                    + '<div class="api-body-builder-line">';
+
+                if (childComposite) {
+                    rowHtml += '<button type="button" class="btn btn-default btn-xs" data-builder-toggle-path="' + escapeAttribute(childPath) + '">'
+                        + '<i class="fa ' + (childExpanded ? 'fa-chevron-down' : 'fa-chevron-right') + '"></i></button>';
+                } else {
+                    rowHtml += '<span style="width:24px; display:inline-block;"></span>';
+                }
+
+                rowHtml += '<code>' + escapeHtml(key) + '</code>'
+                    + '<span class="api-body-builder-type">(' + escapeHtml(childType) + (requiredSet.has(key) ? ', requis' : '') + ')</span>';
+
+                if (!childComposite) {
+                    rowHtml += renderBodyBuilderPrimitiveInput(childPath, childSchema, childValue);
+                }
+
+                rowHtml += '</div>';
+
+                if (childComposite && childExpanded) {
+                    rowHtml += buildBodyBuilderCompositeChildrenHtml(endpoint, childPath, childSchema, depth + 1);
+                }
+
+                rowHtml += '</div>';
+                return rowHtml;
+            }).join('');
+        }
+
+        if (schemaType === 'array') {
+            const arrayValue = getBodyBuilderValueAtPath(path);
+            const items = Array.isArray(arrayValue) ? arrayValue : [];
+            const itemSchema = isPlainObject(schema.items) ? (resolveSwaggerSchemaNode(schema.items, new Set()) || schema.items) : null;
+
+            let html = '<div class="api-body-builder-row ' + buildBodyBuilderIndentClass(depth) + '">'
+                + '<div class="api-body-builder-line">'
+                + '<button type="button" class="btn btn-default btn-xs" data-builder-array-add-path="' + escapeAttribute(path) + '">'
+                + '<i class="fa fa-plus"></i> ajouter item</button>'
+                + '<span class="api-body-builder-type">items: ' + items.length + '</span>'
+                + '</div></div>';
+
+            if (!itemSchema) {
+                html += '<div class="small text-muted ' + buildBodyBuilderIndentClass(depth + 1) + '">schema item indisponible</div>';
+                return html;
+            }
+
+            if (!items.length) {
+                html += '<div class="small text-muted ' + buildBodyBuilderIndentClass(depth + 1) + '">tableau vide</div>';
+                return html;
+            }
+
+            html += items.map((itemValue, index) => buildBodyBuilderArrayItemHtml(endpoint, path, index, itemSchema, itemValue, depth + 1)).join('');
+            return html;
+        }
+
+        return '<div class="small text-muted ' + buildBodyBuilderIndentClass(depth) + '">type non supporte: '
+            + escapeHtml(schemaType) + '</div>';
+    }
+
+    function buildBodyBuilderArrayItemHtml(endpoint, arrayPath, index, itemSchema, itemValue, depth) {
+        const itemPath = arrayPath + '[' + index + ']';
+        const itemType = detectSwaggerSchemaType(itemSchema);
+        const itemComposite = itemType === 'object' || itemType === 'array';
+        const expanded = itemComposite && isBodyBuilderPathExpanded(itemPath);
+
+        let html = '<div class="api-body-builder-array-item ' + buildBodyBuilderIndentClass(depth) + '">'
+            + '<div class="api-body-builder-line">'
+            + '<button type="button" class="btn btn-danger btn-xs" data-builder-array-remove-path="' + escapeAttribute(arrayPath)
+            + '" data-builder-array-remove-index="' + index + '"><i class="fa fa-minus"></i></button>';
+
+        if (itemComposite) {
+            html += '<button type="button" class="btn btn-default btn-xs" data-builder-toggle-path="' + escapeAttribute(itemPath) + '">'
+                + '<i class="fa ' + (expanded ? 'fa-chevron-down' : 'fa-chevron-right') + '"></i></button>';
+        } else {
+            html += '<span style="width:24px; display:inline-block;"></span>';
+        }
+
+        html += '<code>[' + index + ']</code>'
+            + '<span class="api-body-builder-type">(' + escapeHtml(itemType) + ')</span>';
+
+        if (!itemComposite) {
+            html += renderBodyBuilderPrimitiveInput(itemPath, itemSchema, itemValue);
+        }
+
+        html += '</div>';
+
+        if (itemComposite && expanded) {
+            html += buildBodyBuilderCompositeChildrenHtml(endpoint, itemPath, itemSchema, depth + 1);
+        }
+
+        html += '</div>';
+        return html;
+    }
+
+    function renderBodyBuilderPrimitiveInput(path, schema, value) {
+        const schemaType = detectSwaggerSchemaType(schema);
+        const enumValues = Array.isArray(schema.enum) ? schema.enum : null;
+
+        if (enumValues && enumValues.length) {
+            const currentValue = typeof value === 'undefined' || value === null ? '' : String(value);
+            const options = enumValues.map((item) => {
+                const itemText = String(item);
+                const selected = itemText === currentValue ? ' selected' : '';
+                return '<option value="' + escapeAttribute(itemText) + '"' + selected + '>' + escapeHtml(itemText) + '</option>';
+            }).join('');
+            return '<select class="form-control input-sm api-body-builder-inline-select" data-builder-input-path="' + escapeAttribute(path)
+                + '" data-builder-input-kind="enum">' + options + '</select>';
+        }
+
+        if (schemaType === 'boolean') {
+            return '<label class="checkbox-inline" style="margin-left:4px;">'
+                + '<input type="checkbox" data-builder-input-path="' + escapeAttribute(path) + '" data-builder-input-kind="boolean"'
+                + (value ? ' checked' : '') + '> true</label>';
+        }
+
+        if (schemaType === 'integer' || schemaType === 'number') {
+            const numericValue = typeof value === 'number' && Number.isFinite(value) ? String(value) : '';
+            const step = schemaType === 'integer' ? '1' : 'any';
+            return '<input type="number" class="form-control input-sm api-body-builder-inline-input" '
+                + 'data-builder-input-path="' + escapeAttribute(path) + '" data-builder-input-kind="' + escapeAttribute(schemaType) + '" '
+                + 'step="' + step + '" value="' + escapeAttribute(numericValue) + '">';
+        }
+
+        if (isSwaggerIntervalSchema(schema, path)) {
+            const intervalDraft = getIntervalDraftForPath(path, value);
+            return '<span class="api-body-builder-interval">'
+                + '<input type="datetime-local" class="form-control input-sm" data-builder-input-path="' + escapeAttribute(path)
+                + '" data-builder-input-kind="interval-start" value="' + escapeAttribute(intervalDraft.start) + '">'
+                + '<span>/</span>'
+                + '<input type="datetime-local" class="form-control input-sm" data-builder-input-path="' + escapeAttribute(path)
+                + '" data-builder-input-kind="interval-end" value="' + escapeAttribute(intervalDraft.end) + '">'
+                + '</span>';
+        }
+
+        const stringValue = typeof value === 'undefined' || value === null ? '' : String(value);
+        return '<input type="text" class="form-control input-sm api-body-builder-inline-input" '
+            + 'data-builder-input-path="' + escapeAttribute(path) + '" data-builder-input-kind="string" '
+            + 'value="' + escapeAttribute(stringValue) + '">';
+    }
+
+    function buildBodyBuilderIndentClass(depth) {
+        const safeDepth = Math.max(0, Math.min(5, Number(depth) || 0));
+        return 'api-body-builder-indent-' + safeDepth;
+    }
+
+    function isBodyBuilderPathExpanded(path) {
+        return apiExplorerState.bodyBuilderExpandedPaths.has(String(path || ''));
+    }
+
+    function onBodyBuilderRootClicked(event) {
+        const toggleBtn = event.target.closest('[data-builder-toggle-path]');
+        if (toggleBtn) {
+            const path = toggleBtn.getAttribute('data-builder-toggle-path');
+            if (path) {
+                if (apiExplorerState.bodyBuilderExpandedPaths.has(path)) {
+                    apiExplorerState.bodyBuilderExpandedPaths.delete(path);
+                } else {
+                    apiExplorerState.bodyBuilderExpandedPaths.add(path);
+                }
+                const endpoint = getSelectedEndpoint();
+                renderBodyBuilderUi(endpoint);
+            }
+            return;
+        }
+
+        const topToggleBtn = event.target.closest('[data-builder-top-toggle-key]');
+        if (topToggleBtn) {
+            const key = topToggleBtn.getAttribute('data-builder-top-toggle-key');
+            const includeValue = topToggleBtn.getAttribute('data-builder-top-toggle-include') === '1';
+            if (key) {
+                handleBodyBuilderTopLevelToggle(key, includeValue);
+                const endpoint = getSelectedEndpoint();
+                renderBodyBuilderUi(endpoint);
+                syncBodyEditorFromBuilderState();
+            }
+            return;
+        }
+
+        const addArrayBtn = event.target.closest('[data-builder-array-add-path]');
+        if (addArrayBtn) {
+            const arrayPath = addArrayBtn.getAttribute('data-builder-array-add-path');
+            if (arrayPath) {
+                handleBodyBuilderArrayAdd(arrayPath);
+                const endpoint = getSelectedEndpoint();
+                renderBodyBuilderUi(endpoint);
+                syncBodyEditorFromBuilderState();
+            }
+            return;
+        }
+
+        const removeArrayBtn = event.target.closest('[data-builder-array-remove-path]');
+        if (removeArrayBtn) {
+            const arrayPath = removeArrayBtn.getAttribute('data-builder-array-remove-path');
+            const indexRaw = removeArrayBtn.getAttribute('data-builder-array-remove-index');
+            const index = Number(indexRaw);
+            if (arrayPath && Number.isInteger(index) && index >= 0) {
+                handleBodyBuilderArrayRemove(arrayPath, index);
+                const endpoint = getSelectedEndpoint();
+                renderBodyBuilderUi(endpoint);
+                syncBodyEditorFromBuilderState();
+            }
+        }
+    }
+
+    function onBodyBuilderRootInputChanged(event) {
+        const target = event.target;
+        if (!target) return;
+
+        const path = target.getAttribute('data-builder-input-path');
+        const kind = target.getAttribute('data-builder-input-kind');
+        if (!path || !kind) return;
+
+        if (!isPlainObject(apiExplorerState.bodyBuilderValue)) {
+            apiExplorerState.bodyBuilderValue = {};
+        }
+
+        if (kind === 'interval-start' || kind === 'interval-end') {
+            const draft = getIntervalDraftForPath(path, getBodyBuilderValueAtPath(path));
+            if (kind === 'interval-start') {
+                draft.start = target.value || '';
+            } else {
+                draft.end = target.value || '';
+            }
+            apiExplorerState.bodyBuilderIntervalDrafts[path] = draft;
+            setBodyBuilderValueAtPath(path, buildIntervalValueFromDraft(draft));
+            syncBodyEditorFromBuilderState();
+            return;
+        }
+
+        let nextValue;
+        if (kind === 'boolean') {
+            nextValue = Boolean(target.checked);
+        } else if (kind === 'integer') {
+            nextValue = target.value === '' ? 0 : parseInt(target.value, 10);
+            if (!Number.isFinite(nextValue)) nextValue = 0;
+        } else if (kind === 'number') {
+            nextValue = target.value === '' ? 0 : Number(target.value);
+            if (!Number.isFinite(nextValue)) nextValue = 0;
+        } else {
+            nextValue = target.value;
+        }
+
+        setBodyBuilderValueAtPath(path, nextValue);
+        syncBodyEditorFromBuilderState();
+    }
+
+    function resetBodyBuilderFromSwaggerTemplate() {
+        const endpoint = getSelectedEndpoint();
+        if (!endpoint || !endpoint.hasBodyParameter) return;
+
+        const preview = getEndpointBodySchemaPreview(endpoint);
+        if (!preview) return;
+
+        resetBodyBuilderState();
+        initializeBodyBuilderForEndpoint(endpoint, preview);
+        renderBodyBuilderUi(endpoint);
+        syncBodyEditorFromBuilderState();
+        setExecutionStatus('Body builder reinitialise depuis le schema Swagger.', 'info');
+    }
+
+    function handleBodyBuilderTopLevelToggle(key, include) {
+        const endpoint = getSelectedEndpoint();
+        if (!endpoint) return;
+
+        const topSchema = resolveSwaggerSchemaNode(endpoint.swaggerBodySchema, new Set()) || endpoint.swaggerBodySchema;
+        if (detectSwaggerSchemaType(topSchema) !== 'object') return;
+
+        const properties = isPlainObject(topSchema.properties) ? topSchema.properties : {};
+        const fieldSchema = properties[key];
+        if (!fieldSchema) return;
+
+        apiExplorerState.bodyBuilderTopLevelInclusion[key] = Boolean(include);
+        if (!isPlainObject(apiExplorerState.bodyBuilderValue)) {
+            apiExplorerState.bodyBuilderValue = {};
+        }
+
+        if (include) {
+            const currentValue = apiExplorerState.bodyBuilderValue[key];
+            if (typeof currentValue === 'undefined') {
+                apiExplorerState.bodyBuilderValue[key] = buildSwaggerTemplateFromSchema(fieldSchema);
+            }
+        } else {
+            delete apiExplorerState.bodyBuilderValue[key];
+            removeBodyBuilderExpandedPathsByPrefix(key);
+        }
+    }
+
+    function handleBodyBuilderArrayAdd(arrayPath) {
+        const endpoint = getSelectedEndpoint();
+        if (!endpoint) return;
+
+        const arraySchema = resolveSwaggerSchemaAtPath(endpoint, arrayPath);
+        if (!isPlainObject(arraySchema) || detectSwaggerSchemaType(arraySchema) !== 'array' || !isPlainObject(arraySchema.items)) {
+            return;
+        }
+
+        let arrayValue = getBodyBuilderValueAtPath(arrayPath);
+        if (!Array.isArray(arrayValue)) {
+            arrayValue = [];
+            setBodyBuilderValueAtPath(arrayPath, arrayValue);
+        }
+
+        arrayValue.push(buildSwaggerTemplateFromSchema(arraySchema.items));
+        apiExplorerState.bodyBuilderExpandedPaths.add(arrayPath);
+        apiExplorerState.bodyBuilderExpandedPaths.add(arrayPath + '[' + (arrayValue.length - 1) + ']');
+    }
+
+    function handleBodyBuilderArrayRemove(arrayPath, index) {
+        const arrayValue = getBodyBuilderValueAtPath(arrayPath);
+        if (!Array.isArray(arrayValue)) return;
+        if (index < 0 || index >= arrayValue.length) return;
+
+        arrayValue.splice(index, 1);
+        removeBodyBuilderExpandedPathsByPrefix(arrayPath + '[' + index + ']');
+    }
+
+    function removeBodyBuilderExpandedPathsByPrefix(prefix) {
+        const targetPrefix = String(prefix || '');
+        const nextSet = new Set();
+        apiExplorerState.bodyBuilderExpandedPaths.forEach((path) => {
+            if (path === targetPrefix) return;
+            if (path.startsWith(targetPrefix + '.')) return;
+            if (path.startsWith(targetPrefix + '[')) return;
+            nextSet.add(path);
+        });
+        apiExplorerState.bodyBuilderExpandedPaths = nextSet;
+    }
+
+    function resolveSwaggerSchemaAtPath(endpoint, path) {
+        if (!endpoint || !isPlainObject(endpoint.swaggerBodySchema)) return null;
+        const tokens = parseBodyBuilderPathTokens(path);
+        let current = resolveSwaggerSchemaNode(endpoint.swaggerBodySchema, new Set()) || endpoint.swaggerBodySchema;
+
+        for (let i = 0; i < tokens.length; i += 1) {
+            const token = tokens[i];
+            const currentType = detectSwaggerSchemaType(current);
+
+            if (typeof token === 'number') {
+                if (currentType !== 'array' || !isPlainObject(current.items)) return null;
+                current = resolveSwaggerSchemaNode(current.items, new Set()) || current.items;
+                continue;
+            }
+
+            if (currentType !== 'object' || !isPlainObject(current.properties) || !Object.prototype.hasOwnProperty.call(current.properties, token)) {
+                return null;
+            }
+            current = resolveSwaggerSchemaNode(current.properties[token], new Set()) || current.properties[token];
+        }
+
+        return current;
+    }
+
+    function tryParseBodyEditorAsJson() {
+        const bodyInput = document.getElementById('apiExplorerBodyJson');
+        if (!bodyInput) return null;
+        const raw = String(bodyInput.value || '').trim();
+        if (!raw) return null;
+
+        try {
+            const parsed = JSON.parse(raw);
+            return parsed;
+        } catch (_error) {
+            return null;
+        }
+    }
+
+    function syncBodyEditorFromBuilderState() {
+        const bodyInput = document.getElementById('apiExplorerBodyJson');
+        if (!bodyInput || !isPlainObject(apiExplorerState.bodyBuilderValue)) return;
+        bodyInput.value = JSON.stringify(apiExplorerState.bodyBuilderValue, null, 2);
+        validateBodyJsonEditorRealtime({ silentWhenEmpty: true, endpoint: getSelectedEndpoint() });
+    }
+
+    function getBodyBuilderValueAtPath(path) {
+        const tokens = parseBodyBuilderPathTokens(path);
+        let current = apiExplorerState.bodyBuilderValue;
+
+        for (let i = 0; i < tokens.length; i += 1) {
+            if (current === null || typeof current === 'undefined') return undefined;
+            current = current[tokens[i]];
+        }
+
+        return current;
+    }
+
+    function setBodyBuilderValueAtPath(path, value) {
+        if (!isPlainObject(apiExplorerState.bodyBuilderValue)) {
+            apiExplorerState.bodyBuilderValue = {};
+        }
+
+        const tokens = parseBodyBuilderPathTokens(path);
+        if (!tokens.length) return;
+
+        let current = apiExplorerState.bodyBuilderValue;
+        for (let i = 0; i < tokens.length - 1; i += 1) {
+            const token = tokens[i];
+            const nextToken = tokens[i + 1];
+
+            if (typeof current[token] === 'undefined' || current[token] === null) {
+                current[token] = typeof nextToken === 'number' ? [] : {};
+            }
+
+            current = current[token];
+        }
+
+        current[tokens[tokens.length - 1]] = value;
+    }
+
+    function parseBodyBuilderPathTokens(path) {
+        const text = String(path || '').trim();
+        if (!text) return [];
+
+        const tokens = [];
+        const regex = /([^[.\]]+)|\[(\d+)\]/g;
+        let match;
+        while ((match = regex.exec(text)) !== null) {
+            if (typeof match[1] !== 'undefined') {
+                tokens.push(match[1]);
+            } else if (typeof match[2] !== 'undefined') {
+                tokens.push(Number(match[2]));
+            }
+        }
+        return tokens;
+    }
+
+    function isSwaggerIntervalSchema(schema, path) {
+        if (!isPlainObject(schema)) return false;
+        const format = typeof schema.format === 'string' ? schema.format.toLowerCase() : '';
+        if (format === 'interval') return true;
+
+        const pathText = String(path || '').toLowerCase();
+        return pathText.endsWith('interval') || pathText === 'interval';
+    }
+
+    function getIntervalDraftForPath(path, value) {
+        const saved = apiExplorerState.bodyBuilderIntervalDrafts[path];
+        if (saved && typeof saved.start === 'string' && typeof saved.end === 'string') {
+            return saved;
+        }
+
+        const parsed = parseIntervalValueToDraft(value);
+        apiExplorerState.bodyBuilderIntervalDrafts[path] = parsed;
+        return parsed;
+    }
+
+    function parseIntervalValueToDraft(value) {
+        const raw = typeof value === 'string' ? value : '';
+        const splitIndex = raw.indexOf('/');
+        if (splitIndex === -1) {
+            return { start: toDatetimeLocalValue(raw), end: '' };
+        }
+
+        const startIso = raw.slice(0, splitIndex).trim();
+        const endIso = raw.slice(splitIndex + 1).trim();
+        return {
+            start: toDatetimeLocalValue(startIso),
+            end: toDatetimeLocalValue(endIso)
+        };
+    }
+
+    function buildIntervalValueFromDraft(draft) {
+        const startIso = toIsoStringFromDatetimeLocal(draft && draft.start ? draft.start : '');
+        const endIso = toIsoStringFromDatetimeLocal(draft && draft.end ? draft.end : '');
+
+        if (!startIso && !endIso) return '';
+        return startIso + '/' + endIso;
+    }
+
+    function toDatetimeLocalValue(sourceValue) {
+        const raw = String(sourceValue || '').trim();
+        if (!raw) return '';
+
+        const date = new Date(raw);
+        if (!Number.isFinite(date.getTime())) {
+            return '';
+        }
+
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        const hours = String(date.getHours()).padStart(2, '0');
+        const minutes = String(date.getMinutes()).padStart(2, '0');
+        return year + '-' + month + '-' + day + 'T' + hours + ':' + minutes;
+    }
+
+    function toIsoStringFromDatetimeLocal(localValue) {
+        const raw = String(localValue || '').trim();
+        if (!raw) return '';
+
+        const date = new Date(raw);
+        if (!Number.isFinite(date.getTime())) {
+            return raw;
+        }
+        return date.toISOString();
     }
 
     function buildSwaggerSchemaFieldList(schema) {
@@ -1540,7 +2548,246 @@
         }).join('');
     }
 
+    function onRequestTabsClicked(event) {
+        const closeBtn = event.target.closest('[data-request-tab-close-id]');
+        if (closeBtn) {
+            event.preventDefault();
+            event.stopPropagation();
+            const tabId = closeBtn.getAttribute('data-request-tab-close-id');
+            if (tabId) {
+                closeRequestTabById(tabId);
+            }
+            return;
+        }
+
+        const tabLink = event.target.closest('[data-request-tab-id]');
+        if (!tabLink) return;
+
+        event.preventDefault();
+        const tabId = tabLink.getAttribute('data-request-tab-id');
+        if (!tabId) return;
+
+        activateRequestTab(tabId);
+    }
+
+    function renderRequestTabs() {
+        const container = document.getElementById('apiExplorerRequestTabsContainer');
+        const tabsEl = document.getElementById('apiExplorerRequestTabs');
+        if (!container || !tabsEl) return;
+
+        if (!apiExplorerState.requestTabs.length) {
+            container.style.display = 'none';
+            tabsEl.innerHTML = '';
+            return;
+        }
+
+        container.style.display = 'block';
+        tabsEl.innerHTML = apiExplorerState.requestTabs.map((tab) => {
+            const isActive = tab.id === apiExplorerState.activeRequestTabId;
+            const methodClass = getMethodLabelClass(tab.httpMethod || 'UNKNOWN');
+            const title = tab.title || '(sans titre)';
+            return `
+                <li class="${isActive ? 'active' : ''}">
+                    <a href="#" data-request-tab-id="${escapeAttribute(tab.id)}" title="${escapeAttribute(title)}">
+                        <span class="label ${methodClass}">${escapeHtml(tab.httpMethod || 'N/A')}</span>
+                        <span class="api-response-tab-title">${escapeHtml(title)}</span>
+                    </a>
+                    <button type="button" class="api-tab-close" data-request-tab-close-id="${escapeAttribute(tab.id)}" title="Fermer">
+                        <i class="fa fa-times"></i>
+                    </button>
+                </li>
+            `;
+        }).join('');
+    }
+
+    function pruneUnknownRequestTabs() {
+        const knownIds = new Set(apiExplorerState.catalog.map((item) => item.id));
+        apiExplorerState.requestTabs = apiExplorerState.requestTabs.filter((tab) => knownIds.has(tab.endpointId));
+        apiExplorerState.responseTabs = apiExplorerState.responseTabs.filter((tab) => knownIds.has(tab.endpointId));
+
+        apiExplorerState.responseTabs.forEach((responseTab) => {
+            if (responseTab.linkedRequestTabId && !getRequestTabById(responseTab.linkedRequestTabId)) {
+                responseTab.linkedRequestTabId = null;
+            }
+        });
+        apiExplorerState.requestTabs.forEach((requestTab) => {
+            if (requestTab.linkedResponseTabId && !getResponseTabById(requestTab.linkedResponseTabId)) {
+                requestTab.linkedResponseTabId = null;
+            }
+        });
+
+        if (apiExplorerState.activeRequestTabId && !getRequestTabById(apiExplorerState.activeRequestTabId)) {
+            apiExplorerState.activeRequestTabId = null;
+        }
+        if (apiExplorerState.activeResponseTabId && !getResponseTabById(apiExplorerState.activeResponseTabId)) {
+            apiExplorerState.activeResponseTabId = null;
+        }
+    }
+
+    function getRequestTabById(tabId) {
+        return apiExplorerState.requestTabs.find((tab) => tab.id === tabId) || null;
+    }
+
+    function getRequestTabByEndpointId(endpointId) {
+        for (let i = apiExplorerState.requestTabs.length - 1; i >= 0; i -= 1) {
+            if (apiExplorerState.requestTabs[i].endpointId === endpointId) {
+                return apiExplorerState.requestTabs[i];
+            }
+        }
+        return null;
+    }
+
+    function getActiveRequestTab() {
+        if (!apiExplorerState.activeRequestTabId) return null;
+        return getRequestTabById(apiExplorerState.activeRequestTabId);
+    }
+
+    function createRequestTab(endpoint, initialContext) {
+        const tabId = 'requestTab_' + apiExplorerState.nextRequestTabSequence;
+        apiExplorerState.nextRequestTabSequence += 1;
+
+        const tab = {
+            id: tabId,
+            endpointId: endpoint.id,
+            httpMethod: endpoint.httpMethod,
+            methodName: endpoint.methodName,
+            title: endpoint.methodName,
+            context: initialContext ? cloneJsonValue(initialContext) : null,
+            linkedResponseTabId: null,
+            createdAt: Date.now()
+        };
+
+        apiExplorerState.requestTabs.push(tab);
+        while (apiExplorerState.requestTabs.length > REQUEST_TAB_LIMIT) {
+            const oldest = apiExplorerState.requestTabs[0];
+            if (!oldest) break;
+            closeRequestTabById(oldest.id, { fromLinked: true, skipActivation: true });
+        }
+
+        return tab;
+    }
+
+    function ensureRequestTabForEndpoint(endpoint) {
+        const existing = getRequestTabByEndpointId(endpoint.id);
+        if (existing) return existing;
+        return createRequestTab(endpoint);
+    }
+
+    function persistActiveRequestTabContext() {
+        const activeTab = getActiveRequestTab();
+        const endpoint = getSelectedEndpoint();
+        if (!activeTab || !endpoint) return;
+
+        activeTab.endpointId = endpoint.id;
+        activeTab.httpMethod = endpoint.httpMethod;
+        activeTab.methodName = endpoint.methodName;
+        activeTab.title = endpoint.methodName;
+        activeTab.context = captureCurrentRequestContext(endpoint);
+    }
+
+    function activateRequestTab(tabId, options) {
+        const tab = getRequestTabById(tabId);
+        if (!tab) return;
+
+        const safeOptions = isPlainObject(options) ? options : {};
+        if (!safeOptions.skipPersist) {
+            persistActiveRequestTabContext();
+        }
+
+        const endpoint = apiExplorerState.catalog.find((item) => item.id === tab.endpointId) || null;
+        if (!endpoint) return;
+
+        apiExplorerState.activeRequestTabId = tab.id;
+        apiExplorerState.selectedEndpointId = endpoint.id;
+
+        renderCatalog();
+        renderRequestTabs();
+        renderWorkbench(endpoint, { preserveResponseState: true });
+        if (tab.context) {
+            applyRequestContext(endpoint, tab.context);
+        } else {
+            persistActiveRequestTabContext();
+        }
+
+        const linkedResponseTab = tab.linkedResponseTabId ? getResponseTabById(tab.linkedResponseTabId) : null;
+        if (linkedResponseTab && !safeOptions.skipLinkedResponseActivation) {
+            activateResponseTab(linkedResponseTab.id, {
+                skipRequestSync: true,
+                skipPersist: true
+            });
+            return;
+        }
+
+        if (!linkedResponseTab) {
+            apiExplorerState.activeResponseTabId = null;
+            apiExplorerState.lastResponse = null;
+            apiExplorerState.lastProjection = null;
+            apiExplorerState.lastExecutionMeta = null;
+            rebuildProjectionAutocompletePaths();
+            renderResponseTabs();
+            updateResponseStats(null);
+            renderResponseText('Aucune reponse pour cet onglet requete.');
+        }
+    }
+
+    function closeRequestTabById(tabId, options) {
+        const tab = getRequestTabById(tabId);
+        if (!tab) return;
+
+        const safeOptions = isPlainObject(options) ? options : {};
+        const linkedResponseId = tab.linkedResponseTabId;
+
+        apiExplorerState.requestTabs = apiExplorerState.requestTabs.filter((item) => item.id !== tabId);
+        if (apiExplorerState.activeRequestTabId === tabId) {
+            apiExplorerState.activeRequestTabId = null;
+        }
+
+        if (linkedResponseId && !safeOptions.fromLinked) {
+            closeResponseTabById(linkedResponseId, {
+                fromLinked: true,
+                skipActivation: true
+            });
+        } else if (linkedResponseId) {
+            const linkedResponse = getResponseTabById(linkedResponseId);
+            if (linkedResponse) {
+                linkedResponse.linkedRequestTabId = null;
+            }
+        }
+
+        renderRequestTabs();
+        renderResponseTabs();
+
+        if (safeOptions.skipActivation) return;
+
+        if (apiExplorerState.requestTabs.length) {
+            const fallback = apiExplorerState.requestTabs[apiExplorerState.requestTabs.length - 1];
+            activateRequestTab(fallback.id, { skipPersist: true });
+            return;
+        }
+
+        apiExplorerState.selectedEndpointId = null;
+        apiExplorerState.activeResponseTabId = null;
+        apiExplorerState.lastResponse = null;
+        apiExplorerState.lastProjection = null;
+        apiExplorerState.lastExecutionMeta = null;
+        rebuildProjectionAutocompletePaths();
+        renderCatalog();
+        updateResponseStats(null);
+        renderResponseText('Aucune reponse pour le moment.');
+    }
+
     function onResponseTabsClicked(event) {
+        const closeBtn = event.target.closest('[data-response-tab-close-id]');
+        if (closeBtn) {
+            event.preventDefault();
+            event.stopPropagation();
+            const tabId = closeBtn.getAttribute('data-response-tab-close-id');
+            if (tabId) {
+                closeResponseTabById(tabId);
+            }
+            return;
+        }
+
         const tabLink = event.target.closest('[data-response-tab-id]');
         if (!tabLink) return;
 
@@ -1573,12 +2820,15 @@
                         <span class="label ${methodClass}">${escapeHtml(tab.httpMethod || 'N/A')}</span>
                         <span class="api-response-tab-title">${escapeHtml(title)}</span>
                     </a>
+                    <button type="button" class="api-tab-close" data-response-tab-close-id="${escapeAttribute(tab.id)}" title="Fermer">
+                        <i class="fa fa-times"></i>
+                    </button>
                 </li>
             `;
         }).join('');
     }
 
-    function createResponseTab(endpoint) {
+    function createResponseTab(endpoint, linkedRequestTabId) {
         const tabId = 'responseTab_' + apiExplorerState.nextResponseTabSequence;
         apiExplorerState.nextResponseTabSequence += 1;
 
@@ -1592,7 +2842,7 @@
             projection: null,
             executionMeta: null,
             viewMode: null,
-            context: null,
+            linkedRequestTabId: linkedRequestTabId || null,
             statusMessage: '',
             statusLevel: 'info',
             createdAt: Date.now()
@@ -1600,33 +2850,112 @@
 
         apiExplorerState.responseTabs.push(tab);
         while (apiExplorerState.responseTabs.length > RESPONSE_TAB_LIMIT) {
-            const removed = apiExplorerState.responseTabs.shift();
-            if (removed && removed.id === apiExplorerState.activeResponseTabId) {
-                apiExplorerState.activeResponseTabId = null;
-            }
+            const oldest = apiExplorerState.responseTabs[0];
+            if (!oldest) break;
+            closeResponseTabById(oldest.id, { fromLinked: true, skipActivation: true });
         }
 
         return tab;
     }
 
-    function getTabById(tabId) {
+    function getResponseTabById(tabId) {
         return apiExplorerState.responseTabs.find((tab) => tab.id === tabId) || null;
     }
 
     function getActiveResponseTab() {
         if (!apiExplorerState.activeResponseTabId) return null;
-        return getTabById(apiExplorerState.activeResponseTabId);
+        return getResponseTabById(apiExplorerState.activeResponseTabId);
     }
 
-    function resolveExecutionTargetTab(endpoint, targetTabMode) {
-        if (targetTabMode !== 'new') {
-            const activeTab = getActiveResponseTab();
-            if (activeTab) {
-                return activeTab;
+    function closeResponseTabById(tabId, options) {
+        const tab = getResponseTabById(tabId);
+        if (!tab) return;
+
+        const safeOptions = isPlainObject(options) ? options : {};
+        const linkedRequestId = tab.linkedRequestTabId;
+
+        apiExplorerState.responseTabs = apiExplorerState.responseTabs.filter((item) => item.id !== tabId);
+        if (apiExplorerState.activeResponseTabId === tabId) {
+            apiExplorerState.activeResponseTabId = null;
+        }
+
+        if (linkedRequestId && !safeOptions.fromLinked) {
+            closeRequestTabById(linkedRequestId, {
+                fromLinked: true,
+                skipActivation: true
+            });
+        } else if (linkedRequestId) {
+            const linkedRequest = getRequestTabById(linkedRequestId);
+            if (linkedRequest) {
+                linkedRequest.linkedResponseTabId = null;
             }
         }
 
-        return createResponseTab(endpoint);
+        renderResponseTabs();
+        renderRequestTabs();
+
+        if (safeOptions.skipActivation) return;
+
+        if (apiExplorerState.responseTabs.length) {
+            const fallback = apiExplorerState.responseTabs[apiExplorerState.responseTabs.length - 1];
+            activateResponseTab(fallback.id, { skipPersist: true });
+            return;
+        }
+
+        apiExplorerState.lastResponse = null;
+        apiExplorerState.lastProjection = null;
+        apiExplorerState.lastExecutionMeta = null;
+        rebuildProjectionAutocompletePaths();
+        updateResponseStats(null);
+        renderResponseText('Aucune reponse pour le moment.');
+    }
+
+    function createLinkedRequestResponseTabs(endpoint, contextSeed) {
+        const seedContext = contextSeed ? cloneJsonValue(contextSeed) : null;
+        const requestTab = createRequestTab(endpoint, seedContext);
+        const responseTab = createResponseTab(endpoint, requestTab.id);
+        requestTab.linkedResponseTabId = responseTab.id;
+        return { requestTab, responseTab };
+    }
+
+    function resolveExecutionTargetTabs(endpoint, targetTabMode) {
+        const activeRequestTab = getActiveRequestTab();
+
+        if (targetTabMode === 'new') {
+            const contextSeed = activeRequestTab && activeRequestTab.context
+                ? cloneJsonValue(activeRequestTab.context)
+                : captureCurrentRequestContext(endpoint);
+            return createLinkedRequestResponseTabs(endpoint, contextSeed);
+        }
+
+        const activeResponseTab = getActiveResponseTab();
+        if (activeResponseTab) {
+            let linkedRequestTab = activeResponseTab.linkedRequestTabId
+                ? getRequestTabById(activeResponseTab.linkedRequestTabId)
+                : null;
+
+            if (!linkedRequestTab) {
+                linkedRequestTab = activeRequestTab && activeRequestTab.endpointId === endpoint.id
+                    ? activeRequestTab
+                    : ensureRequestTabForEndpoint(endpoint);
+                activeResponseTab.linkedRequestTabId = linkedRequestTab ? linkedRequestTab.id : null;
+                if (linkedRequestTab) {
+                    linkedRequestTab.linkedResponseTabId = activeResponseTab.id;
+                }
+            }
+
+            return { requestTab: linkedRequestTab, responseTab: activeResponseTab };
+        }
+
+        const requestTabForCurrent = activeRequestTab && activeRequestTab.endpointId === endpoint.id
+            ? activeRequestTab
+            : ensureRequestTabForEndpoint(endpoint);
+        const responseTabForCurrent = createResponseTab(endpoint, requestTabForCurrent ? requestTabForCurrent.id : null);
+        if (requestTabForCurrent) {
+            requestTabForCurrent.linkedResponseTabId = responseTabForCurrent.id;
+        }
+
+        return { requestTab: requestTabForCurrent, responseTab: responseTabForCurrent };
     }
 
     function captureCurrentRequestContext(endpoint) {
@@ -1671,6 +3000,7 @@
         const bodyInput = document.getElementById('apiExplorerBodyJson');
         if (bodyInput && typeof context.bodyJson === 'string') {
             bodyInput.value = context.bodyJson;
+            validateBodyJsonEditorRealtime({ silentWhenEmpty: true, endpoint });
         }
 
         const optionsInput = document.getElementById('apiExplorerOptionsJson');
@@ -1707,22 +3037,36 @@
     function openExecutionResultInTab(options) {
         const endpoint = options.endpoint;
         const targetTabMode = options.targetTabMode === 'new' ? 'new' : 'current';
-        const tab = resolveExecutionTargetTab(endpoint, targetTabMode);
+        const targets = resolveExecutionTargetTabs(endpoint, targetTabMode);
+        const requestTab = targets.requestTab || null;
+        const responseTab = targets.responseTab;
+        if (!responseTab) {
+            throw new Error('Impossible de determiner un onglet reponse cible.');
+        }
 
-        tab.endpointId = endpoint.id;
-        tab.httpMethod = endpoint.httpMethod;
-        tab.methodName = endpoint.methodName;
-        tab.title = endpoint.methodName;
-        tab.response = options.response;
-        tab.projection = options.projection;
-        tab.executionMeta = options.executionMeta;
+        responseTab.endpointId = endpoint.id;
+        responseTab.httpMethod = endpoint.httpMethod;
+        responseTab.methodName = endpoint.methodName;
+        responseTab.title = endpoint.methodName;
+        responseTab.response = options.response;
+        responseTab.projection = options.projection;
+        responseTab.executionMeta = options.executionMeta;
         // Nouveau resultat => retour au mode auto (NODE < 1 Mo, texte brut > 1 Mo).
-        tab.viewMode = null;
-        tab.context = captureCurrentRequestContext(endpoint);
-        tab.statusMessage = options.statusMessage || '';
-        tab.statusLevel = options.statusLevel || 'info';
+        responseTab.viewMode = null;
+        responseTab.linkedRequestTabId = requestTab ? requestTab.id : null;
 
-        activateResponseTab(tab.id);
+        if (requestTab) {
+            requestTab.linkedResponseTabId = responseTab.id;
+            if (!requestTab.context) {
+                requestTab.context = captureCurrentRequestContext(endpoint);
+            }
+            apiExplorerState.activeRequestTabId = requestTab.id;
+        }
+        responseTab.statusMessage = options.statusMessage || '';
+        responseTab.statusLevel = options.statusLevel || 'info';
+
+        renderRequestTabs();
+        activateResponseTab(responseTab.id);
     }
 
     function updateActiveTabFromCurrentState() {
@@ -1730,6 +3074,7 @@
         const endpoint = getSelectedEndpoint();
         if (!tab || !endpoint) return;
 
+        persistActiveRequestTabContext();
         tab.endpointId = endpoint.id;
         tab.httpMethod = endpoint.httpMethod;
         tab.methodName = endpoint.methodName;
@@ -1737,23 +3082,43 @@
         tab.response = apiExplorerState.lastResponse;
         tab.projection = apiExplorerState.lastProjection;
         tab.executionMeta = apiExplorerState.lastExecutionMeta;
-        tab.context = captureCurrentRequestContext(endpoint);
 
         renderResponseTabs();
+        renderRequestTabs();
     }
 
-    function activateResponseTab(tabId) {
-        const tab = getTabById(tabId);
+    function activateResponseTab(tabId, options) {
+        const tab = getResponseTabById(tabId);
         if (!tab) return;
 
+        const safeOptions = isPlainObject(options) ? options : {};
+        if (!safeOptions.skipPersist) {
+            persistActiveRequestTabContext();
+        }
         apiExplorerState.activeResponseTabId = tab.id;
 
         const endpoint = apiExplorerState.catalog.find((item) => item.id === tab.endpointId) || null;
         if (endpoint) {
+            let requestTab = tab.linkedRequestTabId ? getRequestTabById(tab.linkedRequestTabId) : null;
+            if (!requestTab && !safeOptions.skipRequestSync) {
+                requestTab = ensureRequestTabForEndpoint(endpoint);
+                if (requestTab) {
+                    tab.linkedRequestTabId = requestTab.id;
+                    requestTab.linkedResponseTabId = tab.id;
+                }
+            }
+            if (!safeOptions.skipRequestSync) {
+                apiExplorerState.activeRequestTabId = requestTab ? requestTab.id : null;
+            }
             apiExplorerState.selectedEndpointId = endpoint.id;
             renderCatalog();
+            renderRequestTabs();
             renderWorkbench(endpoint, { preserveResponseState: true });
-            applyRequestContext(endpoint, tab.context);
+            if (requestTab && requestTab.context) {
+                applyRequestContext(endpoint, requestTab.context);
+            } else if (requestTab) {
+                requestTab.context = captureCurrentRequestContext(endpoint);
+            }
         }
 
         apiExplorerState.lastResponse = tab.response;
@@ -1868,6 +3233,10 @@
         const templateEntry = {};
         const requiredParams = endpoint && Array.isArray(endpoint.requiredInputParams) ? endpoint.requiredInputParams : [];
 
+        if (requiredParams.length === 1) {
+            return JSON.stringify(['...'], null, 2);
+        }
+
         requiredParams.forEach((paramName) => {
             templateEntry[paramName] = '...';
         });
@@ -1888,6 +3257,7 @@
     // =========================
     async function executeSelectedEndpoint(options) {
         const targetTabMode = options && options.targetTabMode === 'new' ? 'new' : 'current';
+        persistActiveRequestTabContext();
         const endpoint = apiExplorerState.catalog.find((item) => item.id === apiExplorerState.selectedEndpointId);
         if (!endpoint) {
             setExecutionStatus('Selectionnez une API a executer.', 'warning');
@@ -2592,24 +3962,51 @@
         }
 
         const parsed = parseJsonOrThrow(raw, 'Batch JSON');
-        if (!Array.isArray(parsed)) {
-            throw new Error('Batch JSON doit etre un tableau d objets.');
-        }
+        const normalized = normalizeBatchItemsForEndpoint(parsed, endpoint);
+        return normalized.items;
+    }
 
-        if (!parsed.every((item) => isPlainObject(item))) {
-            throw new Error('Batch JSON: chaque element doit etre un objet.');
+    function normalizeBatchItemsForEndpoint(parsed, endpoint) {
+        if (!Array.isArray(parsed)) {
+            throw new Error('Batch JSON doit etre un tableau.');
         }
 
         if (parsed.length === 0) {
             throw new Error('Batch JSON: tableau vide.');
         }
 
-        const missingRequired = endpoint.requiredInputParams.some((paramName) => !Object.prototype.hasOwnProperty.call(parsed[0], paramName));
-        if (missingRequired) {
-            // Validation detaillee lors de chaque ligne ensuite.
-        }
+        const requiredParams = endpoint && Array.isArray(endpoint.requiredInputParams)
+            ? endpoint.requiredInputParams
+            : [];
+        const singleRequiredParam = requiredParams.length === 1 ? requiredParams[0] : null;
 
-        return parsed;
+        let usedSimpleListSyntax = false;
+        const normalizedItems = parsed.map((item, index) => {
+            if (isPlainObject(item)) {
+                for (let i = 0; i < requiredParams.length; i += 1) {
+                    const requiredParam = requiredParams[i];
+                    if (!Object.prototype.hasOwnProperty.call(item, requiredParam)) {
+                        throw new Error('Batch JSON: element #' + (index + 1) + ' parametre requis manquant: ' + requiredParam + '.');
+                    }
+                }
+                return item;
+            }
+
+            if (!singleRequiredParam) {
+                throw new Error('Batch JSON: element #' + (index + 1) + ' doit etre un objet (liste simple autorisee uniquement si 1 parametre requis).');
+            }
+
+            usedSimpleListSyntax = true;
+            const mappedItem = {};
+            mappedItem[singleRequiredParam] = item;
+            return mappedItem;
+        });
+
+        return {
+            items: normalizedItems,
+            usedSimpleListSyntax,
+            singleRequiredParam
+        };
     }
 
     function isPostAutoPagingEnabled() {
@@ -2890,7 +4287,9 @@
         const statusEl = ensureBatchValidationElement();
         if (!inputEl || !statusEl) return;
 
-        const raw = inputEl.value.trim();
+        const endpoint = options && options.endpoint ? options.endpoint : getSelectedEndpoint();
+        const rawText = String(inputEl.value || '');
+        const raw = rawText.trim();
         const silentWhenEmpty = Boolean(options && options.silentWhenEmpty);
 
         inputEl.classList.remove('api-json-valid', 'api-json-invalid');
@@ -2904,23 +4303,126 @@
         }
 
         try {
-            const parsed = JSON.parse(raw);
-            if (!Array.isArray(parsed)) {
-                throw new Error('Le JSON doit etre un tableau d objets.');
-            }
-
-            if (!parsed.every((item) => isPlainObject(item))) {
-                throw new Error('Chaque element du tableau doit etre un objet.');
-            }
+            const parsed = JSON.parse(rawText);
+            const normalized = normalizeBatchItemsForEndpoint(parsed, endpoint);
 
             inputEl.classList.add('api-json-valid');
             statusEl.className = 'small text-success';
-            statusEl.textContent = 'JSON valide (' + parsed.length + ' ligne(s)).';
+            if (normalized.usedSimpleListSyntax && normalized.singleRequiredParam) {
+                statusEl.textContent = 'JSON valide (' + normalized.items.length + ' ligne(s), mode liste simple -> ' + normalized.singleRequiredParam + ').';
+            } else {
+                statusEl.textContent = 'JSON valide (' + normalized.items.length + ' ligne(s)).';
+            }
         } catch (error) {
             inputEl.classList.add('api-json-invalid');
             statusEl.className = 'small text-danger';
-            statusEl.textContent = 'JSON invalide: ' + (error && error.message ? error.message : 'erreur de syntaxe');
+            const baseMessage = error && error.message ? String(error.message) : 'erreur de syntaxe';
+            const location = extractJsonErrorLocation(rawText, error);
+            if (location && typeof location.line === 'number' && typeof location.column === 'number') {
+                statusEl.textContent = 'JSON invalide (ligne ' + location.line + ', colonne ' + location.column + '): ' + baseMessage;
+            } else {
+                statusEl.textContent = 'JSON invalide: ' + baseMessage;
+            }
         }
+    }
+
+    function validateBodyJsonEditorRealtime(options) {
+        const inputEl = document.getElementById('apiExplorerBodyJson');
+        const statusEl = ensureBodyValidationElement();
+        if (!inputEl || !statusEl) return;
+
+        const endpoint = options && options.endpoint ? options.endpoint : getSelectedEndpoint();
+        const endpointUsesBody = Boolean(endpoint && endpoint.hasBodyParameter && !inputEl.disabled);
+        const rawText = String(inputEl.value || '');
+        const raw = rawText.trim();
+        const silentWhenEmpty = Boolean(options && options.silentWhenEmpty);
+        const bodyRequired = Boolean(endpoint && Array.isArray(endpoint.requiredParams) && endpoint.requiredParams.includes('body'));
+
+        inputEl.classList.remove('api-json-valid', 'api-json-invalid');
+
+        if (!endpointUsesBody) {
+            statusEl.className = 'small text-muted';
+            statusEl.textContent = 'Body JSON non utilise par cette methode.';
+            return;
+        }
+
+        if (!raw) {
+            statusEl.className = bodyRequired ? 'small text-warning' : 'small text-muted';
+            if (bodyRequired) {
+                statusEl.textContent = 'Body JSON requis pour cette methode.';
+            } else {
+                statusEl.textContent = silentWhenEmpty
+                    ? 'Body JSON: en attente de saisie.'
+                    : 'Body JSON vide.';
+            }
+            return;
+        }
+
+        try {
+            const parsed = JSON.parse(rawText);
+            inputEl.classList.add('api-json-valid');
+            statusEl.className = 'small text-success';
+            let payloadType = 'valeur';
+            if (Array.isArray(parsed)) payloadType = 'tableau';
+            else if (isPlainObject(parsed)) payloadType = 'objet';
+            else payloadType = typeof parsed;
+            statusEl.textContent = 'Body JSON valide (' + payloadType + ').';
+        } catch (error) {
+            inputEl.classList.add('api-json-invalid');
+            statusEl.className = 'small text-danger';
+            const baseMessage = error && error.message ? String(error.message) : 'erreur de syntaxe';
+            const location = extractJsonErrorLocation(rawText, error);
+            if (location && typeof location.line === 'number' && typeof location.column === 'number') {
+                statusEl.textContent = 'Body JSON invalide (ligne ' + location.line + ', colonne ' + location.column + '): ' + baseMessage;
+            } else {
+                statusEl.textContent = 'Body JSON invalide: ' + baseMessage;
+            }
+        }
+    }
+
+    function extractJsonErrorLocation(jsonText, error) {
+        const message = error && error.message ? String(error.message) : '';
+        if (!message) return null;
+
+        // Firefox-like: "... at line 3 column 12 ..."
+        const lineColumnMatch = message.match(/line\s+(\d+)\s+column\s+(\d+)/i);
+        if (lineColumnMatch) {
+            const line = Number(lineColumnMatch[1]);
+            const column = Number(lineColumnMatch[2]);
+            if (Number.isFinite(line) && Number.isFinite(column)) {
+                return { line, column };
+            }
+        }
+
+        // Chrome-like: "... at position 123"
+        const positionMatch = message.match(/position\s+(\d+)/i);
+        if (positionMatch) {
+            const offset = Number(positionMatch[1]);
+            if (Number.isFinite(offset)) {
+                return computeLineColumnFromOffset(jsonText, offset);
+            }
+        }
+
+        return null;
+    }
+
+    function computeLineColumnFromOffset(text, offset) {
+        const source = String(text || '');
+        const safeOffset = Math.max(0, Math.min(source.length, Number(offset) || 0));
+
+        let line = 1;
+        let column = 1;
+        for (let i = 0; i < safeOffset; i += 1) {
+            const ch = source[i];
+            if (ch === '\n') {
+                line += 1;
+                column = 1;
+            } else {
+                column += 1;
+            }
+        }
+
+        return { line, column };
     }
 
     function rebuildProjectionAutocompletePaths() {
@@ -3295,6 +4797,143 @@
         const filename = 'api-explorer-export-' + new Date().toISOString().replace(/[T:.]/g, '-').slice(0, 19) + '.json';
         downloadTextFile(jsonText, filename, 'application/json;charset=utf-8;');
         setExecutionStatus('Export JSON genere: ' + filename, 'success');
+    }
+
+    function exportFullResponseToJson() {
+        const value = apiExplorerState.lastResponse;
+        if (value === null || typeof value === 'undefined') {
+            setExecutionStatus('Aucune reponse complete a exporter.', 'warning');
+            return;
+        }
+
+        let jsonText;
+        try {
+            jsonText = JSON.stringify(value, null, 2);
+        } catch (_error) {
+            setExecutionStatus('Export JSON complet impossible: donnees non serialisables.', 'danger');
+            return;
+        }
+
+        const filename = 'api-explorer-export-full-' + new Date().toISOString().replace(/[T:.]/g, '-').slice(0, 19) + '.json';
+        downloadTextFile(jsonText, filename, 'application/json;charset=utf-8;');
+        setExecutionStatus('Export JSON complet genere: ' + filename, 'success');
+    }
+
+    async function copyCurrentResponseAsText() {
+        const payload = getCurrentRenderableResponsePayload();
+        if (payload === null || typeof payload === 'undefined') {
+            setExecutionStatus('Aucune donnee a copier.', 'warning');
+            return;
+        }
+
+        let textToCopy;
+        if (typeof payload === 'string') {
+            textToCopy = payload;
+        } else {
+            try {
+                textToCopy = JSON.stringify(payload, null, 2);
+            } catch (_error) {
+                textToCopy = String(payload);
+            }
+        }
+
+        try {
+            await copyTextToClipboard(textToCopy);
+            setExecutionStatus('Reponse copiee dans le presse-papiers.', 'success');
+        } catch (_error) {
+            setExecutionStatus('Impossible de copier la reponse.', 'danger');
+        }
+    }
+
+    async function copyCurrentResponseAsBatchJson() {
+        const endpoint = getSelectedEndpoint();
+        if (!endpoint) {
+            setExecutionStatus('Selectionnez une API cible pour la copie batch.', 'warning');
+            return;
+        }
+
+        const requiredParams = Array.isArray(endpoint.requiredInputParams) ? endpoint.requiredInputParams : [];
+        if (requiredParams.length !== 1) {
+            setExecutionStatus('Copie batch auto disponible uniquement si un seul parametre requis.', 'warning');
+            return;
+        }
+
+        const payload = getCurrentRenderableResponsePayload();
+        if (payload === null || typeof payload === 'undefined') {
+            setExecutionStatus('Aucune donnee a convertir en batch.', 'warning');
+            return;
+        }
+
+        try {
+            const batchItems = buildBatchItemsFromPayload(payload, requiredParams[0]);
+            if (!batchItems.length) {
+                setExecutionStatus('Aucune valeur exploitable pour la copie batch.', 'warning');
+                return;
+            }
+
+            const batchText = JSON.stringify(batchItems, null, 2);
+            await copyTextToClipboard(batchText);
+            setExecutionStatus('JSON batch copie (' + batchItems.length + ' ligne(s)).', 'success');
+        } catch (error) {
+            setExecutionStatus('Copie batch impossible: ' + (error && error.message ? error.message : 'format non compatible'), 'danger');
+        }
+    }
+
+    function buildBatchItemsFromPayload(payload, requiredParamName) {
+        const sourceValues = extractBatchSourceValues(payload);
+        if (!sourceValues.length) {
+            return [];
+        }
+
+        return sourceValues.map((value, index) => {
+            if (isPlainObject(value)) {
+                if (Object.prototype.hasOwnProperty.call(value, requiredParamName)) {
+                    const directItem = {};
+                    directItem[requiredParamName] = value[requiredParamName];
+                    return directItem;
+                }
+
+                const candidateKeys = Object.keys(value).filter((key) => key !== 'body' && key !== 'options');
+                if (candidateKeys.length === 1) {
+                    const mappedItem = {};
+                    mappedItem[requiredParamName] = value[candidateKeys[0]];
+                    return mappedItem;
+                }
+
+                throw new Error('element #' + (index + 1) + ' sans cle "' + requiredParamName + '"');
+            }
+
+            const item = {};
+            item[requiredParamName] = value;
+            return item;
+        });
+    }
+
+    function extractBatchSourceValues(payload) {
+        if (Array.isArray(payload)) {
+            return payload.slice();
+        }
+
+        if (isPlainObject(payload)) {
+            const summary = summarizeTopLevelCollections(payload);
+            if (summary && summary.primaryKey) {
+                const collection = extractCollectionByKey(payload, summary.primaryKey);
+                if (Array.isArray(collection)) {
+                    return collection.slice();
+                }
+            }
+
+            const firstArrayKey = Object.keys(payload).find((key) => Array.isArray(payload[key]));
+            if (firstArrayKey) {
+                return payload[firstArrayKey].slice();
+            }
+        }
+
+        if (payload === null || typeof payload === 'undefined') {
+            return [];
+        }
+
+        return [payload];
     }
 
     function parseProjectionPaths(rawInput) {
@@ -3929,6 +5568,33 @@
         setTimeout(() => URL.revokeObjectURL(url), 1000);
     }
 
+    async function copyTextToClipboard(text) {
+        const value = String(text || '');
+        if (!value) {
+            throw new Error('Texte vide');
+        }
+
+        if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+            await navigator.clipboard.writeText(value);
+            return;
+        }
+
+        const tempTextArea = document.createElement('textarea');
+        tempTextArea.value = value;
+        tempTextArea.setAttribute('readonly', 'readonly');
+        tempTextArea.style.position = 'fixed';
+        tempTextArea.style.top = '-9999px';
+        tempTextArea.style.left = '-9999px';
+        document.body.appendChild(tempTextArea);
+        tempTextArea.select();
+
+        const ok = document.execCommand('copy');
+        document.body.removeChild(tempTextArea);
+        if (!ok) {
+            throw new Error('Copie non supportee');
+        }
+    }
+
     function getValueByPath(source, path) {
         const tokens = tokenizePath(path);
         if (!tokens.length) {
@@ -4420,9 +6086,100 @@
         }
     }
 
-    // ==========================
-    // Favoris et persistance
-    // ==========================
+    // ==================================
+    // Persistance (favoris + templates)
+    // ==================================
+    function loadPostBodyTemplatesFromStorage() {
+        let parsed = null;
+        let migrateFromLegacyCookie = false;
+        const storage = getSafeLocalStorage();
+
+        if (storage) {
+            try {
+                const raw = storage.getItem(POST_BODY_TEMPLATES_STORAGE_KEY);
+                if (raw) {
+                    parsed = JSON.parse(raw);
+                }
+            } catch (_error) {
+                parsed = null;
+            }
+        }
+
+        if (!Array.isArray(parsed)) {
+            const cookieValue = getCookieValue(POST_BODY_TEMPLATES_LEGACY_COOKIE_NAME);
+            if (cookieValue) {
+                try {
+                    parsed = JSON.parse(decodeURIComponent(cookieValue));
+                    migrateFromLegacyCookie = Array.isArray(parsed);
+                } catch (_error) {
+                    parsed = null;
+                }
+            }
+        }
+
+        apiExplorerState.postBodyTemplates = normalizePostBodyTemplates(parsed);
+
+        if (migrateFromLegacyCookie && storage) {
+            try {
+                storage.setItem(POST_BODY_TEMPLATES_STORAGE_KEY, JSON.stringify(apiExplorerState.postBodyTemplates));
+                clearLegacyPostBodyTemplatesCookie();
+            } catch (_error) {
+                // Ignore: on garde juste la copie legacy si quota ou blocage navigateur.
+            }
+        }
+    }
+
+    function savePostBodyTemplatesToStorage() {
+        const storage = getSafeLocalStorage();
+        if (!storage) {
+            return false;
+        }
+
+        const templates = normalizePostBodyTemplates(apiExplorerState.postBodyTemplates);
+        try {
+            storage.setItem(POST_BODY_TEMPLATES_STORAGE_KEY, JSON.stringify(templates));
+            apiExplorerState.postBodyTemplates = templates;
+            clearLegacyPostBodyTemplatesCookie();
+            return true;
+        } catch (_error) {
+            return false;
+        }
+    }
+
+    function normalizePostBodyTemplates(parsed) {
+        if (!Array.isArray(parsed)) {
+            return [];
+        }
+
+        return parsed
+            .filter((item) => isPlainObject(item) && typeof item.bodyJson === 'string')
+            .map((item) => ({
+                id: typeof item.id === 'string' && item.id ? item.id : buildPostTemplateId(),
+                name: typeof item.name === 'string' && item.name ? item.name : 'template-post',
+                originApiId: typeof item.originApiId === 'string' ? item.originApiId : '',
+                originLabel: typeof item.originLabel === 'string' ? item.originLabel : 'API inconnue',
+                bodyJson: item.bodyJson,
+                createdAt: typeof item.createdAt === 'string' ? item.createdAt : ''
+            }))
+            .slice(0, POST_BODY_TEMPLATES_MAX_ITEMS);
+    }
+
+    function getSafeLocalStorage() {
+        if (typeof window === 'undefined' || !window.localStorage) {
+            return null;
+        }
+
+        try {
+            return window.localStorage;
+        } catch (_error) {
+            return null;
+        }
+    }
+
+    function clearLegacyPostBodyTemplatesCookie() {
+        document.cookie = POST_BODY_TEMPLATES_LEGACY_COOKIE_NAME + '=; max-age=0; path=/; SameSite=Lax';
+    }
+
     function loadFavoritesFromCookie() {
         // Persistance simple (cookie) pour rester autonome sans backend.
         const cookieValue = getCookieValue(FAVORITES_COOKIE_NAME);

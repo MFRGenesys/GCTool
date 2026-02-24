@@ -207,14 +207,9 @@ function showMainContent() {
 function updateUserInfo() {
     const userInfo = document.getElementById('userInfo');
     const userName = document.getElementById('userName');
-    const orgInfo = document.getElementById('orgInfo');
-    
-    if (appState.currentUser && userInfo && userName && orgInfo) {
+
+    if (appState.currentUser && userInfo && userName) {
         userName.textContent = appState.currentUser.name || i18nText('app.user.unknown', 'Utilisateur inconnu');
-        orgInfo.textContent = i18nText('main.user.region_label', 'Region: {region} | ID: {id}', {
-            region: ORGREGION,
-            id: appState.currentUser.id
-        });
         userInfo.style.display = 'block';
     }
 }
