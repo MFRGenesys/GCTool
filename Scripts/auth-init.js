@@ -6,7 +6,7 @@
 
 /**
  * @typedef {'implicit'|'pkce'} AuthMode
- * @typedef {{name: string, clientId: string, description: string, authMode: AuthMode}} OrgConfig
+ * @typedef {{name: string, clientId: string, description: string, authMode: AuthMode, region: string}} OrgConfig
  */
 
 /** @type {Record<string, OrgConfig>} */
@@ -18,17 +18,13 @@ const FILE_ORG_CONFIGS = (typeof window !== 'undefined' &&
     : {};
 const USER_ORG_CONFIGS_STORAGE_KEY = 'gctoolUserOrgConfigs';
 const USER_ORG_CONFIGS_COOKIE_KEY = 'gctoolUserOrgConfigs';
-
-let USER_ORG_CONFIGS = loadUserOrgConfigs();
+const AUTH_DEBUG_TRACE_STORAGE_KEY = 'gctoolAuthDebugTrace';
+const AUTH_DEBUG_TRACE_MAX_ITEMS = 120;
+let USER_ORG_CONFIGS = {};
 /** @type {Record<string, OrgConfig>} */
-let ORG_CONFIGS = buildMergedOrgConfigs();
-
-if (Object.keys(FILE_ORG_CONFIGS).length === 0) {
-    console.warn('Aucune org preconfiguree. Saisie manuelle activee.');
-}
+let ORG_CONFIGS = {};
 
 // Configuration globale
-const ORGREGION = 'eu_west_1';
 let selectedOrgConfig = null;
 let redirectURL = window.location.origin + window.location.pathname;
 const AUTH_MODES = {
@@ -36,6 +32,8 @@ const AUTH_MODES = {
     PKCE: 'pkce'
 };
 const DEFAULT_AUTH_MODE = AUTH_MODES.IMPLICIT;
+const DEFAULT_ORG_REGION = 'eu_west_1';
+let ORGREGION = DEFAULT_ORG_REGION;
 let selectedAuthMode = DEFAULT_AUTH_MODE;
 
 function i18nAuth(key, fallback, params) {
@@ -53,6 +51,55 @@ let currentOrgId;
 // @ts-ignore
 const platformClient = require('platformClient');
 const client = platformClient.ApiClient.instance;
+const REGION_HOSTS = (platformClient &&
+    platformClient.PureCloudRegionHosts &&
+    typeof platformClient.PureCloudRegionHosts === 'object')
+    ? platformClient.PureCloudRegionHosts
+    : {};
+const AVAILABLE_ORG_REGIONS = Object.keys(REGION_HOSTS).length > 0
+    ? Object.keys(REGION_HOSTS)
+    : [DEFAULT_ORG_REGION];
+const REGION_KEY_ALIASES = {
+    ie: 'eu_west_1',
+    de: 'eu_central_1',
+    com: 'us_east_1',
+    'com.au': 'ap_southeast_2',
+    jp: 'ap_northeast_1'
+};
+
+function patchSdkAuthUrlBuilder(apiClientInstance) {
+    if (!apiClientInstance || typeof apiClientInstance._buildAuthUrl !== 'function') {
+        return;
+    }
+
+    const currentBuilder = apiClientInstance._buildAuthUrl;
+    if (currentBuilder && currentBuilder.__gctoolPatchedAuthUrlBuilder) {
+        return;
+    }
+
+    const patchedBuilder = function(path, query) {
+        const safeQuery = query && typeof query === 'object' ? query : {};
+        const loginBasePath = this.config.getConfUrl('login', this.config.authUrl);
+        const queryParts = Object.keys(safeQuery)
+            .filter((key) => safeQuery[key] !== undefined && safeQuery[key] !== null && safeQuery[key] !== '')
+            .map((key) => `${key}=${safeQuery[key]}`);
+        const suffix = queryParts.length > 0 ? `?${queryParts.join('&')}` : '';
+        return `${loginBasePath}/${path}${suffix}`;
+    };
+    patchedBuilder.__gctoolPatchedAuthUrlBuilder = true;
+    apiClientInstance._buildAuthUrl = patchedBuilder;
+
+    console.log('Patch OAuth URL SDK actif: suppression du parametre vide initial (?&...).');
+}
+
+patchSdkAuthUrlBuilder(client);
+
+USER_ORG_CONFIGS = loadUserOrgConfigs();
+ORG_CONFIGS = buildMergedOrgConfigs();
+
+if (Object.keys(FILE_ORG_CONFIGS).length === 0) {
+    console.warn('Aucune org preconfiguree. Saisie manuelle activee.');
+}
 
 /**
  * Initialisation des APIs
@@ -68,6 +115,67 @@ function normalizeAuthMode(mode) {
     return mode === 'pkce' ? 'pkce' : 'implicit';
 }
 
+function findRegionKey(regionValue) {
+    if (typeof regionValue !== 'string') {
+        return '';
+    }
+
+    const rawValue = regionValue.trim().toLowerCase();
+    if (!rawValue) {
+        return '';
+    }
+
+    if (REGION_HOSTS[rawValue]) {
+        return rawValue;
+    }
+
+    const normalizedHost = rawValue
+        .replace(/^https?:\/\//, '')
+        .replace(/^api\./, '')
+        .replace(/^login\./, '')
+        .replace(/\/.*$/, '')
+        .replace(/^\./, '');
+
+    if (REGION_HOSTS[normalizedHost]) {
+        return normalizedHost;
+    }
+
+    for (const [regionKey, regionHost] of Object.entries(REGION_HOSTS)) {
+        if (typeof regionHost === 'string' && regionHost.toLowerCase() === normalizedHost) {
+            return regionKey;
+        }
+    }
+
+    const suffixCandidate = normalizedHost.startsWith('mypurecloud.')
+        ? normalizedHost.slice('mypurecloud.'.length)
+        : normalizedHost;
+    const aliasedRegion = REGION_KEY_ALIASES[suffixCandidate] || REGION_KEY_ALIASES[normalizedHost];
+    if (aliasedRegion && REGION_HOSTS[aliasedRegion]) {
+        return aliasedRegion;
+    }
+
+    return '';
+}
+
+function normalizeOrgRegion(region) {
+    const normalizedRegion = findRegionKey(region);
+    if (normalizedRegion) {
+        return normalizedRegion;
+    }
+
+    if (typeof region === 'string' && region.trim()) {
+        console.warn(`Region invalide "${region}". Fallback: ${DEFAULT_ORG_REGION}`);
+    }
+    return DEFAULT_ORG_REGION;
+}
+
+function resolveRegionFromOrg(orgConfig) {
+    if (!orgConfig || typeof orgConfig !== 'object') {
+        return DEFAULT_ORG_REGION;
+    }
+    return normalizeOrgRegion(orgConfig.region);
+}
+
 function resolveAuthModeFromOrg(orgConfig) {
     if (!orgConfig || typeof orgConfig !== 'object') {
         return DEFAULT_AUTH_MODE;
@@ -76,8 +184,46 @@ function resolveAuthModeFromOrg(orgConfig) {
     return normalizeAuthMode(orgConfig.authMode);
 }
 
+function applySelectedOrgContext(orgConfig) {
+    const sanitizedOrgConfig = sanitizeOrgConfig(orgConfig);
+    if (!sanitizedOrgConfig) {
+        throw new Error('Configuration ORG invalide');
+    }
+
+    selectedOrgConfig = sanitizedOrgConfig;
+    selectedAuthMode = resolveAuthModeFromOrg(sanitizedOrgConfig);
+    ORGREGION = resolveRegionFromOrg(sanitizedOrgConfig);
+}
+
 function formatAuthModeLabel(mode) {
     return normalizeAuthMode(mode) === 'pkce' ? 'PKCE' : 'Implicit';
+}
+
+function maskClientId(clientId) {
+    const normalized = typeof clientId === 'string' ? clientId.trim() : '';
+    if (!normalized) {
+        return 'n/a';
+    }
+    if (normalized.length <= 8) {
+        return normalized;
+    }
+    return `${normalized.slice(0, 4)}...${normalized.slice(-4)}`;
+}
+
+function getAuthDebugState() {
+    const regionKey = ORGREGION || DEFAULT_ORG_REGION;
+    const host = REGION_HOSTS[regionKey] || '';
+    return {
+        selectedOrgName: selectedOrgConfig?.name || null,
+        selectedAuthMode: selectedAuthMode || null,
+        regionKey,
+        host,
+        authUrl: client?.config?.authUrl || null,
+        basePath: client?.config?.basePath || null,
+        redirectURL,
+        clientIdMasked: maskClientId(selectedOrgConfig?.clientId || ''),
+        selectedOrgConfig: selectedOrgConfig || null
+    };
 }
 
 function getCookieValue(cookieName) {
@@ -106,6 +252,7 @@ function sanitizeOrgConfig(orgConfig) {
     const clientId = typeof orgConfig.clientId === 'string' ? orgConfig.clientId.trim() : '';
     const description = typeof orgConfig.description === 'string' ? orgConfig.description.trim() : '';
     const authMode = normalizeAuthMode(orgConfig.authMode);
+    const region = normalizeOrgRegion(orgConfig.region);
 
     if (!name || !clientId) {
         return null;
@@ -115,8 +262,25 @@ function sanitizeOrgConfig(orgConfig) {
         name,
         clientId,
         description,
-        authMode
+        authMode,
+        region
     };
+}
+
+function sanitizeOrgConfigsMap(orgConfigsMap) {
+    if (!orgConfigsMap || typeof orgConfigsMap !== 'object') {
+        return {};
+    }
+
+    const sanitizedMap = {};
+    Object.keys(orgConfigsMap).forEach((orgKey) => {
+        const sanitizedConfig = sanitizeOrgConfig(orgConfigsMap[orgKey]);
+        if (sanitizedConfig) {
+            sanitizedMap[orgKey] = sanitizedConfig;
+        }
+    });
+
+    return sanitizedMap;
 }
 
 function loadUserOrgConfigs() {
@@ -167,8 +331,8 @@ function persistUserOrgConfigs() {
 
 function buildMergedOrgConfigs() {
     return {
-        ...FILE_ORG_CONFIGS,
-        ...USER_ORG_CONFIGS
+        ...sanitizeOrgConfigsMap(FILE_ORG_CONFIGS),
+        ...sanitizeOrgConfigsMap(USER_ORG_CONFIGS)
     };
 }
 
@@ -188,6 +352,7 @@ function createOrgKeyFromName(orgName) {
 function findExistingOrgKey(orgConfig) {
     const normalizedClientId = (orgConfig.clientId || '').trim().toLowerCase();
     const normalizedAuthMode = normalizeAuthMode(orgConfig.authMode);
+    const normalizedRegion = resolveRegionFromOrg(orgConfig);
 
     const allEntries = Object.entries(ORG_CONFIGS);
     for (const [orgKey, existingOrgConfig] of allEntries) {
@@ -196,7 +361,10 @@ function findExistingOrgKey(orgConfig) {
         }
         const existingClientId = (existingOrgConfig.clientId || '').trim().toLowerCase();
         const existingAuthMode = normalizeAuthMode(existingOrgConfig.authMode);
-        if (existingClientId === normalizedClientId && existingAuthMode === normalizedAuthMode) {
+        const existingRegion = resolveRegionFromOrg(existingOrgConfig);
+        if (existingClientId === normalizedClientId &&
+            existingAuthMode === normalizedAuthMode &&
+            existingRegion === normalizedRegion) {
             return orgKey;
         }
     }
@@ -235,7 +403,9 @@ function loginWithSelectedAuthMode(clientId, redirectUri) {
     }
 
     console.log('Auth mode: Implicit');
-    return client.loginImplicitGrant(clientId, redirectUri);
+    return client.loginImplicitGrant(clientId, redirectUri, {
+        state: 'gctool-implicit-auth'
+    });
 }
 
 /**
@@ -245,14 +415,27 @@ function proceedWithAuthentication() {
     if (!selectedOrgConfig) {
         return Promise.reject(new Error('Aucune organisation sélectionnée'));
     }
+
+    ORGREGION = resolveRegionFromOrg(selectedOrgConfig);
     
     console.log(`🏢 Tentative de connexion: ${selectedOrgConfig.name}`);
+    console.log(`🌍 Région sélectionnée: ${ORGREGION}`);
     
     // Initialiser le client avec la région
-    const environment = platformClient.PureCloudRegionHosts[ORGREGION];
+    const environment = REGION_HOSTS[ORGREGION];
+    console.log(`OAuth host selectionne: ${environment || 'inconnu'}`);
     
     if (environment) {
         client.setEnvironment(environment);
+        console.log('OAuth contexte applique:', {
+            region: ORGREGION,
+            host: environment,
+            authMode: selectedAuthMode,
+            redirectURL,
+            clientIdMasked: maskClientId(selectedOrgConfig.clientId)
+        });
+    } else {
+        console.warn(`Région Genesys Cloud inconnue: ${ORGREGION}. Utilisation du host par défaut du SDK.`);
     }
     
     return loginWithSelectedAuthMode(selectedOrgConfig.clientId, redirectURL)
@@ -281,7 +464,8 @@ function proceedWithAuthentication() {
                     name: userObject.name,
                     organization: userObject.organization,
                     selectedOrgConfig: selectedOrgConfig,
-                    authMode: selectedAuthMode
+                    authMode: selectedAuthMode,
+                    region: ORGREGION
                 };
             }
             
@@ -311,17 +495,23 @@ function proceedWithAuthentication() {
                 success: true,
                 message: 'Authentification et chargement réssis',
                 organization: selectedOrgConfig.name,
-                authMode: selectedAuthMode
+                authMode: selectedAuthMode,
+                region: ORGREGION
             };
         })
         .catch((error) => {
             const err = /** @type {any} */ (error);
             console.error("Erreur d'authentification:", err);
+            console.error('Contexte auth au moment de l\'erreur:', getAuthDebugState());
 
             let errorMessage = 'Erreur de connexion';
             let shouldClearOrg = true;
 
-            if (err.status === 401) {
+            if (err.error || err.error_description) {
+                const oauthCode = err.error || 'oauth_error';
+                const oauthDesc = err.error_description || err.message || 'Erreur OAuth';
+                errorMessage = `OAuth ${oauthCode}: ${oauthDesc}`;
+            } else if (err.status === 401) {
                 errorMessage = 'Identifiants invalides pour cette organisation';
             } else if (err.status === 403) {
                 errorMessage = 'Acces refuse a cette organisation';
@@ -352,9 +542,8 @@ function initializeWithOrgSelection() {
         const savedOrg = getSavedOrganization();
         
         if (savedOrg && ORG_CONFIGS[savedOrg]) {
-            selectedOrgConfig = ORG_CONFIGS[savedOrg];
-            selectedAuthMode = resolveAuthModeFromOrg(selectedOrgConfig);
-            console.log(`📂 Organisation sauvegardee: ${selectedOrgConfig.name} (auth: ${selectedAuthMode})`);
+            applySelectedOrgContext(ORG_CONFIGS[savedOrg]);
+            console.log(`📂 Organisation sauvegardee: ${selectedOrgConfig.name} (auth: ${selectedAuthMode}, region: ${ORGREGION})`);
             
             if (typeof updateLoadingStatus === 'function') {
                 updateLoadingStatus(`Connexion à ${selectedOrgConfig.name}...`);
@@ -444,14 +633,29 @@ function clearSavedOrganization() {
     }
 }
 
+function getRegionSelectOptionsHtml(selectedRegion) {
+    const normalizedSelection = normalizeOrgRegion(selectedRegion);
+    return AVAILABLE_ORG_REGIONS
+        .map((regionKey) => {
+            const selectedAttr = regionKey === normalizedSelection ? ' selected' : '';
+            const regionHost = REGION_HOSTS[regionKey] || '';
+            const optionLabel = regionHost ? `${regionKey} (${regionHost})` : regionKey;
+            return `<option value="${regionKey}"${selectedAttr}>${optionLabel}</option>`;
+        })
+        .join('');
+}
+
 function renderOrgOption(orgKey, orgConfig) {
+    const orgRegion = resolveRegionFromOrg(orgConfig);
+    const orgRegionHost = REGION_HOSTS[orgRegion] || '';
+    const orgRegionLabel = orgRegionHost ? `${orgRegion} (${orgRegionHost})` : orgRegion;
     return `
         <div class="org-option" data-org="${orgKey}">
             <div class="org-card" style="position: relative;">
                 <span class="label label-info" style="position:absolute;right:10px;top:10px;">${formatAuthModeLabel(orgConfig.authMode)}</span>
                 <h5>${orgConfig.name}</h5>
                 <p class="text-muted">${orgConfig.description || ''}</p>
-                <small class="text-info">Région: ${ORGREGION}</small>
+                <small class="text-info">Region: ${orgRegionLabel}</small>
             </div>
         </div>
     `;
@@ -489,6 +693,7 @@ function showOrgSelector(resolve, reject, errorMessage = null) {
         }
         
         const orgKeys = Object.keys(ORG_CONFIGS);
+        const regionOptionsHtml = getRegionSelectOptionsHtml(ORGREGION);
         const noOrgConfiguredHtml = orgKeys.length === 0
             ? `
                 <div class="alert alert-info" role="alert">
@@ -529,14 +734,20 @@ function showOrgSelector(resolve, reject, errorMessage = null) {
                                 </div>
                             </div>
                             <div class="row" style="margin-top: 10px;">
-                                <div class="col-md-6">
+                                <div class="col-md-4">
                                     <label>${i18nAuth('auth.org_selector.auth_type', 'Type de connexion')}</label>
                                     <select class="form-control" id="manualOrgAuthMode">
                                         <option value="implicit">Implicit</option>
                                         <option value="pkce">PKCE</option>
                                     </select>
                                 </div>
-                                <div class="col-md-6">
+                                <div class="col-md-4">
+                                    <label>${i18nAuth('auth.org_selector.region', 'Region')}</label>
+                                    <select class="form-control" id="manualOrgRegion">
+                                        ${regionOptionsHtml}
+                                    </select>
+                                </div>
+                                <div class="col-md-4">
                                     <label>${i18nAuth('auth.org_selector.description', 'Description')}</label>
                                     <input type="text" class="form-control" id="manualOrgDescription" placeholder="${i18nAuth('auth.org_selector.optional', 'Optionnel')}">
                                 </div>
@@ -596,6 +807,7 @@ function setupOrgSelection(resolve, reject) {
         const name = ($('#manualOrgName').val() || '').toString().trim();
         const clientId = ($('#manualOrgClientId').val() || '').toString().trim();
         const authMode = normalizeAuthMode(($('#manualOrgAuthMode').val() || '').toString());
+        const region = normalizeOrgRegion(($('#manualOrgRegion').val() || '').toString());
         const description = ($('#manualOrgDescription').val() || '').toString().trim();
 
         if (!name || !clientId) {
@@ -605,7 +817,8 @@ function setupOrgSelection(resolve, reject) {
             name,
             clientId,
             description,
-            authMode
+            authMode,
+            region
         };
     }
 
@@ -667,7 +880,7 @@ function setupOrgSelection(resolve, reject) {
 
     bindOrgOptionEvents();
 
-    $('#manualOrgName, #manualOrgClientId, #manualOrgAuthMode, #manualOrgDescription')
+    $('#manualOrgName, #manualOrgClientId, #manualOrgAuthMode, #manualOrgRegion, #manualOrgDescription')
         .on('input change focus', function() {
             $('.org-option').removeClass('selected');
             selectedOrg = null;
@@ -692,14 +905,12 @@ function setupOrgSelection(resolve, reject) {
     function processOrgSelection() {
         try {
             if (selectedOrg && ORG_CONFIGS[selectedOrg]) {
-                selectedOrgConfig = ORG_CONFIGS[selectedOrg];
+                applySelectedOrgContext(ORG_CONFIGS[selectedOrg]);
             } else {
                 const { orgKey, orgConfig } = upsertManualOrgInLocalStore();
                 selectedOrg = orgKey;
-                selectedOrgConfig = orgConfig;
+                applySelectedOrgContext(orgConfig);
             }
-
-            selectedAuthMode = resolveAuthModeFromOrg(selectedOrgConfig);
 
             // Sauvegarder si demandé
             if ($('#rememberOrg').is(':checked')) {
@@ -886,5 +1097,6 @@ function changeOrganization() {
     }
 }
 
-
-
+if (typeof window !== 'undefined') {
+    window.GCTOOL_DEBUG_AUTH = getAuthDebugState;
+}

@@ -10,6 +10,7 @@ window.ORG_CONFIGS = {
         name: 'Mon Org',
         clientId: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx',
         description: 'Organisation principale',
-        authMode: 'implicit' // 'implicit' ou 'pkce'
+        authMode: 'implicit', // 'implicit' ou 'pkce'
+        region: 'eu_west_1' // ex: 'eu_west_1', 'us_east_1', 'eu_central_1'
     }
 };

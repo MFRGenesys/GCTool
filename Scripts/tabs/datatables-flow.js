@@ -2718,31 +2718,45 @@ function saveCurrentFlowToCookie() {
         boxes: Array.from(flowBoxes.values()),
         connections: flowConnections
     };
-    const flowDataJson = encodeURIComponent(JSON.stringify(flowData));
-    const expirationDate = new Date();
-    expirationDate.setTime(expirationDate.getTime() + (365 * 24 * 60 * 60 * 1000)); // 1 an
-    
-    //document.cookie = `flowData=${flowDataJson}; expires=${expirationDate.toUTCString()}; path=/`;
     localStorage.setItem('flowData', JSON.stringify(flowData));
-
-    console.log('📥 Flow Sauvegardé dans les cookies :', flowData);
+    console.log('📥 Flow sauvegarde dans le localStorage :', flowData);
 }
 
 
 function loadFlowFromCookie() {
-    const cookies = document.cookie.split(';');
-    for (let cookie of cookies) {
-        const [name, value] = cookie.split('=').map(c => c.trim());
-        if (name === 'flowData') {
-            try {
-                //const flowData = JSON.parse(decodeURIComponent(value));
-                const flowData = JSON.parse(localStorage.getItem('flowData'));
-                processFlowDataImport(flowData);
-                console.log('📥 Flow importé depuis les cookies :', flowData);
-            } catch (e) {
-                console.warn("Erreur lors du chargement du flux depuis le cookie :", e);
+    let flowData = null;
+
+    try {
+        const localStorageData = localStorage.getItem('flowData');
+        if (localStorageData) {
+            flowData = JSON.parse(localStorageData);
+        }
+    } catch (e) {
+        console.warn('Erreur lors du chargement du flux depuis le localStorage :', e);
+    }
+
+    // Migration legacy: lit un ancien cookie flowData si present, puis migre en localStorage.
+    if (!flowData) {
+        const cookies = document.cookie.split(';');
+        for (let cookie of cookies) {
+            const [name, value] = cookie.split('=').map(c => c.trim());
+            if (name === 'flowData') {
+                try {
+                    flowData = JSON.parse(decodeURIComponent(value));
+                    localStorage.setItem('flowData', JSON.stringify(flowData));
+                    document.cookie = 'flowData=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+                    console.log('📥 Flow migre du cookie vers le localStorage :', flowData);
+                } catch (e) {
+                    console.warn('Erreur lors de la migration du flux depuis le cookie :', e);
+                }
+                break;
             }
         }
+    }
+
+    if (flowData) {
+        processFlowDataImport(flowData);
+        console.log('📥 Flow importe depuis le localStorage :', flowData);
     }
 }
 
