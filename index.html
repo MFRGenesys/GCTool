@@ -37,7 +37,10 @@
                     <div class="subtitle" data-i18n="app.header.subtitle">Suite d'outils pour l'administration et le controle de votre organisation Genesys Cloud</div>
                 </div>
                 <div class="col-md-4 text-right">
-                    <div id="languageSwitcher" class="language-switcher"></div>
+                    <div class="header-tools">
+                        <div id="languageSwitcher" class="language-switcher"></div>
+                        <button type="button" id="appVersionBtn" class="app-version-btn" style="display:none;"></button>
+                    </div>
                     <div id="userInfo" class="user-info" style="display: none;">
                         <strong id="userName" data-i18n="app.user.default_name">Utilisateur</strong><br>
                         <small id="orgInfo" data-i18n="app.user.default_org">Organisation</small>
@@ -142,6 +145,7 @@
     <script src="./Scripts/i18n/locales/en-US.js"></script>
     <script src="./Scripts/i18n/locales/es-ES.js"></script>
     <script src="./Scripts/i18n.js"></script>
+    <script src="./Scripts/version-info.js"></script>
     
     <!-- Scripts spécifiques aux onglets -->
     <script src="./Scripts/tabs/information.js"></script>

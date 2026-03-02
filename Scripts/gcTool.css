@@ -29,6 +29,71 @@
     margin-bottom: 6px;
 }
 
+.header-tools {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.header-tools .language-switcher {
+    margin-bottom: 0;
+}
+
+.app-version-btn {
+    border: 1px solid rgba(70, 70, 70, 0.35);
+    background: #f7f9fc;
+    color: #2f4964;
+    border-radius: 999px;
+    font-size: 11px;
+    line-height: 1;
+    padding: 6px 12px;
+    transition: all 0.2s ease;
+}
+
+.app-version-btn:hover,
+.app-version-btn:focus {
+    background: #e9f1fb;
+    color: #1f3f62;
+    border-color: #5b8dc4;
+    outline: none;
+}
+
+.release-notes-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.release-note-item {
+    border: 1px solid #dfe7f0;
+    border-radius: 6px;
+    padding: 10px 12px;
+    background: #fbfdff;
+}
+
+.release-note-meta {
+    font-size: 12px;
+    color: #5e6c79;
+    margin-bottom: 6px;
+}
+
+.release-note-title {
+    font-weight: 600;
+    color: #24384c;
+    margin-bottom: 6px;
+}
+
+.release-note-changes {
+    margin: 0;
+    padding-left: 18px;
+}
+
+.release-note-changes li {
+    margin-bottom: 4px;
+}
+
 .language-switcher-label {
     font-size: 11px;
     color: #424b53;
@@ -1092,6 +1157,97 @@ option[style*="color: #d9534f"] {
 }
 
 /* Styles pour le sélecteur d'organisation */
+#orgSelectorModal .modal-dialog {
+    width: 92vw;
+    max-width: 1100px;
+}
+
+#orgSelectorModal .modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+#orgSelectorModal .modal-title {
+    margin: 0;
+}
+
+#orgSelectorModal .org-selector-layout {
+    display: flex;
+    align-items: flex-start;
+    gap: 18px;
+    max-height: 800px;
+}
+
+#orgSelectorModal .org-selector-main {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+#orgSelectorModal .org-help-panel {
+    flex: 0 0 0;
+    width: 0;
+    max-width: 0;
+    opacity: 0;
+    overflow: hidden;
+    transition: all 0.25s ease;
+    background-color: #f7fbff;
+    border-left: 0 solid #dbe8f5;
+    border-radius: 6px;
+}
+
+#orgSelectorModal.org-help-open .org-help-panel {
+    flex-basis: 340px;
+    width: 340px;
+    max-width: 340px;
+    opacity: 1;
+    overflow-y: auto;
+    max-height: 65vh;
+    padding: 12px 14px;
+    border-left-width: 1px;
+}
+
+#orgSelectorModal .org-help-panel h5 {
+    margin-top: 0;
+}
+
+#orgSelectorModal .org-help-card {
+    background-color: #ffffff;
+    border: 1px solid #dbe8f5;
+    border-radius: 6px;
+    padding: 10px;
+    margin-top: 10px;
+}
+
+#orgSelectorModal .org-help-card p {
+    margin: 8px 0;
+    font-size: 12px;
+}
+
+#orgSelectorModal .org-help-loading {
+    margin: 0;
+}
+
+#orgSelectorModal .org-help-image {
+    display: block;
+    width: 100%;
+    height: auto;
+    margin-top: 8px;
+    border: 1px solid #c8dbee;
+    border-radius: 4px;
+    background-color: #ffffff;
+}
+
+#orgSelectorModal .org-help-image-placeholder {
+    border: 1px dashed #9ab6d1;
+    border-radius: 4px;
+    background-color: #f4f9ff;
+    color: #315a81;
+    font-size: 11px;
+    padding: 8px;
+}
+
 .org-list {
     display: flex;
     flex-direction: column;
@@ -1105,12 +1261,36 @@ option[style*="color: #d9534f"] {
     transition: all 0.3s ease;
 }
 
+.org-option.org-option-not-validated .org-card {
+    border-color: #d9534f;
+    background-color: #fde9e9;
+}
+
 .org-card {
     padding: 15px;
     border: 2px solid #ddd;
     border-radius: 8px;
     background-color: #f9f9f9;
     transition: all 0.3s ease;
+}
+
+.org-card.org-card-has-edit {
+    padding-left: 40px;
+}
+
+.org-edit-btn {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    padding: 2px 4px;
+    color: #666;
+    z-index: 2;
+}
+
+.org-edit-btn:hover,
+.org-edit-btn:focus {
+    color: #1f5f9b;
+    text-decoration: none;
 }
 
 .org-option:hover .org-card {
@@ -1120,10 +1300,21 @@ option[style*="color: #d9534f"] {
     box-shadow: 0 4px 8px rgba(0,0,0,0.1);
 }
 
+.org-option.org-option-not-validated:hover .org-card {
+    border-color: #c9302c;
+    background-color: #f9dddd;
+}
+
 .org-option.selected .org-card {
     border-color: #28a745;
     background-color: #d4edda;
     box-shadow: 0 0 10px rgba(40, 167, 69, 0.3);
+}
+
+.org-option.org-option-not-validated.selected .org-card {
+    border-color: #c9302c;
+    background-color: #f8d1d1;
+    box-shadow: 0 0 10px rgba(201, 48, 44, 0.28);
 }
 
 .org-card h5 {
@@ -1143,6 +1334,24 @@ option[style*="color: #d9534f"] {
 
 /* Responsive */
 @media (max-width: 768px) {
+    #orgSelectorModal .modal-dialog {
+        width: calc(100vw - 12px);
+        margin: 6px auto;
+    }
+
+    #orgSelectorModal .org-selector-layout {
+        flex-direction: column;
+    }
+
+    #orgSelectorModal.org-help-open .org-help-panel {
+        flex-basis: auto;
+        width: 100%;
+        max-width: 100%;
+        max-height: 260px;
+        border-left-width: 0;
+        border-top: 1px solid #dbe8f5;
+    }
+
     .org-list {
         max-height: 300px;
     }

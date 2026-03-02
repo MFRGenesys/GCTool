@@ -18,14 +18,24 @@ const FILE_ORG_CONFIGS = (typeof window !== 'undefined' &&
     : {};
 const USER_ORG_CONFIGS_STORAGE_KEY = 'gctoolUserOrgConfigs';
 const USER_ORG_CONFIGS_COOKIE_KEY = 'gctoolUserOrgConfigs';
+const ORG_VALIDATION_STATE_STORAGE_KEY = 'gctoolOrgValidationState';
 const AUTH_DEBUG_TRACE_STORAGE_KEY = 'gctoolAuthDebugTrace';
 const AUTH_DEBUG_TRACE_MAX_ITEMS = 120;
+const AUTH_PENDING_SELECTION_STORAGE_KEY = 'gctoolPendingOrgSelection';
+const AUTH_PENDING_SELECTION_MAX_AGE_MS = 15 * 60 * 1000;
+const ORG_VALIDATION_STATUSES = {
+    VALID: 'valid',
+    UNVERIFIED: 'unverified',
+    INVALID: 'invalid'
+};
 let USER_ORG_CONFIGS = {};
 /** @type {Record<string, OrgConfig>} */
 let ORG_CONFIGS = {};
+let ORG_VALIDATION_STATE = {};
 
 // Configuration globale
 let selectedOrgConfig = null;
+let selectedOrgKey = null;
 let redirectURL = window.location.origin + window.location.pathname;
 const AUTH_MODES = {
     IMPLICIT: 'implicit',
@@ -33,6 +43,10 @@ const AUTH_MODES = {
 };
 const DEFAULT_AUTH_MODE = AUTH_MODES.IMPLICIT;
 const DEFAULT_ORG_REGION = 'eu_west_1';
+const HELP_CONTENT_FILE_PATH = './Scripts/help/help.html';
+const AUTH_ORG_HELP_SECTION_KEY = 'auth-org-selector';
+let helpContentHtmlCache = '';
+let helpContentLoadPromise = null;
 let ORGREGION = DEFAULT_ORG_REGION;
 let selectedAuthMode = DEFAULT_AUTH_MODE;
 
@@ -94,8 +108,10 @@ function patchSdkAuthUrlBuilder(apiClientInstance) {
 
 patchSdkAuthUrlBuilder(client);
 
+ORG_VALIDATION_STATE = loadOrgValidationState();
 USER_ORG_CONFIGS = loadUserOrgConfigs();
 ORG_CONFIGS = buildMergedOrgConfigs();
+ensureUserOrgValidationState();
 
 if (Object.keys(FILE_ORG_CONFIGS).length === 0) {
     console.warn('Aucune org preconfiguree. Saisie manuelle activee.');
@@ -184,13 +200,16 @@ function resolveAuthModeFromOrg(orgConfig) {
     return normalizeAuthMode(orgConfig.authMode);
 }
 
-function applySelectedOrgContext(orgConfig) {
+function applySelectedOrgContext(orgConfig, orgKey) {
     const sanitizedOrgConfig = sanitizeOrgConfig(orgConfig);
     if (!sanitizedOrgConfig) {
         throw new Error('Configuration ORG invalide');
     }
 
     selectedOrgConfig = sanitizedOrgConfig;
+    selectedOrgKey = typeof orgKey === 'string' && orgKey
+        ? orgKey
+        : findExistingOrgKey(sanitizedOrgConfig);
     selectedAuthMode = resolveAuthModeFromOrg(sanitizedOrgConfig);
     ORGREGION = resolveRegionFromOrg(sanitizedOrgConfig);
 }
@@ -214,6 +233,7 @@ function getAuthDebugState() {
     const regionKey = ORGREGION || DEFAULT_ORG_REGION;
     const host = REGION_HOSTS[regionKey] || '';
     return {
+        selectedOrgKey: selectedOrgKey || null,
         selectedOrgName: selectedOrgConfig?.name || null,
         selectedAuthMode: selectedAuthMode || null,
         regionKey,
@@ -241,6 +261,108 @@ function setCookieValue(cookieName, cookieValue, expirationDays) {
     const expirationDate = new Date();
     expirationDate.setTime(expirationDate.getTime() + (expirationDays * 24 * 60 * 60 * 1000));
     document.cookie = `${cookieName}=${cookieValue}; expires=${expirationDate.toUTCString()}; path=/`;
+}
+
+function normalizeOrgValidationStatus(status) {
+    if (status === ORG_VALIDATION_STATUSES.VALID) {
+        return ORG_VALIDATION_STATUSES.VALID;
+    }
+    if (status === ORG_VALIDATION_STATUSES.INVALID) {
+        return ORG_VALIDATION_STATUSES.INVALID;
+    }
+    return ORG_VALIDATION_STATUSES.UNVERIFIED;
+}
+
+function loadOrgValidationState() {
+    let parsedState = null;
+    try {
+        const rawValue = localStorage.getItem(ORG_VALIDATION_STATE_STORAGE_KEY);
+        if (rawValue) {
+            parsedState = JSON.parse(rawValue);
+        }
+    } catch (error) {
+        console.error('Erreur lecture statut validation ORG:', error);
+    }
+
+    if (!parsedState || typeof parsedState !== 'object') {
+        return {};
+    }
+
+    const normalizedState = {};
+    Object.keys(parsedState).forEach((orgKey) => {
+        if (!orgKey) {
+            return;
+        }
+
+        const entry = parsedState[orgKey];
+        if (!entry || typeof entry !== 'object') {
+            return;
+        }
+
+        normalizedState[orgKey] = {
+            status: normalizeOrgValidationStatus(entry.status),
+            updatedAt: Number(entry.updatedAt) || Date.now()
+        };
+    });
+
+    return normalizedState;
+}
+
+function persistOrgValidationState() {
+    try {
+        localStorage.setItem(ORG_VALIDATION_STATE_STORAGE_KEY, JSON.stringify(ORG_VALIDATION_STATE));
+    } catch (error) {
+        console.error('Erreur sauvegarde statut validation ORG:', error);
+    }
+}
+
+function setOrgValidationStatus(orgKey, status) {
+    if (!orgKey) {
+        return;
+    }
+
+    ORG_VALIDATION_STATE[orgKey] = {
+        status: normalizeOrgValidationStatus(status),
+        updatedAt: Date.now()
+    };
+    persistOrgValidationState();
+}
+
+function getOrgValidationStatus(orgKey) {
+    if (!orgKey || !ORG_VALIDATION_STATE[orgKey]) {
+        return '';
+    }
+    return normalizeOrgValidationStatus(ORG_VALIDATION_STATE[orgKey].status);
+}
+
+function isOrgNotValidated(orgKey) {
+    const status = getOrgValidationStatus(orgKey);
+    return status === ORG_VALIDATION_STATUSES.INVALID ||
+        status === ORG_VALIDATION_STATUSES.UNVERIFIED;
+}
+
+function isUserLocalOrg(orgKey) {
+    return !!(orgKey && USER_ORG_CONFIGS[orgKey] && !FILE_ORG_CONFIGS[orgKey]);
+}
+
+function ensureUserOrgValidationState() {
+    let hasChanges = false;
+    Object.keys(USER_ORG_CONFIGS).forEach((orgKey) => {
+        if (!orgKey || !USER_ORG_CONFIGS[orgKey]) {
+            return;
+        }
+        if (!ORG_VALIDATION_STATE[orgKey]) {
+            ORG_VALIDATION_STATE[orgKey] = {
+                status: ORG_VALIDATION_STATUSES.UNVERIFIED,
+                updatedAt: Date.now()
+            };
+            hasChanges = true;
+        }
+    });
+
+    if (hasChanges) {
+        persistOrgValidationState();
+    }
 }
 
 function sanitizeOrgConfig(orgConfig) {
@@ -384,6 +506,7 @@ function saveOrUpdateUserOrg(orgConfig, forcedOrgKey) {
         USER_ORG_CONFIGS[orgKey] = sanitizedConfig;
         persistUserOrgConfigs();
         refreshOrgConfigs();
+        setOrgValidationStatus(orgKey, ORG_VALIDATION_STATUSES.UNVERIFIED);
     }
 
     return orgKey;
@@ -416,6 +539,7 @@ function proceedWithAuthentication() {
         return Promise.reject(new Error('Aucune organisation sélectionnée'));
     }
 
+    const currentOrgSelectionKey = selectedOrgKey || findExistingOrgKey(selectedOrgConfig);
     ORGREGION = resolveRegionFromOrg(selectedOrgConfig);
     
     console.log(`🏢 Tentative de connexion: ${selectedOrgConfig.name}`);
@@ -441,6 +565,9 @@ function proceedWithAuthentication() {
     return loginWithSelectedAuthMode(selectedOrgConfig.clientId, redirectURL)
         .then(() => {
             console.log('✅ Authentification Genesys Cloud réussie');
+            if (currentOrgSelectionKey) {
+                setOrgValidationStatus(currentOrgSelectionKey, ORG_VALIDATION_STATUSES.VALID);
+            }
             initializeApis();
             return usersApi.getUsersMe();
         })
@@ -527,6 +654,11 @@ function proceedWithAuthentication() {
             enrichedError.originalError = err;
             enrichedError.shouldClearOrg = shouldClearOrg;
             enrichedError.organizationName = selectedOrgConfig.name;
+            enrichedError.organizationKey = currentOrgSelectionKey || null;
+
+            if (currentOrgSelectionKey && shouldClearOrg !== false) {
+                setOrgValidationStatus(currentOrgSelectionKey, ORG_VALIDATION_STATUSES.INVALID);
+            }
 
             throw enrichedError;
         });
@@ -537,41 +669,65 @@ function proceedWithAuthentication() {
  */
 function initializeWithOrgSelection() {
     return new Promise((resolve, reject) => {
-        console.log('🔄 Initialisation avec gestion d\'organisation...');
-        
+        console.log('Initialisation avec gestion d\'organisation...');
+
         const savedOrg = getSavedOrganization();
-        
-        if (savedOrg && ORG_CONFIGS[savedOrg]) {
-            applySelectedOrgContext(ORG_CONFIGS[savedOrg]);
-            console.log(`📂 Organisation sauvegardee: ${selectedOrgConfig.name} (auth: ${selectedAuthMode}, region: ${ORGREGION})`);
-            
+        const pendingSelection = getPendingOrganizationSelection();
+        const hasOAuthCallback = hasOAuthCallbackPayload();
+        let selectedOrgKey = null;
+        let selectionSource = null;
+
+        if (hasOAuthCallback &&
+            pendingSelection &&
+            pendingSelection.orgKey &&
+            ORG_CONFIGS[pendingSelection.orgKey]) {
+            selectedOrgKey = pendingSelection.orgKey;
+            selectionSource = 'pending';
+        } else if (savedOrg && ORG_CONFIGS[savedOrg]) {
+            selectedOrgKey = savedOrg;
+            selectionSource = 'saved';
+        } else if (pendingSelection && !hasOAuthCallback) {
+            clearPendingOrganizationSelection();
+        }
+
+        if (selectionSource === 'saved' && pendingSelection && !hasOAuthCallback) {
+            clearPendingOrganizationSelection();
+        }
+
+        if (selectedOrgKey && ORG_CONFIGS[selectedOrgKey]) {
+            applySelectedOrgContext(ORG_CONFIGS[selectedOrgKey], selectedOrgKey);
+            console.log(`Organisation ${selectionSource === 'saved' ? 'sauvegardee' : 'temporaire'}: ${selectedOrgConfig.name} (auth: ${selectedAuthMode}, region: ${ORGREGION})`);
+
             if (typeof updateLoadingStatus === 'function') {
-                updateLoadingStatus(`Connexion à ${selectedOrgConfig.name}...`);
+                updateLoadingStatus(`Connexion a ${selectedOrgConfig.name}...`);
             }
-            
+
             proceedWithAuthentication()
                 .then((result) => {
-                    console.log('✅ Connexion automatique réussie');
+                    if (selectionSource === 'pending') {
+                        applyRememberPreferenceAfterSuccess(selectedOrgKey, !!pendingSelection.remember);
+                    }
+                    clearPendingOrganizationSelection();
+                    console.log('Connexion automatique reussie');
                     resolve(result);
                 })
                 .catch((error) => {
-                    console.warn('❌ Échec connexion automatique:', error.message);
-                    
-                    // ✅ Supprimer l'org sauvegardée seulement si c'est une erreur d'auth
-                    if (error.shouldClearOrg !== false) {
+                    clearPendingOrganizationSelection();
+                    console.warn('Echec connexion automatique:', error.message);
+
+                    if (selectionSource === 'saved' && error.shouldClearOrg !== false) {
                         clearSavedOrganization();
                     }
-                    
-                    // ✅ Afficher le sélecteur avec le message d'erreur
+
                     showOrgSelector(resolve, reject, error.message);
                 });
         } else {
-            console.log('📋 Première connexion ou org supprimée');
-            
+            console.log('Premiere connexion ou org supprimee');
+
             if (typeof updateLoadingStatus === 'function') {
-                updateLoadingStatus(i18nAuth('auth.loading.select_org', "Selection de l'organisation..."));
+                updateLoadingStatus(i18nAuth('auth.loading.select_org', "Selection de l\'organisation..."));
             }
-            
+
             showOrgSelector(resolve, reject);
         }
     });
@@ -627,9 +783,91 @@ function clearSavedOrganization() {
         localStorage.removeItem('selectedOrganization');
         document.cookie = 'selectedOrg=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
         document.cookie = 'selectedAuthMode=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+        clearPendingOrganizationSelection();
         console.log('Organisation sauvegardée supprimée');
     } catch (error) {
         console.error('Erreur lors de la suppression de l\'organisation:', error);
+    }
+}
+
+function savePendingOrganizationSelection(orgKey, rememberSelection) {
+    if (!orgKey) {
+        return;
+    }
+
+    try {
+        const payload = {
+            orgKey,
+            remember: !!rememberSelection,
+            createdAt: Date.now()
+        };
+        sessionStorage.setItem(AUTH_PENDING_SELECTION_STORAGE_KEY, JSON.stringify(payload));
+    } catch (error) {
+        console.error('Erreur lors de la sauvegarde temporaire de la selection ORG:', error);
+    }
+}
+
+function getPendingOrganizationSelection() {
+    try {
+        const rawValue = sessionStorage.getItem(AUTH_PENDING_SELECTION_STORAGE_KEY);
+        if (!rawValue) {
+            return null;
+        }
+
+        const parsedValue = JSON.parse(rawValue);
+        if (!parsedValue || typeof parsedValue !== 'object') {
+            return null;
+        }
+
+        const ageMs = Date.now() - Number(parsedValue.createdAt || 0);
+        if (!Number.isFinite(ageMs) || ageMs < 0 || ageMs > AUTH_PENDING_SELECTION_MAX_AGE_MS) {
+            clearPendingOrganizationSelection();
+            return null;
+        }
+
+        return {
+            orgKey: parsedValue.orgKey,
+            remember: !!parsedValue.remember
+        };
+    } catch (error) {
+        console.error('Erreur lors de la lecture de la selection ORG temporaire:', error);
+        return null;
+    }
+}
+
+function clearPendingOrganizationSelection() {
+    try {
+        sessionStorage.removeItem(AUTH_PENDING_SELECTION_STORAGE_KEY);
+    } catch (error) {
+        console.error('Erreur lors de la suppression de la selection ORG temporaire:', error);
+    }
+}
+
+function hasOAuthCallbackPayload() {
+    try {
+        const hashValue = (window.location.hash || '').replace(/^#/, '');
+        const hashParams = new URLSearchParams(hashValue);
+        if (hashParams.has('access_token') || hashParams.has('error')) {
+            return true;
+        }
+
+        const searchParams = new URLSearchParams(window.location.search || '');
+        if (searchParams.has('code') || searchParams.has('error')) {
+            return true;
+        }
+
+        return false;
+    } catch (error) {
+        console.error('Erreur lors de la detection du callback OAuth:', error);
+        return false;
+    }
+}
+
+function applyRememberPreferenceAfterSuccess(orgKey, rememberSelection) {
+    if (rememberSelection) {
+        saveOrganization(orgKey);
+    } else {
+        clearSavedOrganization();
     }
 }
 
@@ -649,10 +887,20 @@ function renderOrgOption(orgKey, orgConfig) {
     const orgRegion = resolveRegionFromOrg(orgConfig);
     const orgRegionHost = REGION_HOSTS[orgRegion] || '';
     const orgRegionLabel = orgRegionHost ? `${orgRegion} (${orgRegionHost})` : orgRegion;
+    const optionClasses = ['org-option'];
+    const showEditButton = isUserLocalOrg(orgKey);
+    if (isOrgNotValidated(orgKey)) {
+        optionClasses.push('org-option-not-validated');
+    }
     return `
-        <div class="org-option" data-org="${orgKey}">
-            <div class="org-card" style="position: relative;">
+        <div class="${optionClasses.join(' ')}" data-org="${orgKey}">
+            <div class="org-card${showEditButton ? ' org-card-has-edit' : ''}" style="position: relative;">
                 <span class="label label-info" style="position:absolute;right:10px;top:10px;">${formatAuthModeLabel(orgConfig.authMode)}</span>
+                ${showEditButton ? `
+                    <button type="button" class="btn btn-link btn-xs org-edit-btn" data-org="${orgKey}" title="${i18nAuth('auth.org_selector.edit_local_org', 'Editer cette ORG locale')}">
+                        <i class="fa fa-pencil"></i>
+                    </button>
+                ` : ''}
                 <h5>${orgConfig.name}</h5>
                 <p class="text-muted">${orgConfig.description || ''}</p>
                 <small class="text-info">Region: ${orgRegionLabel}</small>
@@ -664,6 +912,67 @@ function renderOrgOption(orgKey, orgConfig) {
 /**
  * Affichage du sélecteur avec message d'erreur contextuel
  */
+function loadHelpContentHtml() {
+    if (helpContentHtmlCache) {
+        return Promise.resolve(helpContentHtmlCache);
+    }
+
+    if (helpContentLoadPromise) {
+        return helpContentLoadPromise;
+    }
+
+    helpContentLoadPromise = new Promise((resolve) => {
+        $.ajax({
+            url: HELP_CONTENT_FILE_PATH,
+            dataType: 'html',
+            cache: true
+        })
+            .done((htmlContent) => {
+                helpContentHtmlCache = typeof htmlContent === 'string' ? htmlContent : '';
+                resolve(helpContentHtmlCache);
+            })
+            .fail((jqXHR, textStatus, errorThrown) => {
+                console.warn('Impossible de charger help.html:', textStatus, errorThrown || '');
+                resolve('');
+            })
+            .always(() => {
+                helpContentLoadPromise = null;
+            });
+    });
+
+    return helpContentLoadPromise;
+}
+
+function extractHelpSectionMarkup(helpHtmlContent, sectionKey) {
+    if (!helpHtmlContent || !sectionKey) {
+        return '';
+    }
+
+    const parserContainer = document.createElement('div');
+    parserContainer.innerHTML = helpHtmlContent;
+    const section = parserContainer.querySelector(`[data-help-section="${sectionKey}"]`);
+    return section ? section.innerHTML.trim() : '';
+}
+
+function loadHelpSectionIntoElement(element, sectionKey) {
+    if (!element || !sectionKey) {
+        return;
+    }
+
+    loadHelpContentHtml().then((helpHtmlContent) => {
+        const sectionMarkup = extractHelpSectionMarkup(helpHtmlContent, sectionKey);
+        if (sectionMarkup) {
+            element.innerHTML = sectionMarkup;
+            return;
+        }
+
+        element.innerHTML = `
+            <p class="text-muted">
+                ${i18nAuth('auth.org_selector.help_unavailable', 'Aide indisponible pour le moment.')}
+            </p>
+        `;
+    });
+}
 function showOrgSelector(resolve, reject, errorMessage = null) {
     try {
         if (typeof $ === 'undefined') {
@@ -712,57 +1021,68 @@ function showOrgSelector(resolve, reject, errorMessage = null) {
                             <h4 class="modal-title">
                                 <i class="fa fa-building"></i> ${i18nAuth('auth.org_selector.title', "Selection de l'Organisation Genesys Cloud")}
                             </h4>
+                            <button type="button" class="btn btn-default btn-sm pull-right" id="orgHelpToggleBtn" aria-expanded="false" aria-controls="orgHelpPanel">
+                                <i class="fa fa-info-circle"></i> ${i18nAuth('auth.org_selector.help', 'Aide')}
+                            </button>
                         </div>
                         <div class="modal-body">
-                            ${errorHtml}
-                            ${noOrgConfiguredHtml}
-                            <p>${i18nAuth('auth.org_selector.prompt', 'Veuillez selectionner votre organisation Genesys Cloud :')}</p>
-                            <div id="orgList" class="org-list">
-                                ${orgKeys.map(orgKey => renderOrgOption(orgKey, ORG_CONFIGS[orgKey])).join('')}
-                            </div>
+                            <div class="org-selector-layout">
+                                <div class="org-selector-main">
+                                    ${errorHtml}
+                                    ${noOrgConfiguredHtml}
+                                    <p>${i18nAuth('auth.org_selector.prompt', 'Veuillez selectionner votre organisation Genesys Cloud :')}</p>
+                                    <div id="orgList" class="org-list">
+                                        ${orgKeys.map(orgKey => renderOrgOption(orgKey, ORG_CONFIGS[orgKey])).join('')}
+                                    </div>
 
-                            <hr>
-                            <h5><i class="fa fa-pen"></i> ${i18nAuth('auth.org_selector.manual_section', 'Saisie manuelle / Nouvelle ORG')}</h5>
-                            <div class="row">
-                                <div class="col-md-6">
-                                    <label>${i18nAuth('auth.org_selector.org_name', 'Nom ORG')}</label>
-                                    <input type="text" class="form-control" id="manualOrgName" placeholder="${i18nAuth('auth.org_selector.org_name_placeholder', 'Ex: Mon Organisation')}">
+                                    <hr>
+                                    <h5><i class="fa fa-pen"></i> ${i18nAuth('auth.org_selector.manual_section', 'Saisie manuelle / Nouvelle ORG')}</h5>
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <label>${i18nAuth('auth.org_selector.org_name', 'Nom ORG')}</label>
+                                            <input type="text" class="form-control" id="manualOrgName" placeholder="${i18nAuth('auth.org_selector.org_name_placeholder', 'Ex: Mon Organisation')}">
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label>${i18nAuth('auth.org_selector.client_id', 'Client ID')}</label>
+                                            <input type="text" class="form-control" id="manualOrgClientId" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+                                        </div>
+                                    </div>
+                                    <div class="row" style="margin-top: 10px;">
+                                        <div class="col-md-4">
+                                            <label>${i18nAuth('auth.org_selector.auth_type', 'Type de connexion')}</label>
+                                            <select class="form-control" id="manualOrgAuthMode">
+                                                <option value="implicit">Implicit</option>
+                                                <option value="pkce">PKCE</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label>${i18nAuth('auth.org_selector.region', 'Region')}</label>
+                                            <select class="form-control" id="manualOrgRegion">
+                                                ${regionOptionsHtml}
+                                            </select>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label>${i18nAuth('auth.org_selector.description', 'Description')}</label>
+                                            <input type="text" class="form-control" id="manualOrgDescription" placeholder="${i18nAuth('auth.org_selector.optional', 'Optionnel')}">
+                                        </div>
+                                    </div>
+                                    <div style="margin-top: 10px;">
+                                        <button type="button" class="btn btn-default btn-sm" id="addManualOrgBtn">
+                                            <i class="fa fa-plus"></i> ${i18nAuth('auth.org_selector.add_local_org', 'Ajouter cette ORG a la liste locale')}
+                                        </button>
+                                        <small id="manualOrgFeedback" class="text-muted" style="display:block;margin-top:6px;"></small>
+                                    </div>
+                                    <div class="checkbox" style="margin-top: 15px;">
+                                        <label>
+                                            <input type="checkbox" id="rememberOrg" ${errorMessage ? '' : 'checked'}>
+                                            ${i18nAuth('auth.org_selector.remember', 'Se souvenir de ma selection')}
+                                        </label>
+                                    </div>
                                 </div>
-                                <div class="col-md-6">
-                                    <label>${i18nAuth('auth.org_selector.client_id', 'Client ID')}</label>
-                                    <input type="text" class="form-control" id="manualOrgClientId" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
-                                </div>
-                            </div>
-                            <div class="row" style="margin-top: 10px;">
-                                <div class="col-md-4">
-                                    <label>${i18nAuth('auth.org_selector.auth_type', 'Type de connexion')}</label>
-                                    <select class="form-control" id="manualOrgAuthMode">
-                                        <option value="implicit">Implicit</option>
-                                        <option value="pkce">PKCE</option>
-                                    </select>
-                                </div>
-                                <div class="col-md-4">
-                                    <label>${i18nAuth('auth.org_selector.region', 'Region')}</label>
-                                    <select class="form-control" id="manualOrgRegion">
-                                        ${regionOptionsHtml}
-                                    </select>
-                                </div>
-                                <div class="col-md-4">
-                                    <label>${i18nAuth('auth.org_selector.description', 'Description')}</label>
-                                    <input type="text" class="form-control" id="manualOrgDescription" placeholder="${i18nAuth('auth.org_selector.optional', 'Optionnel')}">
-                                </div>
-                            </div>
-                            <div style="margin-top: 10px;">
-                                <button type="button" class="btn btn-default btn-sm" id="addManualOrgBtn">
-                                    <i class="fa fa-plus"></i> ${i18nAuth('auth.org_selector.add_local_org', 'Ajouter cette ORG a la liste locale')}
-                                </button>
-                                <small id="manualOrgFeedback" class="text-muted" style="display:block;margin-top:6px;"></small>
-                            </div>
-                            <div class="checkbox" style="margin-top: 15px;">
-                                <label>
-                                    <input type="checkbox" id="rememberOrg" ${errorMessage ? '' : 'checked'}> 
-                                    ${i18nAuth('auth.org_selector.remember', 'Se souvenir de ma selection')}
-                                </label>
+
+                                <aside id="orgHelpPanel" class="org-help-panel" aria-hidden="true" data-help-section="${AUTH_ORG_HELP_SECTION_KEY}">
+                                    <p class="text-muted org-help-loading">${i18nAuth('auth.org_selector.help_loading', 'Chargement de l aide...')}</p>
+                                </aside>
                             </div>
                         </div>
                         <div class="modal-footer">
@@ -776,6 +1096,11 @@ function showOrgSelector(resolve, reject, errorMessage = null) {
         `;
         
         document.body.insertAdjacentHTML('beforeend', selectorHTML);
+        const orgHelpPanelElement = document.getElementById('orgHelpPanel');
+        if (orgHelpPanelElement) {
+            const helpSectionKey = orgHelpPanelElement.getAttribute('data-help-section') || AUTH_ORG_HELP_SECTION_KEY;
+            loadHelpSectionIntoElement(orgHelpPanelElement, helpSectionKey);
+        }
         $('#orgSelectorModal').modal('show');
         
         setupOrgSelection(resolve, reject);
@@ -791,6 +1116,8 @@ function showOrgSelector(resolve, reject, errorMessage = null) {
  */
 function setupOrgSelection(resolve, reject) {
     let selectedOrg = null;
+    let manualDraftOrgKey = null;
+    let manualAutoSaveTimer = null;
 
     const orgListElement = document.getElementById('orgList');
 
@@ -826,6 +1153,25 @@ function setupOrgSelection(resolve, reject) {
         return !!getManualOrgConfigFromForm();
     }
 
+    function populateManualFormFromOrg(orgKey) {
+        const orgConfig = ORG_CONFIGS[orgKey];
+        if (!orgConfig) {
+            return;
+        }
+
+        $('#manualOrgName').val(orgConfig.name || '');
+        $('#manualOrgClientId').val(orgConfig.clientId || '');
+        $('#manualOrgAuthMode').val(normalizeAuthMode(orgConfig.authMode));
+        $('#manualOrgRegion').val(resolveRegionFromOrg(orgConfig));
+        $('#manualOrgDescription').val(orgConfig.description || '');
+
+        manualDraftOrgKey = isUserLocalOrg(orgKey) ? orgKey : null;
+        $('.org-option').removeClass('selected');
+        selectedOrg = null;
+        setManualFeedback(i18nAuth('auth.org_selector.editing_local_org', 'Edition d une ORG locale. Modifiez puis cliquez sur Ajouter.'), false);
+        updateConfirmButtonState();
+    }
+
     function updateConfirmButtonState() {
         const canConfirm = !!selectedOrg || isManualFormValid();
         $('#confirmOrgBtn').prop('disabled', !canConfirm);
@@ -844,58 +1190,119 @@ function setupOrgSelection(resolve, reject) {
             selectedOrg = $(this).data('org');
             processOrgSelection();
         });
+
+        $('.org-edit-btn').off('click').on('click', function(event) {
+            event.preventDefault();
+            event.stopPropagation();
+            const orgKey = ($(this).data('org') || '').toString();
+            if (!isUserLocalOrg(orgKey)) {
+                return;
+            }
+            populateManualFormFromOrg(orgKey);
+        });
     }
 
-    function appendOrgOption(orgKey) {
+    function appendOrgOption(orgKey, shouldSelect = true) {
         if (!orgListElement || !ORG_CONFIGS[orgKey]) {
             return;
         }
         const existingOption = orgListElement.querySelector(`.org-option[data-org="${orgKey}"]`);
         if (existingOption) {
-            $('.org-option').removeClass('selected');
-            $(existingOption).addClass('selected');
-            selectedOrg = orgKey;
+            const isCurrentlySelected = existingOption.classList.contains('selected');
+            existingOption.outerHTML = renderOrgOption(orgKey, ORG_CONFIGS[orgKey]);
+            bindOrgOptionEvents();
+            const refreshedOption = orgListElement.querySelector(`.org-option[data-org="${orgKey}"]`);
+            if (shouldSelect) {
+                $('.org-option').removeClass('selected');
+                if (refreshedOption) {
+                    $(refreshedOption).addClass('selected');
+                }
+                selectedOrg = orgKey;
+            } else if (isCurrentlySelected && refreshedOption) {
+                $(refreshedOption).addClass('selected');
+            }
             updateConfirmButtonState();
             return;
         }
         orgListElement.insertAdjacentHTML('beforeend', renderOrgOption(orgKey, ORG_CONFIGS[orgKey]));
         bindOrgOptionEvents();
-        $('.org-option').removeClass('selected');
-        $(`.org-option[data-org="${orgKey}"]`).addClass('selected');
-        selectedOrg = orgKey;
+        if (shouldSelect) {
+            $('.org-option').removeClass('selected');
+            $(`.org-option[data-org="${orgKey}"]`).addClass('selected');
+            selectedOrg = orgKey;
+        }
         updateConfirmButtonState();
     }
 
-    function upsertManualOrgInLocalStore() {
+    function upsertManualOrgInLocalStore(preferDraftKey = false) {
         const manualOrgConfig = getManualOrgConfigFromForm();
         if (!manualOrgConfig) {
             throw new Error(i18nAuth('auth.org_selector.required_fields', 'Nom ORG et Client ID obligatoires.'));
         }
-        const orgKey = saveOrUpdateUserOrg(manualOrgConfig);
+
+        const forcedOrgKey = preferDraftKey &&
+            manualDraftOrgKey &&
+            USER_ORG_CONFIGS[manualDraftOrgKey]
+            ? manualDraftOrgKey
+            : undefined;
+        const orgKey = saveOrUpdateUserOrg(manualOrgConfig, forcedOrgKey);
+        if (USER_ORG_CONFIGS[orgKey]) {
+            manualDraftOrgKey = orgKey;
+        }
+
         return {
             orgKey,
             orgConfig: ORG_CONFIGS[orgKey] || manualOrgConfig
         };
     }
 
+    function queueManualOrgAutoSave() {
+        if (manualAutoSaveTimer) {
+            clearTimeout(manualAutoSaveTimer);
+        }
+
+        manualAutoSaveTimer = setTimeout(() => {
+            if (!isManualFormValid()) {
+                return;
+            }
+
+            try {
+                const { orgKey } = upsertManualOrgInLocalStore(true);
+                appendOrgOption(orgKey, false);
+                setManualFeedback(i18nAuth('auth.org_selector.autosaved_local', 'ORG enregistree automatiquement.'), false);
+            } catch (error) {
+                setManualFeedback(error.message || i18nAuth('auth.org_selector.add_failed', 'Impossible d\'ajouter l\'ORG.'), true);
+            }
+        }, 500);
+    }
+
     bindOrgOptionEvents();
 
     $('#manualOrgName, #manualOrgClientId, #manualOrgAuthMode, #manualOrgRegion, #manualOrgDescription')
-        .on('input change focus', function() {
+        .on('input change', function() {
             $('.org-option').removeClass('selected');
             selectedOrg = null;
             setManualFeedback('', false);
             updateConfirmButtonState();
+            queueManualOrgAutoSave();
         });
 
     $('#addManualOrgBtn').on('click', function() {
         try {
-            const { orgKey } = upsertManualOrgInLocalStore();
-            appendOrgOption(orgKey);
+            const { orgKey } = upsertManualOrgInLocalStore(true);
+            appendOrgOption(orgKey, true);
             setManualFeedback(i18nAuth('auth.org_selector.added_local', 'ORG ajoutee a la liste locale.'), false);
         } catch (error) {
             setManualFeedback(error.message || i18nAuth('auth.org_selector.add_failed', 'Impossible d\'ajouter l\'ORG.'), true);
         }
+    });
+
+    $('#orgHelpToggleBtn').on('click', function() {
+        const modal = $('#orgSelectorModal');
+        const isOpen = modal.hasClass('org-help-open');
+        modal.toggleClass('org-help-open', !isOpen);
+        $(this).attr('aria-expanded', (!isOpen).toString());
+        $('#orgHelpPanel').attr('aria-hidden', isOpen ? 'true' : 'false');
     });
 
     // Gestionnaire de clic pour le bouton de confirmation
@@ -904,20 +1311,22 @@ function setupOrgSelection(resolve, reject) {
 
     function processOrgSelection() {
         try {
+            const shouldRememberSelection = $('#rememberOrg').is(':checked');
+            if (manualAutoSaveTimer) {
+                clearTimeout(manualAutoSaveTimer);
+                manualAutoSaveTimer = null;
+            }
+
             if (selectedOrg && ORG_CONFIGS[selectedOrg]) {
-                applySelectedOrgContext(ORG_CONFIGS[selectedOrg]);
+                applySelectedOrgContext(ORG_CONFIGS[selectedOrg], selectedOrg);
             } else {
-                const { orgKey, orgConfig } = upsertManualOrgInLocalStore();
+                const { orgKey, orgConfig } = upsertManualOrgInLocalStore(true);
                 selectedOrg = orgKey;
-                applySelectedOrgContext(orgConfig);
+                applySelectedOrgContext(orgConfig, orgKey);
             }
 
             // Sauvegarder si demandé
-            if ($('#rememberOrg').is(':checked')) {
-                saveOrganization(selectedOrg);
-            } else {
-                clearSavedOrganization();
-            }
+            savePendingOrganizationSelection(selectedOrg, shouldRememberSelection);
 
             // Fermer la modal
             $('#orgSelectorModal').modal('hide');
@@ -936,10 +1345,13 @@ function setupOrgSelection(resolve, reject) {
             // Procéder à l'authentification
             proceedWithAuthentication()
                 .then((result) => {
+                    applyRememberPreferenceAfterSuccess(selectedOrg, shouldRememberSelection);
+                    clearPendingOrganizationSelection();
                     setTimeout(() => $('#orgSelectorModal').remove(), 500);
                     resolve(result);
                 })
                 .catch((error) => {
+                    clearPendingOrganizationSelection();
                     setTimeout(() => $('#orgSelectorModal').remove(), 500);
                     reject(error);
                 });
@@ -1100,3 +1512,5 @@ function changeOrganization() {
 if (typeof window !== 'undefined') {
     window.GCTOOL_DEBUG_AUTH = getAuthDebugState;
 }
+
+

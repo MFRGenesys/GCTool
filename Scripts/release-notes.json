@@ -1,0 +1,120 @@
+{
+  "releases": [
+    {
+      "version": "v1.6.1",
+      "date": "2026-03-02",
+      "title": "Correction gestion ORG_REGION + versionning UI (MFR)",
+      "changes": [
+        "Centralisation de l'aide OAuth dans Scripts/help/help.html par section reutilisable.",
+        "Ajout des captures d'aide OAuth Implicit/PKCE dans le panneau d'aide.",
+        "Ajout du bouton edition (crayon) pour ORG locales uniquement (pas les ORG serveur).",
+        "Mise en rouge des ORG non validees (non testees ou en echec d'authentification).",
+        "Ajout du script TamperMonkey de capture des requetes Analytics (POST/GET selon filtre).",
+        "Ajout du badge version cliquable dans le header + modal de release notes.",
+        "Mise en place du script automatique d'increment mineur (npm run release:minor)."
+      ]
+    },
+    {
+      "version": "v1.6.0",
+      "date": "2025-09-10",
+      "title": "API Explorer optimise (MFR)",
+      "changes": [
+        "Optimisations de l'API Explorer.",
+        "Ameliorations de performance et d'ergonomie."
+      ]
+    },
+    {
+      "version": "v1.5.2",
+      "date": "2025-07-20",
+      "title": "MFR",
+      "changes": [
+        "Mise a jour intermediaire.",
+        "Corrections et ajustements divers."
+      ]
+    },
+    {
+      "version": "v1.5.1",
+      "date": "2025-07-03",
+      "title": "Traduction + Flow en cours de finalisation (MFR)",
+      "changes": [
+        "Avancement de la traduction multi-langues.",
+        "Poursuite de la finalisation du module Flow."
+      ]
+    },
+    {
+      "version": "v1.5.0",
+      "date": "2025-06-15",
+      "title": "DataTable Controleur verifie (MFR)",
+      "changes": [
+        "Validation et stabilisation du controleur DataTables."
+      ]
+    },
+    {
+      "version": "v1.4.0",
+      "date": "2025-05-20",
+      "title": "Version multi deployement sur serveur public (MFR)",
+      "changes": [
+        "Publication de la version multi en environnement public."
+      ]
+    },
+    {
+      "version": "v1.3.0",
+      "date": "2025-04-10",
+      "title": "API Explorer v3: Multi tab et switch Node/Texte (MFR)",
+      "changes": [
+        "Ajout du mode multi-onglets.",
+        "Ajout du switch d'affichage Node/Texte."
+      ]
+    },
+    {
+      "version": "v1.2.0",
+      "date": "2025-03-05",
+      "title": "API Explorer v2 avec JSONPath (MFR)",
+      "changes": [
+        "Ajout des capacites JSONPath dans l'API Explorer."
+      ]
+    },
+    {
+      "version": "v1.1.0",
+      "date": "2025-02-15",
+      "title": "Ajout API Explorer v1 et Mail Priority (MFR)",
+      "changes": [
+        "Premiere version de l'API Explorer.",
+        "Ajout de l'outil Mail Priority."
+      ]
+    },
+    {
+      "version": "v1.0.3",
+      "date": "2025-01-25",
+      "title": "Ajout de logs-flow v1 (MFR)",
+      "changes": [
+        "Ajout du module logs-flow v1."
+      ]
+    },
+    {
+      "version": "v1.0.2",
+      "date": "2025-01-10",
+      "title": "Import des datas APIs et import PP par Excel (non teste) (MFR)",
+      "changes": [
+        "Ajout d'une version d'import de donnees APIs.",
+        "Ajout du flux d'import PP par Excel (non teste)."
+      ]
+    },
+    {
+      "version": "v1.0.1",
+      "date": "2024-12-05",
+      "title": "First commit from command (MFR)",
+      "changes": [
+        "Premier commit realise via commande."
+      ]
+    },
+    {
+      "version": "v1.0.0",
+      "date": "2024-12-01",
+      "title": "First commit (MFR)",
+      "changes": [
+        "Initialisation du projet."
+      ]
+    }
+  ]
+}

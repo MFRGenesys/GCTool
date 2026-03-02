@@ -1,0 +1,34 @@
+<div id="gctool-help-sections">
+    <section data-help-section="auth-org-selector">
+        <h5><i class="fa fa-life-ring"></i> Aide configuration OAuth Genesys</h5>
+        <p class="text-muted">Pour GCTool, configurez une OAuth Client dans Genesys Cloud puis copiez le Client ID.</p>
+
+        <div class="org-help-card">
+            <span class="label label-primary">Implicit Grant</span>
+            <p><strong>Grant Type:</strong> Token Implicit Grant (Browser)</p>
+            <p><strong>Authorized redirect URI:</strong> <code>https://mfrgenesys.github.io/GCTool/</code></p>
+            <p>Copiez le Client ID dans le champ Client ID de cette page.</p>
+            <img
+                class="org-help-image"
+                src="./Scripts/help/help_connection_implicitgrant.png"
+                alt="Configuration OAuth Implicit Grant dans Genesys Cloud"
+                loading="lazy">
+        </div>
+
+        <div class="org-help-card">
+            <span class="label label-success">PKCE</span>
+            <p><strong>Grant Type:</strong> Code Authorization / PKCE</p>
+            <p><strong>Authorized redirect URI:</strong> <code>https://mfrgenesys.github.io/GCTool/</code></p>
+            <p>Copiez ensuite le Client ID dans GCTool.</p>
+            <img
+                class="org-help-image"
+                src="./Scripts/help/help_connection_PKCE.png"
+                alt="Configuration OAuth PKCE dans Genesys Cloud"
+                loading="lazy">
+        </div>
+    </section>
+
+    <!-- Ajouter d'autres sections de help ici:
+         <section data-help-section="nom-section">...</section>
+    -->
+</div>
