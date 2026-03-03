@@ -7,7 +7,6 @@
 // @match        *://apps.mypurecloud.*/*
 // @match        *://*.mypurecloud.*/*
 // @match        *://*.pure.cloud/*
-// @noframes
 // @run-at       document-start
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=mypurecloud.ie
 // @grant        none
@@ -27,6 +26,9 @@
     const PANEL_ID = 'tm-gc-analytics-panel';
     const RESTORE_BTN_ID = 'tm-gc-analytics-restore-btn';
     const EVENT_NAME = 'tm:gc:analytics-query';
+    const STATS_EVENT_NAME = 'tm:gc:analytics-stats';
+    const STATS_STORAGE_KEY = 'tm_gc_analytics_stats';
+    const REPATCH_INTERVAL_MS = 1000;
 
     function safeJsonParse(text) {
         try {
@@ -88,6 +90,68 @@
 
     function saveEntries(entries) {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(entries.slice(0, MAX_ENTRIES)));
+    }
+
+    function isTopWindow() {
+        try {
+            return window.top === window.self;
+        } catch (_error) {
+            return false;
+        }
+    }
+
+    function loadStats() {
+        try {
+            const raw = localStorage.getItem(STATS_STORAGE_KEY);
+            if (!raw) {
+                return { seen: 0, captured: 0 };
+            }
+            const parsed = JSON.parse(raw);
+            return {
+                seen: Number(parsed?.seen) || 0,
+                captured: Number(parsed?.captured) || 0
+            };
+        } catch (_error) {
+            return { seen: 0, captured: 0 };
+        }
+    }
+
+    function saveStats(nextStats) {
+        const normalized = {
+            seen: Math.max(0, Number(nextStats?.seen) || 0),
+            captured: Math.max(0, Number(nextStats?.captured) || 0)
+        };
+        localStorage.setItem(STATS_STORAGE_KEY, JSON.stringify(normalized));
+        return normalized;
+    }
+
+    function notifyStats(explicitStats) {
+        const currentStats = explicitStats || loadStats();
+        window.dispatchEvent(new CustomEvent(STATS_EVENT_NAME, {
+            detail: {
+                seen: currentStats.seen,
+                captured: currentStats.captured
+            }
+        }));
+    }
+
+    function bumpStats(deltaSeen, deltaCaptured) {
+        const current = loadStats();
+        const next = saveStats({
+            seen: current.seen + (Number(deltaSeen) || 0),
+            captured: current.captured + (Number(deltaCaptured) || 0)
+        });
+        notifyStats(next);
+    }
+
+    function resetStats() {
+        const next = saveStats({ seen: 0, captured: 0 });
+        notifyStats(next);
+    }
+
+    function shouldTrackAnalytics(url) {
+        if (!url) return false;
+        return ANALYTICS_API_REGEX.test(String(url));
     }
 
     function persistEntry(entry) {
@@ -158,7 +222,7 @@
 
     function shouldCapture(url, method) {
         if (!url || !method) return false;
-        if (!ANALYTICS_API_REGEX.test(url)) return false;
+        if (!shouldTrackAnalytics(url)) return false;
         return ['POST', 'GET'].includes(method.toUpperCase());
     }
 
@@ -173,21 +237,42 @@
     }
 
     function captureRequest(payload) {
-        if (!shouldCapture(payload.url, payload.method)) {
+        if (!payload || !shouldTrackAnalytics(payload.url)) {
             return;
         }
+        bumpStats(1, 0);
+
+        if (!shouldCapture(payload.url, payload.method)) {
+            ensurePanelWhenReady();
+            return;
+        }
+
+        bumpStats(0, 1);
         persistEntry(buildEntry(payload));
+        ensurePanelWhenReady();
+    }
+
+    function ensurePanelWhenReady() {
+        if (!isTopWindow()) return;
+        if (document.getElementById(PANEL_ID)) return;
+        if (document.body) {
+            ensurePanel();
+            return;
+        }
+        window.requestAnimationFrame(ensurePanelWhenReady);
     }
 
     function patchFetch() {
         if (typeof window.fetch !== 'function') return;
+        if (window.fetch.__tmGcPatchedFetch) return;
+
         const originalFetch = window.fetch;
 
-        window.fetch = function patchedFetch(input, init) {
+        function patchedFetch(input, init) {
             const requestUrl = typeof input === 'string' ? input : input?.url || '';
             const requestMethod = (init?.method || input?.method || 'GET').toUpperCase();
 
-            if (shouldCapture(requestUrl, requestMethod)) {
+            if (shouldTrackAnalytics(requestUrl)) {
                 if (init && Object.prototype.hasOwnProperty.call(init, 'body')) {
                     captureRequest({
                         source: 'fetch',
@@ -196,41 +281,66 @@
                         body: init.body
                     });
                 } else if (typeof Request !== 'undefined' && input instanceof Request) {
-                    input.clone().text()
-                        .then((text) => {
-                            captureRequest({
-                                source: 'fetch',
-                                url: requestUrl,
-                                method: requestMethod,
-                                body: text
-                            });
-                        })
-                        .catch(() => {
-                            captureRequest({
-                                source: 'fetch',
-                                url: requestUrl,
-                                method: requestMethod,
-                                body: null
-                            });
+                    if (requestMethod === 'GET' || requestMethod === 'HEAD' || requestMethod === 'OPTIONS') {
+                        captureRequest({
+                            source: 'fetch',
+                            url: requestUrl,
+                            method: requestMethod,
+                            body: null
                         });
+                    } else {
+                        input.clone().text()
+                            .then((text) => {
+                                captureRequest({
+                                    source: 'fetch',
+                                    url: requestUrl,
+                                    method: requestMethod,
+                                    body: text
+                                });
+                            })
+                            .catch(() => {
+                                captureRequest({
+                                    source: 'fetch',
+                                    url: requestUrl,
+                                    method: requestMethod,
+                                    body: null
+                                });
+                            });
+                    }
+                } else {
+                    // Cas sans body (ou body inaccessible) : on journalise quand meme la requete.
+                    captureRequest({
+                        source: 'fetch',
+                        url: requestUrl,
+                        method: requestMethod,
+                        body: null
+                    });
                 }
             }
 
             return originalFetch.apply(this, arguments);
-        };
+        }
+
+        Object.defineProperty(patchedFetch, '__tmGcPatchedFetch', { value: true });
+        Object.defineProperty(patchedFetch, '__tmGcOriginalFetch', { value: originalFetch });
+        window.fetch = patchedFetch;
     }
 
     function patchXHR() {
         if (typeof XMLHttpRequest === 'undefined') return;
+        if (XMLHttpRequest.prototype.open && XMLHttpRequest.prototype.open.__tmGcPatchedXhrOpen &&
+            XMLHttpRequest.prototype.send && XMLHttpRequest.prototype.send.__tmGcPatchedXhrSend) {
+            return;
+        }
         const originalOpen = XMLHttpRequest.prototype.open;
         const originalSend = XMLHttpRequest.prototype.send;
 
-        XMLHttpRequest.prototype.open = function patchedOpen(method, url) {
+        function patchedOpen(method, url) {
             this.__tmGcMeta = { method: (method || 'GET').toUpperCase(), url: url || '' };
             return originalOpen.apply(this, arguments);
-        };
+        }
 
-        XMLHttpRequest.prototype.send = function patchedSend(body) {
+        function patchedSend(body) {
             const meta = this.__tmGcMeta || {};
             captureRequest({
                 source: 'xhr',
@@ -239,7 +349,12 @@
                 body
             });
             return originalSend.apply(this, arguments);
-        };
+        }
+
+        Object.defineProperty(patchedOpen, '__tmGcPatchedXhrOpen', { value: true });
+        Object.defineProperty(patchedSend, '__tmGcPatchedXhrSend', { value: true });
+        XMLHttpRequest.prototype.open = patchedOpen;
+        XMLHttpRequest.prototype.send = patchedSend;
     }
 
     function isAnalyticsPage() {
@@ -273,7 +388,10 @@
 
         panel.innerHTML = `
             <div style="padding:8px 10px;background:#f5f5f5;border-bottom:1px solid #ddd;display:flex;justify-content:space-between;align-items:center;">
-                <strong>Analytics Query</strong>
+                <div style="display:flex;flex-direction:column;">
+                    <strong>Analytics Query</strong>
+                    <small id="tm-gc-counter" style="font-size:11px;color:#666;">0 / 0</small>
+                </div>
                 <div>
                     <button id="tm-gc-refresh" style="margin-right:6px;">Refresh</button>
                     <button id="tm-gc-toggle">Masquer</button>
@@ -293,6 +411,11 @@
 
         function render() {
             const entries = loadEntries();
+            const counterEl = panel.querySelector('#tm-gc-counter');
+            if (counterEl) {
+                const currentStats = loadStats();
+                counterEl.textContent = `Capturees / vues: ${currentStats.captured} / ${currentStats.seen}`;
+            }
             if (!entries.length) {
                 bodyEl.textContent = 'Aucune requete Analytics capturee pour le moment.';
                 return;
@@ -370,6 +493,7 @@
         panel.querySelector('#tm-gc-refresh').addEventListener('click', render);
         panel.querySelector('#tm-gc-clear').addEventListener('click', () => {
             saveEntries([]);
+            resetStats();
             render();
         });
         toggleBtn.addEventListener('click', () => {
@@ -377,6 +501,13 @@
         });
 
         window.addEventListener(EVENT_NAME, render);
+        window.addEventListener(STATS_EVENT_NAME, render);
+        window.addEventListener('storage', (event) => {
+            if (!event || !event.key) return;
+            if (event.key === STORAGE_KEY || event.key === STATS_STORAGE_KEY) {
+                render();
+            }
+        });
         render();
     }
 
@@ -423,10 +554,16 @@
         }
     }
 
-    patchFetch();
-    patchXHR();
+    function installNetworkPatches() {
+        patchFetch();
+        patchXHR();
+    }
+
+    installNetworkPatches();
+    window.setInterval(installNetworkPatches, REPATCH_INTERVAL_MS);
 
     function bootstrapPanel() {
+        if (!isTopWindow()) return;
         if (!isAnalyticsPage()) return;
         ensurePanel();
     }

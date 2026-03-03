@@ -68,7 +68,16 @@
         bodyBuilderExpandedPaths: new Set(),
         bodyBuilderTopLevelInclusion: {},
         bodyBuilderIntervalDrafts: {},
-        postBodyTemplates: []
+        isBodyEditorSyncInProgress: false,
+        postBodyTemplates: [],
+        responseSearchText: '',
+        responseSearchAttribute: '',
+        responseSearchFilterTopLevelOnly: false,
+        responseSearchMatcher: null,
+        responseSearchError: '',
+        responseSearchMatchedValuePaths: new Set(),
+        responseSearchMatchedKeyPaths: new Set(),
+        responseSearchTopLevelStats: { matched: 0, total: 0 }
     };
 
     const batchScaffold = {
@@ -125,6 +134,7 @@
     function bindUiEvents() {
         ensureBatchValidationElement();
         ensureBodyValidationElement();
+        setupBodyJsonEditorHighlighting();
         ensureProjectionSuggestionDataList();
 
         const searchInput = document.getElementById('apiExplorerSearchInput');
@@ -207,7 +217,9 @@
         if (bodyJsonInput) {
             bodyJsonInput.setAttribute('spellcheck', 'false');
             bodyJsonInput.setAttribute('autocomplete', 'off');
-            bodyJsonInput.addEventListener('input', () => validateBodyJsonEditorRealtime({ silentWhenEmpty: true }));
+            bodyJsonInput.setAttribute('autocorrect', 'off');
+            bodyJsonInput.setAttribute('autocapitalize', 'off');
+            bodyJsonInput.addEventListener('input', onBodyJsonInputChanged);
         }
 
         const insertBodyTemplateBtn = document.getElementById('apiExplorerInsertBodyTemplateBtn');
@@ -320,11 +332,46 @@
             projectionPathInput.addEventListener('keydown', onProjectionPathKeyDown);
         }
 
+        const responseSearchInput = document.getElementById('apiExplorerResponseSearchInput');
+        if (responseSearchInput) {
+            responseSearchInput.addEventListener('keydown', (event) => {
+                if (event && event.key === 'Enter') {
+                    event.preventDefault();
+                    runResponseSearchFromUi();
+                }
+            });
+        }
+
+        const responseSearchRunBtn = document.getElementById('apiExplorerResponseSearchRunBtn');
+        if (responseSearchRunBtn) {
+            responseSearchRunBtn.addEventListener('click', runResponseSearchFromUi);
+        }
+
+        const responseSearchClearBtn = document.getElementById('apiExplorerResponseSearchClearBtn');
+        if (responseSearchClearBtn) {
+            responseSearchClearBtn.addEventListener('click', clearResponseSearchFromUi);
+        }
+
+        const responseSearchAttribute = document.getElementById('apiExplorerResponseSearchAttribute');
+        if (responseSearchAttribute) {
+            responseSearchAttribute.addEventListener('change', runResponseSearchFromUi);
+        }
+
+        const responseSearchTopLevelFilterBtn = document.getElementById('apiExplorerResponseSearchTopLevelFilterBtn');
+        if (responseSearchTopLevelFilterBtn) {
+            responseSearchTopLevelFilterBtn.addEventListener('click', () => {
+                apiExplorerState.responseSearchFilterTopLevelOnly = !apiExplorerState.responseSearchFilterTopLevelOnly;
+                refreshResponseSearchFilterButtonUi();
+                rerenderCurrentResponseForSearch();
+            });
+        }
+
         const nodeViewSwitch = document.getElementById('apiExplorerResponseNodeViewSwitch');
         if (nodeViewSwitch) {
             nodeViewSwitch.addEventListener('change', onResponseNodeViewSwitchChanged);
         }
 
+        initializeResponseSearchUi();
         applyPanelLayoutState();
     }
 
@@ -366,6 +413,75 @@
         return statusEl;
     }
 
+    function onBodyJsonInputChanged() {
+        validateBodyJsonEditorRealtime({ silentWhenEmpty: true, endpoint: getSelectedEndpoint() });
+    }
+
+    function setupBodyJsonEditorHighlighting() {
+        const bodyInput = document.getElementById('apiExplorerBodyJson');
+        const highlightEl = document.getElementById('apiExplorerBodyJsonHighlight');
+        const editorWrapper = document.getElementById('apiExplorerBodyJsonEditor');
+        if (!bodyInput || !highlightEl || !editorWrapper) return;
+
+        editorWrapper.classList.add('api-json-editor-enhanced');
+        bodyInput.addEventListener('scroll', syncBodyJsonHighlightScrollPosition);
+        renderBodyJsonEditorHighlight(bodyInput.value || '');
+        syncBodyJsonHighlightScrollPosition();
+    }
+
+    function syncBodyJsonHighlightScrollPosition() {
+        const bodyInput = document.getElementById('apiExplorerBodyJson');
+        const highlightEl = document.getElementById('apiExplorerBodyJsonHighlight');
+        if (!bodyInput || !highlightEl) return;
+        highlightEl.scrollTop = bodyInput.scrollTop;
+        highlightEl.scrollLeft = bodyInput.scrollLeft;
+    }
+
+    function renderBodyJsonEditorHighlight(rawText) {
+        const highlightEl = document.getElementById('apiExplorerBodyJsonHighlight');
+        if (!highlightEl) return;
+
+        const sourceText = String(rawText || '');
+        const highlighted = highlightJsonForBodyEditor(sourceText);
+        // Ligne supplementaire: evite les sauts visuels sur la derniere ligne.
+        highlightEl.innerHTML = (highlighted || '&nbsp;') + '\n';
+        syncBodyJsonHighlightScrollPosition();
+    }
+
+    function highlightJsonForBodyEditor(rawText) {
+        const source = String(rawText || '');
+        if (!source) return '';
+
+        const tokenRegex = /"(?:\\u[\da-fA-F]{4}|\\[^u]|[^\\"])*"|\btrue\b|\bfalse\b|\bnull\b|-?\d+(?:\.\d+)?(?:[eE][+\-]?\d+)?|[{}\[\],:]/g;
+        let html = '';
+        let cursor = 0;
+        let match;
+
+        while ((match = tokenRegex.exec(source)) !== null) {
+            const tokenText = match[0];
+            const offset = match.index;
+            html += escapeHtml(source.slice(cursor, offset));
+
+            let className = 'api-body-json-number';
+            if (tokenText[0] === '"') {
+                const trailingText = source.slice(offset + tokenText.length);
+                className = /^\s*:/.test(trailingText) ? 'api-body-json-key' : 'api-body-json-string';
+            } else if (tokenText === 'true' || tokenText === 'false') {
+                className = 'api-body-json-boolean';
+            } else if (tokenText === 'null') {
+                className = 'api-body-json-null';
+            } else if (/^[{}\[\],:]$/.test(tokenText)) {
+                className = 'api-body-json-punctuation';
+            }
+
+            html += '<span class="' + className + '">' + escapeHtml(tokenText) + '</span>';
+            cursor = offset + tokenText.length;
+        }
+
+        html += escapeHtml(source.slice(cursor));
+        return html;
+    }
+
     function ensureProjectionSuggestionDataList() {
         const input = document.getElementById('apiExplorerProjectionPath');
         if (!input) return null;
@@ -384,6 +500,516 @@
         }
 
         return dataList;
+    }
+
+    function initializeResponseSearchUi() {
+        const searchInput = document.getElementById('apiExplorerResponseSearchInput');
+        const attributeSelect = document.getElementById('apiExplorerResponseSearchAttribute');
+        if (searchInput) searchInput.value = apiExplorerState.responseSearchText || '';
+        if (attributeSelect) attributeSelect.value = apiExplorerState.responseSearchAttribute || '';
+        refreshResponseSearchFilterButtonUi();
+        updateResponseSearchCounterUi(0, 0);
+    }
+
+    function refreshResponseSearchFilterButtonUi() {
+        const filterBtn = document.getElementById('apiExplorerResponseSearchTopLevelFilterBtn');
+        const hasQuery = String(apiExplorerState.responseSearchText || '').trim().length > 0;
+        if (!filterBtn) return;
+
+        filterBtn.disabled = !hasQuery;
+        filterBtn.classList.toggle('btn-primary', apiExplorerState.responseSearchFilterTopLevelOnly && hasQuery);
+        filterBtn.classList.toggle('btn-default', !apiExplorerState.responseSearchFilterTopLevelOnly || !hasQuery);
+    }
+
+    function runResponseSearchFromUi() {
+        const searchInput = document.getElementById('apiExplorerResponseSearchInput');
+        const attributeSelect = document.getElementById('apiExplorerResponseSearchAttribute');
+
+        apiExplorerState.responseSearchText = searchInput ? String(searchInput.value || '') : '';
+        apiExplorerState.responseSearchAttribute = attributeSelect ? String(attributeSelect.value || '') : '';
+        refreshResponseSearchFilterButtonUi();
+        rerenderCurrentResponseForSearch();
+    }
+
+    function clearResponseSearchFromUi() {
+        apiExplorerState.responseSearchText = '';
+        apiExplorerState.responseSearchAttribute = '';
+        apiExplorerState.responseSearchError = '';
+        apiExplorerState.responseSearchFilterTopLevelOnly = false;
+        apiExplorerState.responseSearchMatcher = null;
+        apiExplorerState.responseSearchMatchedValuePaths = new Set();
+        apiExplorerState.responseSearchMatchedKeyPaths = new Set();
+        apiExplorerState.responseSearchTopLevelStats = { matched: 0, total: 0 };
+
+        const searchInput = document.getElementById('apiExplorerResponseSearchInput');
+        const attributeSelect = document.getElementById('apiExplorerResponseSearchAttribute');
+        if (searchInput) {
+            searchInput.value = '';
+            searchInput.classList.remove('api-response-search-input-invalid');
+            searchInput.title = '';
+        }
+        if (attributeSelect) attributeSelect.value = '';
+        refreshResponseSearchFilterButtonUi();
+        updateResponseSearchCounterUi(0, 0);
+        renderResponseSearchMarkers();
+        rerenderCurrentResponseForSearch();
+    }
+
+    function rerenderCurrentResponseForSearch() {
+        const payload = getCurrentRenderableResponsePayload();
+        if (payload === null || typeof payload === 'undefined') {
+            updateResponseSearchCounterUi(0, 0);
+            renderResponseSearchMarkers();
+            return;
+        }
+        renderResponseObject(payload);
+    }
+
+    function buildResponseSearchDescriptor(searchText, selectedAttribute) {
+        const query = String(searchText || '').trim();
+        const attribute = String(selectedAttribute || '').trim();
+        if (!query) {
+            return {
+                active: false,
+                query: '',
+                attribute: attribute,
+                error: '',
+                matcher: null,
+                matcherSource: '',
+                matcherFlags: ''
+            };
+        }
+
+        const compiled = compileResponseSearchMatcher(query);
+        if (!compiled.ok) {
+            return {
+                active: false,
+                query,
+                attribute,
+                error: compiled.error || 'Recherche invalide.',
+                matcher: null,
+                matcherSource: '',
+                matcherFlags: ''
+            };
+        }
+
+        return {
+            active: true,
+            query,
+            attribute,
+            error: '',
+            matcher: compiled.matcher,
+            matcherSource: compiled.matcher.source,
+            matcherFlags: compiled.matcher.flags
+        };
+    }
+
+    function compileResponseSearchMatcher(query) {
+        const raw = String(query || '').trim();
+        if (!raw) {
+            return { ok: false, error: 'Recherche vide.' };
+        }
+
+        const asRegexLiteral = raw.match(/^\/([\s\S]*)\/([gimsuy]*)$/);
+        try {
+            let matcher;
+            if (asRegexLiteral) {
+                const source = asRegexLiteral[1];
+                const flags = asRegexLiteral[2].replace(/g/g, '');
+                matcher = new RegExp(source, flags);
+            } else {
+                const escaped = raw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\\\*/g, '.*');
+                matcher = new RegExp(escaped, 'i');
+            }
+
+            matcher.lastIndex = 0;
+            if (matcher.test('')) {
+                return { ok: false, error: 'La recherche ne doit pas matcher une chaine vide.' };
+            }
+
+            return { ok: true, matcher };
+        } catch (error) {
+            return {
+                ok: false,
+                error: error && error.message ? String(error.message) : 'Expression de recherche invalide.'
+            };
+        }
+    }
+
+    function testResponseSearchMatcher(descriptor, text) {
+        if (!descriptor || !descriptor.active || !(descriptor.matcher instanceof RegExp)) {
+            return false;
+        }
+
+        const safeText = String(text || '');
+        descriptor.matcher.lastIndex = 0;
+        return descriptor.matcher.test(safeText);
+    }
+
+    function buildResponseSearchHighlightRegex(descriptor) {
+        if (!descriptor || !descriptor.active || !descriptor.matcherSource) return null;
+
+        try {
+            const flags = descriptor.matcherFlags || '';
+            const uniqueFlags = Array.from(new Set((flags + 'g').split(''))).join('');
+            return new RegExp(descriptor.matcherSource, uniqueFlags);
+        } catch (_error) {
+            return null;
+        }
+    }
+
+    function refreshResponseSearchAttributeOptions(payload) {
+        const selectEl = document.getElementById('apiExplorerResponseSearchAttribute');
+        if (!selectEl) return;
+
+        const currentValue = String(apiExplorerState.responseSearchAttribute || '');
+        const attributes = new Set();
+        collectResponseAttributesRecursive(payload, attributes);
+        const sorted = Array.from(attributes).sort((left, right) => left.localeCompare(right));
+
+        let optionsHtml = '<option value="">Tous les attributs</option>';
+        sorted.forEach((attributeName) => {
+            optionsHtml += '<option value="' + escapeAttribute(attributeName) + '">' + escapeHtml(attributeName) + '</option>';
+        });
+        selectEl.innerHTML = optionsHtml;
+
+        if (currentValue && attributes.has(currentValue)) {
+            selectEl.value = currentValue;
+        } else {
+            selectEl.value = '';
+            apiExplorerState.responseSearchAttribute = '';
+        }
+    }
+
+    function collectResponseAttributesRecursive(value, collector) {
+        if (!collector) return;
+        if (Array.isArray(value)) {
+            value.forEach((item) => collectResponseAttributesRecursive(item, collector));
+            return;
+        }
+
+        if (!isPlainObject(value)) return;
+        Object.keys(value).forEach((key) => {
+            collector.add(key);
+            collectResponseAttributesRecursive(value[key], collector);
+        });
+    }
+
+    function analyzePayloadForResponseSearch(payload, descriptor, options) {
+        const safeOptions = isPlainObject(options) ? options : {};
+        const matchedValuePaths = new Set();
+        const matchedKeyPaths = new Set();
+        let displayedPayload = payload;
+        let topLevelStats = { matched: 0, total: 0 };
+
+        if (!descriptor || !descriptor.active) {
+            return { displayedPayload, matchedValuePaths, matchedKeyPaths, topLevelStats };
+        }
+
+        evaluateNodeForResponseSearch(payload, '', null, descriptor, matchedValuePaths, matchedKeyPaths);
+
+        const filtered = buildDisplayPayloadForTopLevelSearchFilter(
+            payload,
+            descriptor,
+            matchedValuePaths,
+            matchedKeyPaths
+        );
+        topLevelStats = filtered.topLevelStats;
+
+        const shouldFilterTopLevel = apiExplorerState.responseSearchFilterTopLevelOnly && !safeOptions.skipTopLevelFilter;
+        if (shouldFilterTopLevel) {
+            displayedPayload = filtered.payload;
+        }
+
+        return { displayedPayload, matchedValuePaths, matchedKeyPaths, topLevelStats };
+    }
+
+    function evaluateNodeForResponseSearch(node, path, parentAttribute, descriptor, matchedValuePaths, matchedKeyPaths) {
+        if (Array.isArray(node)) {
+            let hasArrayMatch = false;
+            node.forEach((item, index) => {
+                const childPath = buildJsonPathWithArrayIndex(path, index);
+                if (evaluateNodeForResponseSearch(item, childPath, parentAttribute, descriptor, matchedValuePaths, matchedKeyPaths)) {
+                    hasArrayMatch = true;
+                }
+            });
+            return hasArrayMatch;
+        }
+
+        if (isPlainObject(node)) {
+            let hasObjectMatch = false;
+            Object.keys(node).forEach((key) => {
+                const childPath = buildJsonPathWithObjectKey(path, key);
+                if (!descriptor.attribute && testResponseSearchMatcher(descriptor, key)) {
+                    matchedKeyPaths.add(childPath);
+                    hasObjectMatch = true;
+                }
+                if (evaluateNodeForResponseSearch(node[key], childPath, key, descriptor, matchedValuePaths, matchedKeyPaths)) {
+                    hasObjectMatch = true;
+                }
+            });
+            return hasObjectMatch;
+        }
+
+        const shouldTestValue = !descriptor.attribute || descriptor.attribute === String(parentAttribute || '');
+        if (!shouldTestValue) {
+            return false;
+        }
+
+        const primitiveText = formatPrimitiveValueForSearch(node);
+        const isMatched = testResponseSearchMatcher(descriptor, primitiveText);
+        if (isMatched) {
+            matchedValuePaths.add(path || '$');
+        }
+        return isMatched;
+    }
+
+    function buildDisplayPayloadForTopLevelSearchFilter(payload, descriptor, matchedValuePaths, matchedKeyPaths) {
+        const sets = {
+            valuePaths: matchedValuePaths,
+            keyPaths: matchedKeyPaths
+        };
+        let total = 0;
+        let matched = 0;
+
+        if (!descriptor || !descriptor.active) {
+            return {
+                payload,
+                topLevelStats: { matched: 0, total: 0 }
+            };
+        }
+
+        if (Array.isArray(payload)) {
+            const filteredArray = [];
+            payload.forEach((item, index) => {
+                const candidatePath = buildJsonPathWithArrayIndex('', index);
+                total += 1;
+                if (isJsonPathMarkedAsMatched(candidatePath, sets)) {
+                    matched += 1;
+                    filteredArray.push(item);
+                }
+            });
+            return {
+                payload: filteredArray,
+                topLevelStats: { matched, total }
+            };
+        }
+
+        if (isPlainObject(payload)) {
+            const rootKeys = Object.keys(payload);
+            const rootArrayKeys = rootKeys.filter((key) => Array.isArray(payload[key]));
+
+            if (rootArrayKeys.length) {
+                const nextPayload = cloneJsonValue(payload);
+                rootArrayKeys.forEach((rootArrayKey) => {
+                    const sourceArray = Array.isArray(payload[rootArrayKey]) ? payload[rootArrayKey] : [];
+                    const filteredItems = [];
+                    sourceArray.forEach((item, index) => {
+                        const candidatePath = buildJsonPathWithArrayIndex(rootArrayKey, index);
+                        total += 1;
+                        if (isJsonPathMarkedAsMatched(candidatePath, sets)) {
+                            matched += 1;
+                            filteredItems.push(item);
+                        }
+                    });
+                    nextPayload[rootArrayKey] = filteredItems;
+                });
+                return {
+                    payload: nextPayload,
+                    topLevelStats: { matched, total }
+                };
+            }
+
+            const nextPayload = {};
+            rootKeys.forEach((key) => {
+                total += 1;
+                if (isJsonPathMarkedAsMatched(key, sets)) {
+                    matched += 1;
+                    nextPayload[key] = payload[key];
+                }
+            });
+
+            return {
+                payload: nextPayload,
+                topLevelStats: { matched, total }
+            };
+        }
+
+        total = 1;
+        matched = isJsonPathMarkedAsMatched('$', sets) ? 1 : 0;
+        return {
+            payload,
+            topLevelStats: { matched, total }
+        };
+    }
+
+    function isJsonPathMarkedAsMatched(pathPrefix, sets) {
+        const prefix = String(pathPrefix || '');
+        const valuePaths = sets && sets.valuePaths ? sets.valuePaths : new Set();
+        const keyPaths = sets && sets.keyPaths ? sets.keyPaths : new Set();
+
+        for (const path of valuePaths) {
+            if (doesJsonPathBelongToPrefix(path, prefix)) return true;
+        }
+        for (const path of keyPaths) {
+            if (doesJsonPathBelongToPrefix(path, prefix)) return true;
+        }
+        return false;
+    }
+
+    function doesJsonPathBelongToPrefix(path, prefix) {
+        const sourcePath = String(path || '');
+        const sourcePrefix = String(prefix || '');
+        if (!sourcePrefix || sourcePrefix === '$') return sourcePath === '$' || sourcePath.length > 0;
+        if (sourcePath === sourcePrefix) return true;
+        if (sourcePath.startsWith(sourcePrefix + '.')) return true;
+        if (sourcePath.startsWith(sourcePrefix + '[')) return true;
+        return false;
+    }
+
+    function buildJsonPathWithObjectKey(basePath, key) {
+        const keyText = String(key || '');
+        if (!basePath) return keyText;
+        if (!keyText) return basePath;
+        return basePath + '.' + keyText;
+    }
+
+    function buildJsonPathWithArrayIndex(basePath, index) {
+        const indexText = '[' + index + ']';
+        if (!basePath) return indexText;
+        return basePath + indexText;
+    }
+
+    function formatPrimitiveValueForSearch(value) {
+        if (typeof value === 'string') return value;
+        if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') return String(value);
+        if (value === null) return 'null';
+        if (typeof value === 'undefined') return 'undefined';
+        return String(value);
+    }
+
+    function getProjectionPathsForActiveView() {
+        const inputEl = document.getElementById('apiExplorerProjectionPath');
+        const rawInput = inputEl ? String(inputEl.value || '').trim() : '';
+        return parseProjectionPaths(rawInput);
+    }
+
+    function getProjectionGroupByObjectSetting() {
+        const groupByObjectCheckbox = document.getElementById('apiExplorerProjectionGroupByObject');
+        return !groupByObjectCheckbox || Boolean(groupByObjectCheckbox.checked);
+    }
+
+    function isProjectionCurrentlyActive() {
+        if (apiExplorerState.lastProjection === null || typeof apiExplorerState.lastProjection === 'undefined') {
+            return false;
+        }
+        if (apiExplorerState.lastResponse === null || typeof apiExplorerState.lastResponse === 'undefined') {
+            return false;
+        }
+        return !areJsonValuesEquivalent(apiExplorerState.lastProjection, apiExplorerState.lastResponse);
+    }
+
+    function applyProjectionPathsToPayload(payload, projectionPaths, groupByObject) {
+        const paths = Array.isArray(projectionPaths) ? projectionPaths.filter(Boolean) : [];
+        if (!paths.length) return payload;
+
+        if (paths.length === 1) {
+            const projected = evaluateProjectionExpression(payload, paths[0]);
+            return typeof projected === 'undefined' ? [] : projected;
+        }
+
+        const multipleProjection = buildMultipleProjectionResult(payload, paths, {
+            groupByObject: Boolean(groupByObject)
+        });
+        return multipleProjection.hasData ? multipleProjection.value : [];
+    }
+
+    function resolveEffectiveResponseDisplayContext(currentPayload, descriptor) {
+        const fullPayload = (apiExplorerState.lastResponse !== null && typeof apiExplorerState.lastResponse !== 'undefined')
+            ? apiExplorerState.lastResponse
+            : currentPayload;
+
+        const fullSearchAnalysis = analyzePayloadForResponseSearch(fullPayload, descriptor);
+        let displayValue = currentPayload;
+
+        if (descriptor && descriptor.active && apiExplorerState.responseSearchFilterTopLevelOnly) {
+            const filteredFullPayload = fullSearchAnalysis.displayedPayload;
+            const projectionPaths = getProjectionPathsForActiveView();
+            if (projectionPaths.length && isProjectionCurrentlyActive()) {
+                displayValue = applyProjectionPathsToPayload(
+                    filteredFullPayload,
+                    projectionPaths,
+                    getProjectionGroupByObjectSetting()
+                );
+            } else {
+                displayValue = filteredFullPayload;
+            }
+        }
+
+        const visibleSearchAnalysis = analyzePayloadForResponseSearch(displayValue, descriptor, {
+            skipTopLevelFilter: true
+        });
+
+        return {
+            fullPayload,
+            displayValue,
+            fullSearchAnalysis,
+            visibleSearchAnalysis
+        };
+    }
+
+    function updateResponseSearchCounterUi(matched, total) {
+        const counterEl = document.getElementById('apiExplorerResponseSearchCounter');
+        if (!counterEl) return;
+        const safeMatched = Number.isFinite(matched) ? Math.max(0, matched) : 0;
+        const safeTotal = Number.isFinite(total) ? Math.max(0, total) : 0;
+        counterEl.textContent = safeMatched + ' / ' + safeTotal;
+    }
+
+    function renderResponseSearchMarkers() {
+        const markersEl = document.getElementById('apiExplorerResponseSearchMarkers');
+        const responseEl = document.getElementById('apiExplorerResponse');
+        if (!markersEl || !responseEl) return;
+
+        markersEl.innerHTML = '';
+        const hasActiveSearch = apiExplorerState.responseSearchMatcher && apiExplorerState.responseSearchMatcher.active;
+        if (!hasActiveSearch) {
+            markersEl.style.display = 'none';
+            return;
+        }
+
+        const jsonLines = Array.from(responseEl.querySelectorAll('.json-line'));
+        const matchedJsonLines = Array.from(responseEl.querySelectorAll('.json-line.json-search-match'));
+        const textMarks = Array.from(responseEl.querySelectorAll('.api-response-search-highlight'));
+        const markerPositions = [];
+
+        if (jsonLines.length && matchedJsonLines.length) {
+            const totalLines = Math.max(1, jsonLines.length - 1);
+            matchedJsonLines.forEach((lineEl) => {
+                const lineIndex = jsonLines.indexOf(lineEl);
+                if (lineIndex < 0) return;
+                markerPositions.push(Math.max(0, Math.min(100, (lineIndex / totalLines) * 100)));
+            });
+        } else if (textMarks.length) {
+            const scrollHeight = Math.max(1, responseEl.scrollHeight - responseEl.clientHeight);
+            textMarks.forEach((markEl) => {
+                const relativeTop = markEl.offsetTop;
+                markerPositions.push(Math.max(0, Math.min(100, (relativeTop / scrollHeight) * 100)));
+            });
+        }
+
+        if (!markerPositions.length) {
+            markersEl.style.display = 'none';
+            return;
+        }
+
+        markersEl.style.display = 'block';
+        markerPositions.forEach((positionPercent) => {
+            const markerEl = document.createElement('span');
+            markerEl.className = 'api-response-search-marker';
+            markerEl.style.top = positionPercent + '%';
+            markersEl.appendChild(markerEl);
+        });
     }
 
     function onResponseViewerClicked(event) {
@@ -1817,22 +2443,30 @@
 
             let html = '<div class="api-body-builder-row ' + buildBodyBuilderIndentClass(depth) + '">'
                 + '<div class="api-body-builder-line">'
-                + '<button type="button" class="btn btn-default btn-xs" data-builder-array-add-path="' + escapeAttribute(path) + '">'
-                + '<i class="fa fa-plus"></i> ajouter item</button>'
                 + '<span class="api-body-builder-type">items: ' + items.length + '</span>'
                 + '</div></div>';
 
             if (!itemSchema) {
                 html += '<div class="small text-muted ' + buildBodyBuilderIndentClass(depth + 1) + '">schema item indisponible</div>';
+                html += '<div class="api-body-builder-row ' + buildBodyBuilderIndentClass(depth) + '">'
+                    + '<div class="api-body-builder-line">'
+                    + '<button type="button" class="btn btn-default btn-xs" data-builder-array-add-path="' + escapeAttribute(path) + '">'
+                    + '<i class="fa fa-plus"></i> ajouter item</button>'
+                    + '</div></div>';
                 return html;
             }
 
             if (!items.length) {
                 html += '<div class="small text-muted ' + buildBodyBuilderIndentClass(depth + 1) + '">tableau vide</div>';
-                return html;
+            } else {
+                html += items.map((itemValue, index) => buildBodyBuilderArrayItemHtml(endpoint, path, index, itemSchema, itemValue, depth + 1)).join('');
             }
 
-            html += items.map((itemValue, index) => buildBodyBuilderArrayItemHtml(endpoint, path, index, itemSchema, itemValue, depth + 1)).join('');
+            html += '<div class="api-body-builder-row ' + buildBodyBuilderIndentClass(depth) + '">'
+                + '<div class="api-body-builder-line">'
+                + '<button type="button" class="btn btn-default btn-xs" data-builder-array-add-path="' + escapeAttribute(path) + '">'
+                + '<i class="fa fa-plus"></i> ajouter item</button>'
+                + '</div></div>';
             return html;
         }
 
@@ -1881,7 +2515,8 @@
 
         if (enumValues && enumValues.length) {
             const currentValue = typeof value === 'undefined' || value === null ? '' : String(value);
-            const options = enumValues.map((item) => {
+            const emptyOption = '<option value=""' + (currentValue === '' ? ' selected' : '') + '>-- vide --</option>';
+            const options = emptyOption + enumValues.map((item) => {
                 const itemText = String(item);
                 const selected = itemText === currentValue ? ' selected' : '';
                 return '<option value="' + escapeAttribute(itemText) + '"' + selected + '>' + escapeHtml(itemText) + '</option>';
@@ -2014,11 +2649,11 @@
         if (kind === 'boolean') {
             nextValue = Boolean(target.checked);
         } else if (kind === 'integer') {
-            nextValue = target.value === '' ? 0 : parseInt(target.value, 10);
-            if (!Number.isFinite(nextValue)) nextValue = 0;
+            nextValue = target.value === '' ? '' : parseInt(target.value, 10);
+            if (target.value !== '' && !Number.isFinite(nextValue)) nextValue = '';
         } else if (kind === 'number') {
-            nextValue = target.value === '' ? 0 : Number(target.value);
-            if (!Number.isFinite(nextValue)) nextValue = 0;
+            nextValue = target.value === '' ? '' : Number(target.value);
+            if (target.value !== '' && !Number.isFinite(nextValue)) nextValue = '';
         } else {
             nextValue = target.value;
         }
@@ -2150,8 +2785,154 @@
     function syncBodyEditorFromBuilderState() {
         const bodyInput = document.getElementById('apiExplorerBodyJson');
         if (!bodyInput || !isPlainObject(apiExplorerState.bodyBuilderValue)) return;
-        bodyInput.value = JSON.stringify(apiExplorerState.bodyBuilderValue, null, 2);
-        validateBodyJsonEditorRealtime({ silentWhenEmpty: true, endpoint: getSelectedEndpoint() });
+
+        const endpoint = getSelectedEndpoint();
+        const rootSchema = endpoint && isPlainObject(endpoint.swaggerBodySchema)
+            ? (resolveSwaggerSchemaNode(endpoint.swaggerBodySchema, new Set()) || endpoint.swaggerBodySchema)
+            : null;
+        const prunedBody = pruneBodyBuilderValueWithSchema(cloneJsonValue(apiExplorerState.bodyBuilderValue), rootSchema, true);
+        const normalizedBody = isPlainObject(prunedBody) ? prunedBody : {};
+        apiExplorerState.bodyBuilderValue = normalizedBody;
+
+        apiExplorerState.isBodyEditorSyncInProgress = true;
+        try {
+            bodyInput.value = JSON.stringify(normalizedBody, null, 2);
+            validateBodyJsonEditorRealtime({
+                silentWhenEmpty: true,
+                endpoint: getSelectedEndpoint(),
+                skipBuilderSync: true
+            });
+        } finally {
+            apiExplorerState.isBodyEditorSyncInProgress = false;
+        }
+    }
+
+    function syncBodyBuilderFromBodyEditorParsedValue(parsedValue, endpoint, options) {
+        if (Boolean(options && options.skipBuilderSync)) return;
+        if (apiExplorerState.isBodyEditorSyncInProgress) return;
+        if (!endpoint || !endpoint.hasBodyParameter) return;
+        if (endpoint.id !== apiExplorerState.bodyBuilderEndpointId) return;
+        if (!isPlainObject(parsedValue)) return;
+
+        const nextBodyBuilderValue = cloneJsonValue(parsedValue);
+        if (!isPlainObject(nextBodyBuilderValue)) return;
+        if (areJsonValuesEquivalent(apiExplorerState.bodyBuilderValue, nextBodyBuilderValue)) return;
+
+        apiExplorerState.isBodyEditorSyncInProgress = true;
+        try {
+            apiExplorerState.bodyBuilderValue = nextBodyBuilderValue;
+            refreshBodyBuilderTopLevelInclusionFromJson(endpoint, nextBodyBuilderValue);
+            apiExplorerState.bodyBuilderIntervalDrafts = {};
+            renderBodyBuilderUi(endpoint);
+        } finally {
+            apiExplorerState.isBodyEditorSyncInProgress = false;
+        }
+    }
+
+    function refreshBodyBuilderTopLevelInclusionFromJson(endpoint, bodyObject) {
+        if (!endpoint || !isPlainObject(endpoint.swaggerBodySchema) || !isPlainObject(bodyObject)) return;
+
+        const topSchema = resolveSwaggerSchemaNode(endpoint.swaggerBodySchema, new Set()) || endpoint.swaggerBodySchema;
+        if (detectSwaggerSchemaType(topSchema) !== 'object') return;
+
+        const properties = isPlainObject(topSchema.properties) ? topSchema.properties : {};
+        const requiredSet = new Set(Array.isArray(topSchema.required) ? topSchema.required : []);
+        const nextInclusion = {};
+
+        Object.keys(properties).forEach((key) => {
+            const required = requiredSet.has(key);
+            nextInclusion[key] = required || Object.prototype.hasOwnProperty.call(bodyObject, key);
+        });
+
+        apiExplorerState.bodyBuilderTopLevelInclusion = nextInclusion;
+    }
+
+    function pruneBodyBuilderValueWithSchema(value, schemaNode, isRequiredField) {
+        const required = Boolean(isRequiredField);
+        const resolvedSchema = isPlainObject(schemaNode)
+            ? (resolveSwaggerSchemaNode(schemaNode, new Set()) || schemaNode)
+            : null;
+        const schemaType = detectSwaggerSchemaType(resolvedSchema);
+
+        if (Array.isArray(value)) {
+            const itemSchema = resolvedSchema && isPlainObject(resolvedSchema.items)
+                ? (resolveSwaggerSchemaNode(resolvedSchema.items, new Set()) || resolvedSchema.items)
+                : null;
+            const items = value
+                .map((item) => pruneBodyBuilderValueWithSchema(item, itemSchema, false))
+                .filter((item) => isBodyBuilderValueKept(item));
+            if (!required && !items.length) return undefined;
+            return items;
+        }
+
+        if (isPlainObject(value)) {
+            const result = {};
+            const properties = resolvedSchema && isPlainObject(resolvedSchema.properties) ? resolvedSchema.properties : {};
+            const requiredSet = resolvedSchema && Array.isArray(resolvedSchema.required) ? new Set(resolvedSchema.required) : new Set();
+
+            Object.keys(value).forEach((key) => {
+                const childSchema = Object.prototype.hasOwnProperty.call(properties, key) ? properties[key] : null;
+                const nextValue = pruneBodyBuilderValueWithSchema(
+                    value[key],
+                    childSchema,
+                    requiredSet.has(key)
+                );
+                if (isBodyBuilderValueKept(nextValue)) {
+                    result[key] = nextValue;
+                }
+            });
+
+            if (!required && !Object.keys(result).length) {
+                return undefined;
+            }
+
+            if (!required && resolvedSchema) {
+                const placeholder = buildSwaggerTemplateFromSchema(resolvedSchema);
+                const placeholderPruned = pruneBodyBuilderValueWithSchema(placeholder, resolvedSchema, true);
+                if (areJsonValuesEquivalent(result, placeholderPruned)) {
+                    return undefined;
+                }
+            }
+
+            return result;
+        }
+
+        if (typeof value === 'string') {
+            return value.trim() === '' ? undefined : value;
+        }
+
+        if (value === null || typeof value === 'undefined') {
+            return undefined;
+        }
+
+        if (typeof value === 'number' && !Number.isFinite(value)) {
+            return undefined;
+        }
+
+        if (!required && resolvedSchema) {
+            const placeholder = buildSwaggerScalarPlaceholder(resolvedSchema, schemaType);
+            if (areJsonValuesEquivalent(value, placeholder)) {
+                return undefined;
+            }
+        }
+
+        return value;
+    }
+
+    function isBodyBuilderValueKept(value) {
+        if (value === null || typeof value === 'undefined') return false;
+        if (typeof value === 'string') return value.trim() !== '';
+        if (Array.isArray(value)) return value.length > 0;
+        if (isPlainObject(value)) return Object.keys(value).length > 0;
+        return true;
+    }
+
+    function areJsonValuesEquivalent(leftValue, rightValue) {
+        try {
+            return JSON.stringify(leftValue) === JSON.stringify(rightValue);
+        } catch (_error) {
+            return leftValue === rightValue;
+        }
     }
 
     function getBodyBuilderValueAtPath(path) {
@@ -4331,6 +5112,7 @@
         const statusEl = ensureBodyValidationElement();
         if (!inputEl || !statusEl) return;
 
+        renderBodyJsonEditorHighlight(inputEl.value || '');
         const endpoint = options && options.endpoint ? options.endpoint : getSelectedEndpoint();
         const endpointUsesBody = Boolean(endpoint && endpoint.hasBodyParameter && !inputEl.disabled);
         const rawText = String(inputEl.value || '');
@@ -4355,6 +5137,7 @@
                     ? 'Body JSON: en attente de saisie.'
                     : 'Body JSON vide.';
             }
+            syncBodyBuilderFromBodyEditorParsedValue({}, endpoint, options);
             return;
         }
 
@@ -4367,6 +5150,7 @@
             else if (isPlainObject(parsed)) payloadType = 'objet';
             else payloadType = typeof parsed;
             statusEl.textContent = 'Body JSON valide (' + payloadType + ').';
+            syncBodyBuilderFromBodyEditorParsedValue(parsed, endpoint, options);
         } catch (error) {
             inputEl.classList.add('api-json-invalid');
             statusEl.className = 'small text-danger';
@@ -4779,9 +5563,15 @@
     }
 
     function exportCurrentProjectionToJson() {
-        const value = apiExplorerState.lastProjection !== null ? apiExplorerState.lastProjection : apiExplorerState.lastResponse;
+        const baseValue = apiExplorerState.lastProjection !== null ? apiExplorerState.lastProjection : apiExplorerState.lastResponse;
+        const searchDescriptor = buildResponseSearchDescriptor(
+            apiExplorerState.responseSearchText,
+            apiExplorerState.responseSearchAttribute
+        );
+        const context = resolveEffectiveResponseDisplayContext(baseValue, searchDescriptor);
+        const value = context.displayValue;
 
-        if (value === null) {
+        if (value === null || typeof value === 'undefined') {
             setExecutionStatus('Aucune donnee a exporter.', 'warning');
             return;
         }
@@ -5686,10 +6476,51 @@
         const responseEl = document.getElementById('apiExplorerResponse');
         if (!responseEl) return;
 
-        const statsSource = resolveStatsPayload(value);
+        const currentPayload = typeof value === 'undefined' ? getCurrentRenderableResponsePayload() : value;
+        if (currentPayload === null || typeof currentPayload === 'undefined') {
+            renderResponseText('Aucune reponse pour le moment.');
+            return;
+        }
+
+        const fullPayload = (apiExplorerState.lastResponse !== null && typeof apiExplorerState.lastResponse !== 'undefined')
+            ? apiExplorerState.lastResponse
+            : currentPayload;
+
+        refreshResponseSearchAttributeOptions(fullPayload);
+        const searchDescriptor = buildResponseSearchDescriptor(
+            apiExplorerState.responseSearchText,
+            apiExplorerState.responseSearchAttribute
+        );
+        const responseSearchInput = document.getElementById('apiExplorerResponseSearchInput');
+        apiExplorerState.responseSearchMatcher = searchDescriptor;
+        apiExplorerState.responseSearchError = searchDescriptor.error || '';
+        if (responseSearchInput) {
+            responseSearchInput.classList.toggle('api-response-search-input-invalid', Boolean(searchDescriptor.error));
+            responseSearchInput.title = searchDescriptor.error ? ('Recherche invalide: ' + searchDescriptor.error) : '';
+        }
+        refreshResponseSearchFilterButtonUi();
+
+        if (searchDescriptor.error) {
+            apiExplorerState.responseSearchMatchedValuePaths = new Set();
+            apiExplorerState.responseSearchMatchedKeyPaths = new Set();
+            apiExplorerState.responseSearchTopLevelStats = { matched: 0, total: 0 };
+            updateResponseSearchCounterUi(0, 0);
+        }
+
+        const displayContext = resolveEffectiveResponseDisplayContext(currentPayload, searchDescriptor);
+        const displayValue = displayContext.displayValue;
+        apiExplorerState.responseSearchMatchedValuePaths = displayContext.visibleSearchAnalysis.matchedValuePaths;
+        apiExplorerState.responseSearchMatchedKeyPaths = displayContext.visibleSearchAnalysis.matchedKeyPaths;
+        apiExplorerState.responseSearchTopLevelStats = displayContext.fullSearchAnalysis.topLevelStats;
+        updateResponseSearchCounterUi(
+            displayContext.fullSearchAnalysis.topLevelStats.matched,
+            displayContext.fullSearchAnalysis.topLevelStats.total
+        );
+
+        const statsSource = resolveStatsPayload(displayValue);
         // Les stats sont calculees sur la reponse "brute" quand une projection est active.
         updateResponseStats(statsSource);
-        const bytes = updateResponseSize(value);
+        const bytes = updateResponseSize(displayValue);
         const renderMode = resolveResponseRenderMode(bytes);
         updateResponseRenderControls({
             hasPayload: true,
@@ -5699,31 +6530,83 @@
 
         try {
             if (renderMode === 'text') {
-                const textPayload = JSON.stringify(value, null, 2);
-                renderResponseText(textPayload, { preserveStats: true, preserveResponseSize: true, preserveRenderControls: true });
+                const textPayload = JSON.stringify(displayValue, null, 2);
+                renderResponseText(textPayload, {
+                    preserveStats: true,
+                    preserveResponseSize: true,
+                    preserveRenderControls: true,
+                    searchDescriptor
+                });
+                renderResponseSearchMarkers();
                 return;
             }
 
             clearResponseViewerDom(responseEl);
             responseEl.classList.add('api-json-viewer-active');
-            responseEl.appendChild(createJsonNode(value, null, true, 0));
+            responseEl.appendChild(createJsonNode(displayValue, null, true, 0, '', null, searchDescriptor));
+            renderResponseSearchMarkers();
         } catch (_error) {
             let text;
             try {
-                text = JSON.stringify(value, null, 2);
+                text = JSON.stringify(displayValue, null, 2);
             } catch (_innerError) {
-                text = String(value);
+                text = String(displayValue);
             }
-            renderResponseText(text, { preserveStats: true, preserveResponseSize: true, preserveRenderControls: true });
+            renderResponseText(text, {
+                preserveStats: true,
+                preserveResponseSize: true,
+                preserveRenderControls: true,
+                searchDescriptor
+            });
+            renderResponseSearchMarkers();
         }
     }
 
     function renderResponseText(text, options) {
         const responseEl = document.getElementById('apiExplorerResponse');
+        const searchDescriptor = options && options.searchDescriptor ? options.searchDescriptor : null;
         if (responseEl) {
             clearResponseViewerDom(responseEl);
             responseEl.classList.remove('api-json-viewer-active');
-            responseEl.textContent = String(text);
+
+            const sourceText = String(text);
+            const canHighlight = Boolean(searchDescriptor && searchDescriptor.active);
+            if (canHighlight) {
+                const highlightRegex = buildResponseSearchHighlightRegex(searchDescriptor);
+                if (highlightRegex) {
+                    const fragments = [];
+                    let cursor = 0;
+                    let match;
+                    while ((match = highlightRegex.exec(sourceText)) !== null) {
+                        const matchedText = match[0];
+                        const index = match.index;
+                        if (index > cursor) {
+                            fragments.push(document.createTextNode(sourceText.slice(cursor, index)));
+                        }
+                        const mark = document.createElement('mark');
+                        mark.className = 'api-response-search-highlight';
+                        mark.textContent = matchedText;
+                        fragments.push(mark);
+                        cursor = index + matchedText.length;
+
+                        if (matchedText === '') {
+                            highlightRegex.lastIndex += 1;
+                        }
+                    }
+                    if (cursor < sourceText.length) {
+                        fragments.push(document.createTextNode(sourceText.slice(cursor)));
+                    }
+                    if (!fragments.length) {
+                        responseEl.textContent = sourceText;
+                    } else {
+                        responseEl.replaceChildren(...fragments);
+                    }
+                } else {
+                    responseEl.textContent = sourceText;
+                }
+            } else {
+                responseEl.textContent = sourceText;
+            }
         }
 
         const preserveStats = Boolean(options && options.preserveStats);
@@ -5741,6 +6624,8 @@
         if (!preserveRenderControls) {
             updateResponseRenderControls({ hasPayload: false });
         }
+
+        renderResponseSearchMarkers();
     }
 
     function clearResponseViewerDom(responseEl) {
@@ -5754,10 +6639,16 @@
         responseEl.replaceChildren();
     }
 
-    function createJsonNode(value, key, isLast, depth) {
+    function createJsonNode(value, key, isLast, depth, path, parentAttribute, searchDescriptor) {
         // Rendu recursif JSON avec collapse/expand (arbre).
         const node = document.createElement('div');
         node.className = 'json-node';
+        const currentPath = String(path || '');
+        const activeSearch = Boolean(searchDescriptor && searchDescriptor.active);
+        const searchPathSets = {
+            valuePaths: apiExplorerState.responseSearchMatchedValuePaths,
+            keyPaths: apiExplorerState.responseSearchMatchedKeyPaths
+        };
 
         if (isCompositeValue(value)) {
             node.classList.add('json-composite');
@@ -5770,7 +6661,11 @@
             const openLine = createJsonLine(depth);
             openLine.classList.add('json-open');
             openLine.appendChild(createJsonToggle(entries.length > 0));
-            appendJsonKey(openLine, key);
+            appendJsonKey(openLine, key, currentPath, searchDescriptor);
+
+            if (activeSearch && isJsonPathMarkedAsMatched(currentPath || '$', searchPathSets)) {
+                openLine.classList.add('json-search-match');
+            }
 
             if (!entries.length) {
                 openLine.appendChild(createSpan('json-punctuation', openBracket + closeBracket + (isLast ? '' : ',')));
@@ -5786,7 +6681,19 @@
             const children = document.createElement('div');
             children.className = 'json-children';
             entries.forEach((entry, index) => {
-                const childNode = createJsonNode(entry.value, entry.key, index === entries.length - 1, depth + 1);
+                const childPath = isArray
+                    ? buildJsonPathWithArrayIndex(currentPath, index)
+                    : buildJsonPathWithObjectKey(currentPath, entry.key);
+                const childParentAttribute = isArray ? parentAttribute : entry.key;
+                const childNode = createJsonNode(
+                    entry.value,
+                    entry.key,
+                    index === entries.length - 1,
+                    depth + 1,
+                    childPath,
+                    childParentAttribute,
+                    searchDescriptor
+                );
                 children.appendChild(childNode);
             });
             node.appendChild(children);
@@ -5795,6 +6702,9 @@
             closeLine.className = 'json-line json-close';
             closeLine.appendChild(createJsonToggle(false));
             closeLine.appendChild(createSpan('json-punctuation', closeBracket + (isLast ? '' : ',')));
+            if (activeSearch && isJsonPathMarkedAsMatched(currentPath || '$', searchPathSets)) {
+                closeLine.classList.add('json-search-match');
+            }
             node.appendChild(closeLine);
 
             return node;
@@ -5802,8 +6712,22 @@
 
         const primitiveLine = createJsonLine(depth);
         primitiveLine.appendChild(createJsonToggle(false));
-        appendJsonKey(primitiveLine, key);
-        primitiveLine.appendChild(createSpan(getPrimitiveCssClass(value), formatPrimitiveValue(value)));
+        appendJsonKey(primitiveLine, key, currentPath, searchDescriptor);
+
+        const valuePath = currentPath || '$';
+        const valueMatched = activeSearch && apiExplorerState.responseSearchMatchedValuePaths.has(valuePath);
+        const keyMatched = activeSearch && apiExplorerState.responseSearchMatchedKeyPaths.has(valuePath);
+        if (valueMatched || keyMatched) {
+            primitiveLine.classList.add('json-search-match');
+        }
+
+        appendJsonSpanWithOptionalHighlight(
+            primitiveLine,
+            getPrimitiveCssClass(value),
+            formatPrimitiveValue(value),
+            searchDescriptor,
+            valueMatched
+        );
         primitiveLine.appendChild(createSpan('json-punctuation', isLast ? '' : ','));
         node.appendChild(primitiveLine);
 
@@ -5813,7 +6737,8 @@
     function createJsonLine(depth) {
         const line = document.createElement('div');
         line.className = 'json-line';
-        line.style.paddingLeft = (depth * 16) + 'px';
+        const safeDepth = Math.max(0, Number(depth) || 0);
+        line.style.setProperty('--json-depth', String(safeDepth));
         return line;
     }
 
@@ -5825,10 +6750,67 @@
         return button;
     }
 
-    function appendJsonKey(line, key) {
+    function appendJsonKey(line, key, path, searchDescriptor) {
         if (key === null || typeof key === 'undefined') return;
-        line.appendChild(createSpan('json-key', JSON.stringify(String(key))));
+        const keyPath = String(path || '');
+        const keyText = JSON.stringify(String(key));
+        const keyMatched = Boolean(
+            searchDescriptor
+            && searchDescriptor.active
+            && apiExplorerState.responseSearchMatchedKeyPaths.has(keyPath)
+        );
+        appendJsonSpanWithOptionalHighlight(line, 'json-key', keyText, searchDescriptor, keyMatched);
         line.appendChild(createSpan('json-punctuation', ': '));
+    }
+
+    function appendJsonSpanWithOptionalHighlight(parentEl, className, text, searchDescriptor, shouldHighlight) {
+        if (!parentEl) return;
+
+        const sourceText = String(text || '');
+        const canHighlight = Boolean(shouldHighlight && searchDescriptor && searchDescriptor.active);
+        if (!canHighlight) {
+            parentEl.appendChild(createSpan(className, sourceText));
+            return;
+        }
+
+        const highlightRegex = buildResponseSearchHighlightRegex(searchDescriptor);
+        if (!highlightRegex) {
+            parentEl.appendChild(createSpan(className, sourceText));
+            return;
+        }
+
+        const span = document.createElement('span');
+        span.className = className || '';
+        let cursor = 0;
+        let foundAtLeastOneMatch = false;
+        let match;
+        while ((match = highlightRegex.exec(sourceText)) !== null) {
+            const matchedText = match[0];
+            const index = match.index;
+            if (index > cursor) {
+                span.appendChild(document.createTextNode(sourceText.slice(cursor, index)));
+            }
+
+            const mark = document.createElement('mark');
+            mark.className = 'json-search-highlight';
+            mark.textContent = matchedText;
+            span.appendChild(mark);
+            foundAtLeastOneMatch = true;
+            cursor = index + matchedText.length;
+
+            if (matchedText === '') {
+                highlightRegex.lastIndex += 1;
+            }
+        }
+
+        if (cursor < sourceText.length) {
+            span.appendChild(document.createTextNode(sourceText.slice(cursor)));
+        }
+
+        if (!foundAtLeastOneMatch) {
+            span.textContent = sourceText;
+        }
+        parentEl.appendChild(span);
     }
 
     function createSpan(className, text) {

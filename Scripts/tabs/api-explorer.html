@@ -30,9 +30,9 @@
             <div class="api-method-filters">
               <label class="checkbox-inline"><input type="checkbox" class="api-method-filter" value="GET" checked> GET</label>
               <label class="checkbox-inline"><input type="checkbox" class="api-method-filter" value="POST" checked> POST</label>
-              <label class="checkbox-inline"><input type="checkbox" class="api-method-filter" value="PATCH" checked> PATCH</label>
-              <label class="checkbox-inline"><input type="checkbox" class="api-method-filter" value="DELETE" checked> DELETE</label>
-              <label class="checkbox-inline"><input type="checkbox" class="api-method-filter" value="PUT" checked> PUT</label>
+              <label class="checkbox-inline"><input type="checkbox" class="api-method-filter" value="PATCH"> PATCH</label>
+              <label class="checkbox-inline"><input type="checkbox" class="api-method-filter" value="DELETE"> DELETE</label>
+              <label class="checkbox-inline"><input type="checkbox" class="api-method-filter" value="PUT"> PUT</label>
             </div>
 
             <div class="well well-sm api-favorites-box">
@@ -220,7 +220,10 @@
                 <div class="col-md-6">
                   <div class="form-group">
                     <label for="apiExplorerBodyJson" data-i18n="tab.api_explorer.body_json">Body JSON (POST/PATCH/PUT)</label>
-                    <textarea id="apiExplorerBodyJson" class="form-control" rows="15" placeholder='{"key":"value"}'></textarea>
+                    <div class="api-json-editor" id="apiExplorerBodyJsonEditor">
+                      <pre id="apiExplorerBodyJsonHighlight" class="api-json-editor-highlight" aria-hidden="true"></pre>
+                      <textarea id="apiExplorerBodyJson" class="form-control" rows="15" placeholder='{"key":"value"}'></textarea>
+                    </div>
                     <div id="apiExplorerBodyJsonValidation" class="small text-muted" style="margin-top:4px;">Body JSON: en attente de saisie.</div>
                     <div class="api-post-template-toolbar">
                       <button id="apiExplorerSavePostTemplateBtn" type="button" class="btn btn-default btn-xs" title="Enregistrer le JSON courant">
@@ -300,6 +303,22 @@
                   </ul>
                 </div>
               </div>
+              <div class="api-inline-tools api-search-tools" style="margin-bottom:10px;">
+                <input id="apiExplorerResponseSearchInput" type="text" class="form-control" style="max-width:360px;" placeholder="Recherche texte (* wildcard) ou regex /.../" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" />
+                <select id="apiExplorerResponseSearchAttribute" class="form-control" style="max-width:260px;">
+                  <option value="">Tous les attributs</option>
+                </select>
+                <button id="apiExplorerResponseSearchRunBtn" class="btn btn-default" type="button" title="Lancer la recherche">
+                  <i class="fa fa-search"></i>
+                </button>
+                <button id="apiExplorerResponseSearchClearBtn" class="btn btn-default" type="button" title="Vider la recherche">
+                  <i class="fa fa-eraser"></i>
+                </button>
+                <button id="apiExplorerResponseSearchTopLevelFilterBtn" class="btn btn-default" type="button" title="Afficher uniquement les objets de rang 1 qui matchent">
+                  Filtrer rang 1
+                </button>
+                <span id="apiExplorerResponseSearchCounter" class="small text-muted">0 / 0</span>
+              </div>
               <div class="api-response-wrapper">
                 <div class="api-response-actions">
                   <button id="apiExplorerCopyResponseTextBtn" type="button" class="btn btn-default btn-xs api-response-copy-btn" title="Copier la reponse en texte JSON" data-i18n-title="tab.api_explorer.copy_text_title">
@@ -310,6 +329,7 @@
                   </button>
                 </div>
                 <div id="apiExplorerResponse" class="api-response" data-i18n="tab.api_explorer.no_response">Aucune reponse pour le moment.</div>
+                <div id="apiExplorerResponseSearchMarkers" class="api-response-search-markers" title="Positions des correspondances"></div>
               </div>
               <div class="api-response-meta">
                 <div id="apiExplorerResponseSize" class="small text-muted api-response-size" data-i18n="tab.api_explorer.response_size">Taille reponse: -</div>

@@ -1,6 +1,28 @@
 {
   "releases": [
     {
+      "version": "v1.6.3",
+      "date": "2026-03-02",
+      "title": "Amélioration de la génération du Body de API Explorer",
+      "changes": [
+        "API-Explorer.js : Par défaut GET et POST seulement",
+        "Agrandissement de la zone de réponse",
+        "Affichage des lignes verticale dans le json réponse",
+        "Affichage formatté du json dans le Body",
+        "Synchronisation du Body avec les changements de paramètres (ex: queryParams)",
+        "IHM améliorée pour la génération du Body (ex: meilleure gestion des tableaux et objets imbriqués)",
+        "Fonction de recherche / filtre dans les réponses avec surbrillance"
+      ]
+    },
+    {
+      "version": "v1.6.2",
+      "date": "2026-03-02",
+      "title": "Ajout script TamperMonkey de capture des requetes Analytics",
+      "changes": [
+        "script_tampermonkey.js : Ajout d'un script de capture des requetes Analytics (POST/GET selon filtre)."
+      ]
+    },
+    {
       "version": "v1.6.1",
       "date": "2026-03-02",
       "title": "Correction gestion ORG_REGION + versionning UI (MFR)",

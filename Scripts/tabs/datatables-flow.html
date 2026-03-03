@@ -233,23 +233,26 @@
                     <i class="fa fa-eye"></i> <span data-i18n="tab.flow.generated_visuals.title">Visuels Generes</span>
                 </h3>
                 <div class="box-tools pull-right">
-                    <button type="button" class="btn btn-box-tool" onclick="exportAllVisualsAsPDF()">
-                        <i class="fa fa-file-pdf-o"></i> <span data-i18n="tab.flow.generated_visuals.export_pdf">Export PDF</span>
-                    </button>                
-                    <button type="button" class="btn btn-box-tool dropdown-toggle" data-toggle="dropdown">
-                        <span class="caret"></span>
-                    </button>
-                    <ul class="dropdown-menu">
-                        <li><a href="#" onclick="exportAllVisualsAsPDF()">
-                            <i class="fa fa-file-pdf-o"></i> <span data-i18n="tab.flow.generated_visuals.export_pdf_quick">Export PDF rapide</span>
-                        </a></li>
-                        <li><a href="#" onclick="showPDFExportOptions()">
-                            <i class="fa fa-cog"></i> <span data-i18n="tab.flow.generated_visuals.export_pdf_options">Export PDF avec options</span>
-                        </a></li>
-                    </ul>
-                    <button type="button" class="btn btn-box-tool" onclick="exportAllVisualsToDrawio()">
-                        <i class="fa fa-download"></i> <span data-i18n="tab.flow.generated_visuals.export">Exporter</span>
-                    </button>
+                    <div class="btn-group">
+                        <button type="button" class="btn btn-box-tool dropdown-toggle" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                            <i class="fa fa-file-export"></i> <span data-i18n="common.export">Exporter</span> <span class="caret"></span>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-right">
+                            <li><a href="#" onclick="exportAllVisualsAsPDF(); return false;">
+                                <i class="fa fa-file-pdf-o"></i> <span data-i18n="tab.flow.generated_visuals.export_pdf_quick">Export PDF rapide</span>
+                            </a></li>
+                            <li><a href="#" onclick="showPDFExportOptions(); return false;">
+                                <i class="fa fa-cog"></i> <span data-i18n="tab.flow.generated_visuals.export_pdf_options">Export PDF avec options</span>
+                            </a></li>
+                            <li class="divider"></li>
+                            <li><a href="#" onclick="exportAllVisualsToDrawio(); return false;">
+                                <i class="fa fa-download"></i> <span data-i18n="tab.flow.generated_visuals.export_drawio">Export Draw.io</span>
+                            </a></li>
+                            <li><a href="#" onclick="exportFlowValidationToExcel(); return false;">
+                                <i class="fa fa-file-excel-o"></i> <span data-i18n="tab.flow.generated_visuals.export_validation_excel">Export Validation Excel</span>
+                            </a></li>
+                        </ul>
+                    </div>
                     <button type="button" class="btn btn-box-tool" onclick="clearGeneratedVisuals()">
                         <i class="fa fa-trash"></i> <span data-i18n="tab.flow.generated_visuals.clear">Vider</span>
                     </button>
