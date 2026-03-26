@@ -493,7 +493,7 @@ function updateTestField(boxId, field, value, visualIndex) {
     }
 }
 
-function updateTaskValidation(boxId, subTaskId, value, visualIndex) {
+function updateTaskValidation(boxId, subTaskId, value, visualIndex, stateKey) {
     //console.log(`DEBUG updateTaskValidation`, boxId, subTaskId, value, visualIndex);
     const storedData = JSON.parse(localStorage.getItem('generatedVisuals'));
     if (storedData && storedData.visuals[visualIndex]) {
@@ -502,7 +502,22 @@ function updateTaskValidation(boxId, subTaskId, value, visualIndex) {
         if (taskGroup && Array.isArray(taskGroup.tasks)) {
             const taskIndex = parseInt((subTaskId || '').split('_task_')[1], 10);
             if (!Number.isNaN(taskIndex) && taskGroup.tasks[taskIndex]) {
-                taskGroup.tasks[taskIndex].taskValidated = value;
+                if (stateKey) {
+                    if (!taskGroup.tasks[taskIndex].taskValidated
+                        || typeof taskGroup.tasks[taskIndex].taskValidated !== 'object'
+                        || Array.isArray(taskGroup.tasks[taskIndex].taskValidated)) {
+                        taskGroup.tasks[taskIndex].taskValidated = {};
+                    }
+                    taskGroup.tasks[taskIndex].taskValidated[stateKey] = value;
+                    console.log('[TASK][VALIDATION] Mise a jour etat calendrier', {
+                        boxId,
+                        taskIndex,
+                        stateKey,
+                        value
+                    });
+                } else {
+                    taskGroup.tasks[taskIndex].taskValidated = value;
+                }
             }
             localStorage.setItem('generatedVisuals', JSON.stringify(storedData));
 
@@ -515,6 +530,13 @@ function updateTaskValidation(boxId, subTaskId, value, visualIndex) {
     }
 }
 function isTaskValidationResolved(value) {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+        const calendarStates = ['open', 'closed', 'vacation'];
+        return calendarStates.every(state => {
+            const normalizedState = normalizeTaskStatusValue(value[state]);
+            return normalizedState === 'ok' || normalizedState === 'ko';
+        });
+    }
     const normalized = normalizeTaskStatusValue(value);
     return normalized === 'ok' || normalized === 'ko';
 }
@@ -769,10 +791,11 @@ function generateStepValidationFromTasks(box, tasks, flowIndex, stepIndex, optio
     const status = box.testConfig?.status || 'untested';
     const keyColumn = box.displayColumn;
     const boxData = box.data || {};
-    const description = `${i18nVisual('tab.flow.validation.step', 'Etape')} ${stepIndex + 1} - ${box.displayName} (${(box.description || boxData[keyColumn])})`;
+    const description = `${i18nVisual('tab.flow.validation.step', 'Etape')} ${stepIndex + 1} - ${box.displayName}`;
     const stepClasses = ['test-case'];
     if (options.extraClass) stepClasses.push(options.extraClass);
     const renderKey = options.renderKey || 'main';
+    console.log(`Generation validation for step ${boxValidationId} with tasks`, { box, tasks, flowIndex, stepIndex });
 
     let stepHTML = `
         <div class="${stepClasses.join(' ')}" data-status="${status}" data-box-id="${boxValidationId}" data-visual-index="${flowIndex}">
@@ -802,6 +825,8 @@ function generateStepValidationFromTasks(box, tasks, flowIndex, stepIndex, optio
         stepHTML += generateTasksValidationFromProcessed(tasks, boxValidationId, flowIndex, renderKey);
     }
 
+    const expectedResult = box.description + boxData[keyColumn];
+
     stepHTML += `
                 </div>
                 ${options.hideStepDetails ? '' : `
@@ -810,7 +835,7 @@ function generateStepValidationFromTasks(box, tasks, flowIndex, stepIndex, optio
                         <div class="col-md-6">
                             <label>${i18nVisual('tab.flow.validation.expected_result', 'Resultat attendu :')}</label>
                             <textarea class="form-control expected-result" rows="2"
-                                      placeholder="${i18nVisual('tab.flow.validation.expected_result_placeholder', 'Decrivez le comportement attendu...')}"
+                                      placeholder="${expectedResult != '' ? expectedResult : i18nVisual('tab.flow.validation.expected_result_placeholder', 'Decrivez le resultat attendu...')}"
                                       onchange="updateTestField('${boxValidationId}', 'expectedResult', '${flowIndex}')">${box.testConfig?.expectedResult || ''}</textarea>
                         </div>
                         <div class="col-md-6">
@@ -878,6 +903,7 @@ function generateValidationItemFromTask(task, boxId, taskIndex, flowIndex, rende
     const validationData = task.validationData;
     const isTaskValidated = task.taskValidated === true;
     let validationHTML = '';
+    console.log(`Generation TASK :`, { task, validationData, taskId, boxId, flowIndex });
 
     switch (validationData.type) {
         case 'checkbox':
@@ -922,6 +948,78 @@ function generateValidationItemFromTask(task, boxId, taskIndex, flowIndex, rende
                         })}
                     </div>
                     <small class="text-muted">${validationData.description}</small>
+                </div>
+            `;
+            break;
+        }
+
+        case 'calendar_statuses': {
+            const statuses = Array.isArray(validationData.statuses)
+                ? validationData.statuses
+                : [
+                    { key: 'open', label: i18nVisual('tab.flow.validation.calendar.behavior_open', 'Ouvert') },
+                    { key: 'closed', label: i18nVisual('tab.flow.validation.calendar.behavior_closed', 'Ferme') },
+                    { key: 'vacation', label: i18nVisual('tab.flow.validation.calendar.behavior_vacation', 'Vacances') }
+                ];
+
+            const calendarTitle = validationData.label
+                || `${i18nVisual('tab.flow.validation.calendar.schedule_group', 'Schedule Group')}: ${validationData.scheduleGroupName || '-'}`;
+
+            validationHTML = `
+                <div class="task-validation-item" task-id="${taskId}">
+                    <div class="calendar-task-validation">
+                        <label class="validation-label calendar-task-title">
+                            <i class="fa ${validationData.icon || 'fa-calendar'} text-warning"></i>
+                            <strong>${calendarTitle}</strong>
+                        </label>
+                        <small class="text-muted">${validationData.description || ''}</small>
+                        <div class="calendar-task-info">
+                            <div class="calendar-task-info-row">
+                                <span class="calendar-task-info-label">${i18nVisual('tab.flow.validation.calendar.weekly_opening', 'Ouverture standard :')}</span>
+                                <span class="calendar-task-info-value">${validationData.weeklyOpening || '-'}</span>
+                            </div>
+                            <div class="calendar-task-info-row">
+                                <span class="calendar-task-info-label">${i18nVisual('tab.flow.validation.calendar.weekly_closing', 'Fermeture standard :')}</span>
+                                <span class="calendar-task-info-value">${validationData.weeklyClosing || '-'}</span>
+                            </div>
+                            <div class="calendar-task-info-row">
+                                <span class="calendar-task-info-label">${i18nVisual('tab.flow.validation.calendar.next_holiday', 'Prochain holiday :')}</span>
+                                <span class="calendar-task-info-value">${validationData.nextHolidayDisplay || '-'}</span>
+                            </div>
+                        </div>
+                        <div class="calendar-task-status-list">
+            `;
+
+            statuses.forEach((statusItem) => {
+                const statusKey = statusItem.key;
+                const statusLabel = statusItem.label || statusKey;
+                const statusTaskId = `${taskId}_state_${statusKey}`;
+                const currentStatus = normalizeTaskStatusValue(
+                    task.taskValidated && typeof task.taskValidated === 'object'
+                        ? task.taskValidated[statusKey]
+                        : 'untested'
+                );
+
+                validationHTML += `
+                    <div class="calendar-task-status-row">
+                        <span class="calendar-task-status-label">${statusLabel}</span>
+                        ${createTriSwitchHtml({
+                            orientation: 'horizontal',
+                            currentValue: currentStatus,
+                            switchKind: 'task-status',
+                            extraClass: 'validation-choice-switch',
+                            dataTaskId: statusTaskId,
+                            dataVisualIndex: flowIndex,
+                            ariaLabel: `Validation ${statusLabel}`,
+                            onChangeFactory: value => `updateTaskValidation('${boxId}','${statusTaskId}','${value}', '${flowIndex}', '${statusKey}')`
+                        })}
+                    </div>
+                `;
+            });
+
+            validationHTML += `
+                        </div>
+                    </div>
                 </div>
             `;
             break;

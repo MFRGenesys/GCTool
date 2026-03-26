@@ -45,10 +45,21 @@ const DEFAULT_AUTH_MODE = AUTH_MODES.IMPLICIT;
 const DEFAULT_ORG_REGION = 'eu_west_1';
 const HELP_CONTENT_FILE_PATH = './Scripts/help/help.html';
 const AUTH_ORG_HELP_SECTION_KEY = 'auth-org-selector';
+const CONNECTION_CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 heure
+const CONNECTION_STATUS = {
+    UNKNOWN: 'unknown',
+    CONNECTED: 'connected',
+    DISCONNECTED: 'disconnected',
+    CHECKING: 'checking',
+    RECONNECTING: 'reconnecting'
+};
 let helpContentHtmlCache = '';
 let helpContentLoadPromise = null;
 let ORGREGION = DEFAULT_ORG_REGION;
 let selectedAuthMode = DEFAULT_AUTH_MODE;
+let connectionMonitorIntervalId = null;
+let connectionReconnectInProgress = false;
+let currentConnectionStatus = CONNECTION_STATUS.UNKNOWN;
 
 function i18nAuth(key, fallback, params) {
     if (window.GCToolI18n && typeof window.GCToolI18n.t === 'function') {
@@ -126,6 +137,197 @@ function initializeApis() {
     routingApi = new platformClient.RoutingApi();
     analyticsApi = new platformClient.AnalyticsApi();
 }
+
+/**
+ * [AUTH-CONNECTION] Indicateur cloud de statut de connexion.
+ */
+function getConnectionStatusTitle(status) {
+    switch (status) {
+        case CONNECTION_STATUS.CONNECTED:
+            return i18nAuth('auth.connection.connected', 'Connecte a Genesys Cloud');
+        case CONNECTION_STATUS.DISCONNECTED:
+            return i18nAuth('auth.connection.disconnected_click', 'Deconnecte de Genesys Cloud - cliquez pour reconnecter');
+        case CONNECTION_STATUS.CHECKING:
+            return i18nAuth('auth.connection.checking', 'Verification de la connexion en cours...');
+        case CONNECTION_STATUS.RECONNECTING:
+            return i18nAuth('auth.connection.reconnecting', 'Reconnexion en cours...');
+        default:
+            return i18nAuth('auth.connection.unknown_click', 'Etat de connexion inconnu - cliquez pour verifier');
+    }
+}
+
+function setConnectionStatusIndicator(status) {
+    const normalizedStatus = CONNECTION_STATUS[status?.toUpperCase?.()] || status || CONNECTION_STATUS.UNKNOWN;
+    currentConnectionStatus = normalizedStatus;
+
+    const button = document.getElementById('connectionStatusBtn');
+    if (!button) return;
+
+    button.dataset.status = normalizedStatus;
+    button.setAttribute('title', getConnectionStatusTitle(normalizedStatus));
+}
+
+function initializeConnectionStatusIndicator() {
+    const button = document.getElementById('connectionStatusBtn');
+    if (!button) return;
+    if (button.dataset.initialized === 'true') return;
+
+    button.dataset.initialized = 'true';
+    button.addEventListener('click', () => {
+        if (connectionReconnectInProgress) return;
+        if (currentConnectionStatus === CONNECTION_STATUS.DISCONNECTED) {
+            reconnectGenesysSessionWithoutDataReload();
+            return;
+        }
+        checkGenesysConnectionStatus({ manual: true });
+    });
+
+    setConnectionStatusIndicator(CONNECTION_STATUS.UNKNOWN);
+    console.log('[AUTH][CONNECTION] Indicateur de connexion initialise');
+}
+
+function isAuthSessionError(error) {
+    const err = /** @type {any} */ (error);
+    const status = Number(err?.status || err?.statusCode || 0);
+    if (status === 401 || status === 403) return true;
+
+    const rawMessage = String(err?.message || err?.error_description || err?.error || '').toLowerCase();
+    if (!rawMessage) return false;
+    if (rawMessage.includes('unauthorized')) return true;
+    if (rawMessage.includes('invalid') && rawMessage.includes('token')) return true;
+    if (rawMessage.includes('expired') && rawMessage.includes('token')) return true;
+    return false;
+}
+
+function checkGenesysConnectionStatus(options = {}) {
+    const isManual = !!options.manual;
+    initializeConnectionStatusIndicator();
+
+    if (connectionReconnectInProgress) {
+        console.log('[AUTH][CONNECTION] Verification ignoree: reconnexion deja en cours');
+        return Promise.resolve(false);
+    }
+
+    if (!usersApi || typeof usersApi.getUsersMe !== 'function') {
+        console.warn('[AUTH][CONNECTION] Verification impossible: usersApi non initialise');
+        setConnectionStatusIndicator(CONNECTION_STATUS.DISCONNECTED);
+        return Promise.resolve(false);
+    }
+
+    setConnectionStatusIndicator(CONNECTION_STATUS.CHECKING);
+    console.log('[AUTH][CONNECTION] Verification de session', { manual: isManual });
+
+    return usersApi.getUsersMe()
+        .then((userObject) => {
+            if (userObject && userObject.id) {
+                currentUserId = userObject.id;
+                currentOrgId = userObject.organization?.id || currentOrgId;
+                if (typeof appState !== 'undefined') {
+                    appState.isAuthenticated = true;
+                    if (!appState.currentUser) {
+                        appState.currentUser = {};
+                    }
+                    appState.currentUser.id = userObject.id;
+                    appState.currentUser.name = userObject.name || appState.currentUser.name;
+                    appState.currentUser.organization = userObject.organization || appState.currentUser.organization;
+                }
+                if (typeof updateUserInfo === 'function') {
+                    updateUserInfo();
+                }
+            }
+
+            setConnectionStatusIndicator(CONNECTION_STATUS.CONNECTED);
+            return true;
+        })
+        .catch((error) => {
+            console.warn('[AUTH][CONNECTION] Session non valide', error);
+            if (typeof appState !== 'undefined' && isAuthSessionError(error)) {
+                appState.isAuthenticated = false;
+            }
+            setConnectionStatusIndicator(CONNECTION_STATUS.DISCONNECTED);
+            return false;
+        });
+}
+
+function startConnectionStatusMonitor() {
+    initializeConnectionStatusIndicator();
+    if (connectionMonitorIntervalId) {
+        clearInterval(connectionMonitorIntervalId);
+    }
+
+    connectionMonitorIntervalId = setInterval(() => {
+        checkGenesysConnectionStatus({ manual: false });
+    }, CONNECTION_CHECK_INTERVAL_MS);
+
+    console.log('[AUTH][CONNECTION] Monitoring demarre (ms):', CONNECTION_CHECK_INTERVAL_MS);
+}
+
+function reconnectGenesysSessionWithoutDataReload() {
+    initializeConnectionStatusIndicator();
+
+    if (!selectedOrgConfig || !selectedOrgConfig.clientId) {
+        console.warn('[AUTH][CONNECTION] Reconnexion impossible: organisation non configuree');
+        setConnectionStatusIndicator(CONNECTION_STATUS.DISCONNECTED);
+        return Promise.resolve(false);
+    }
+
+    if (connectionReconnectInProgress) {
+        console.log('[AUTH][CONNECTION] Reconnexion deja en cours');
+        return Promise.resolve(false);
+    }
+
+    connectionReconnectInProgress = true;
+    setConnectionStatusIndicator(CONNECTION_STATUS.RECONNECTING);
+    console.log('[AUTH][CONNECTION] Tentative de reconnexion legere (sans reload cache)');
+
+    const environment = REGION_HOSTS[ORGREGION];
+    if (environment) {
+        client.setEnvironment(environment);
+    }
+
+    return loginWithSelectedAuthMode(selectedOrgConfig.clientId, redirectURL)
+        .then(() => {
+            initializeApis();
+            return usersApi.getUsersMe();
+        })
+        .then((userObject) => {
+            currentUserId = userObject.id;
+            currentOrgId = userObject.organization?.id || currentOrgId;
+
+            if (typeof appState !== 'undefined') {
+                appState.isAuthenticated = true;
+                if (!appState.currentUser) {
+                    appState.currentUser = {};
+                }
+                appState.currentUser.id = currentUserId;
+                appState.currentUser.name = userObject.name || appState.currentUser.name;
+                appState.currentUser.organization = userObject.organization || appState.currentUser.organization;
+                appState.currentUser.selectedOrgConfig = selectedOrgConfig;
+                appState.currentUser.authMode = selectedAuthMode;
+                appState.currentUser.region = ORGREGION;
+            }
+
+            if (typeof updateUserInfo === 'function') {
+                updateUserInfo();
+            }
+
+            setConnectionStatusIndicator(CONNECTION_STATUS.CONNECTED);
+            startConnectionStatusMonitor();
+            console.log('[AUTH][CONNECTION] Reconnexion legere reussie');
+            return true;
+        })
+        .catch((error) => {
+            console.error('[AUTH][CONNECTION] Echec reconnexion legere', error);
+            setConnectionStatusIndicator(CONNECTION_STATUS.DISCONNECTED);
+            return false;
+        })
+        .finally(() => {
+            connectionReconnectInProgress = false;
+        });
+}
+
+window.checkGenesysConnectionStatus = checkGenesysConnectionStatus;
+window.reconnectGenesysSessionWithoutDataReload = reconnectGenesysSessionWithoutDataReload;
 
 function normalizeAuthMode(mode) {
     return mode === 'pkce' ? 'pkce' : 'implicit';
@@ -597,6 +799,8 @@ function proceedWithAuthentication() {
             }
             
             // Charger les configurations sauvegardées
+            setConnectionStatusIndicator(CONNECTION_STATUS.CONNECTED);
+            startConnectionStatusMonitor();
             if (typeof loadSavedConfigurations === 'function') {
                 loadSavedConfigurations();
             }
@@ -660,6 +864,7 @@ function proceedWithAuthentication() {
                 setOrgValidationStatus(currentOrgSelectionKey, ORG_VALIDATION_STATUSES.INVALID);
             }
 
+            setConnectionStatusIndicator(CONNECTION_STATUS.DISCONNECTED);
             throw enrichedError;
         });
 }
@@ -1377,7 +1582,8 @@ function loadAllGenesysData() {
         getAllQueues(),
         getAllSkills(),
         getAllPrompts(),
-        getAllScheduleGroups()
+        getAllScheduleGroups(),
+        getAllSchedules()
     ];
     
     return Promise.all(loadingPromises)
@@ -1388,7 +1594,10 @@ function loadAllGenesysData() {
             console.log(`  - Skills: ${skillsCache.length}`);
             console.log(`  - Prompts: ${promptsCache.length}`);
             console.log(`  - Schedule Groups: ${scheduleGroupsCache.length}`);
-            
+            console.log(`  - Schedules: ${schedulesCache.length}`);
+            console.log(` - Schedule Groups complets:`, scheduleGroupsCache) ;
+            console.log(` - Schedules complets:`, schedulesCache);
+        
             return results;
         });
 }
@@ -1475,6 +1684,18 @@ function getAllScheduleGroups() {
     });
 }
 
+// Récupération des Schedules
+function getAllSchedules() {
+    return getAllWithPagination(
+        (opts) => architectApi.getArchitectSchedules(opts),
+        'Schedules'
+    ).then((result) => {
+        schedulesCache = result.entities;
+        return result;
+    });
+}
+
+
 // Récupération des Prompts
 function getAllPrompts() {
     return getAllWithPagination(
@@ -1493,6 +1714,8 @@ document.addEventListener('DOMContentLoaded', function() {
     console.log('🚀 Démarrage avec sélection d\'organisation');
     
     // Vérifier si on force une réinitialisation
+    initializeConnectionStatusIndicator();
+    setConnectionStatusIndicator(CONNECTION_STATUS.UNKNOWN);
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.get('reset') === 'true') {
         clearSavedOrganization();
@@ -1512,5 +1735,3 @@ function changeOrganization() {
 if (typeof window !== 'undefined') {
     window.GCTOOL_DEBUG_AUTH = getAuthDebugState;
 }
-
-

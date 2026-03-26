@@ -1,11 +1,9 @@
 (function (window, document) {
     'use strict';
 
-    const VERSION_META_PATH = './Scripts/meta/version.json';
     const RELEASE_NOTES_PATH = './Scripts/release-notes.json';
     const MODAL_ID = 'releaseNotesModal';
 
-    let versionMeta = null;
     let releaseNotes = null;
 
     function i18n(key, fallback, params) {
@@ -41,6 +39,63 @@
             return value;
         }
         return date.toLocaleDateString();
+    }
+
+    function toReleaseTimestamp(value) {
+        if (!value) {
+            return Number.NEGATIVE_INFINITY;
+        }
+        const parsed = Date.parse(value);
+        return Number.isFinite(parsed) ? parsed : Number.NEGATIVE_INFINITY;
+    }
+
+    function toSemverTuple(version) {
+        const raw = String(version || '').trim().replace(/^v/i, '');
+        const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(raw);
+        if (!match) {
+            return null;
+        }
+        return [Number(match[1]), Number(match[2]), Number(match[3])];
+    }
+
+    function compareSemverDesc(left, right) {
+        const leftTuple = toSemverTuple(left);
+        const rightTuple = toSemverTuple(right);
+        if (!leftTuple && !rightTuple) return 0;
+        if (!leftTuple) return 1;
+        if (!rightTuple) return -1;
+
+        for (let i = 0; i < 3; i += 1) {
+            if (leftTuple[i] === rightTuple[i]) continue;
+            return leftTuple[i] > rightTuple[i] ? -1 : 1;
+        }
+        return 0;
+    }
+
+    function getMostRecentRelease() {
+        const notes = Array.isArray(releaseNotes?.releases) ? releaseNotes.releases : [];
+        if (!notes.length) {
+            return null;
+        }
+
+        return notes
+            .map((note, index) => ({ note, index }))
+            .sort((left, right) => {
+                const leftTs = toReleaseTimestamp(left.note?.date);
+                const rightTs = toReleaseTimestamp(right.note?.date);
+                if (leftTs !== rightTs) return rightTs - leftTs;
+
+                const semverOrder = compareSemverDesc(left.note?.version, right.note?.version);
+                if (semverOrder !== 0) return semverOrder;
+
+                return left.index - right.index;
+            })[0].note;
+    }
+
+    function normalizeVersionLabel(value) {
+        const raw = String(value || '').trim();
+        if (!raw) return '';
+        return /^v/i.test(raw) ? raw : `v${raw}`;
     }
 
     function ensureModal() {
@@ -114,8 +169,9 @@
             return;
         }
 
-        const versionLabel = versionMeta?.version
-            ? `v${versionMeta.version}`
+        const latestRelease = getMostRecentRelease();
+        const versionLabel = latestRelease?.version
+            ? normalizeVersionLabel(latestRelease.version)
             : i18n('app.release_notes.version_unknown', 'version ?');
 
         versionBtn.textContent = versionLabel;
@@ -126,15 +182,13 @@
 
     async function loadVersionData() {
         try {
-            const [metaJson, notesJson] = await Promise.all([
-                fetchJson(VERSION_META_PATH),
-                fetchJson(RELEASE_NOTES_PATH)
-            ]);
-            versionMeta = metaJson || {};
+            const notesJson = await fetchJson(RELEASE_NOTES_PATH);
             releaseNotes = notesJson || {};
             renderVersionButton();
         } catch (error) {
             console.warn('Impossible de charger les informations de version:', error);
+            releaseNotes = { releases: [] };
+            renderVersionButton();
         }
     }
 

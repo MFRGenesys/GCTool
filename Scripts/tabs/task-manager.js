@@ -295,11 +295,19 @@ function clearTaskForm(boxId) {
  * Rafraîchir le panneau de configuration
  */
 function refreshBoxConfigPanel(boxId) {
+    if (selectedBox !== boxId) {
+        return;
+    }
+    if (typeof showBoxConfigPanel === 'function') {
+        console.log('[TASK] Rafraichissement panneau configuration via showBoxConfigPanel', boxId);
+        showBoxConfigPanel(boxId);
+        return;
+    }
     const box = flowBoxes.get(boxId);
-    const configPanel = document.getElementById('boxConfigPanel'); // Ajustez l'ID selon votre structure
-    
-    if (configPanel && selectedBox === boxId) {
-        configPanel.innerHTML = generateBoxConfigHTML(box);
+    const configContent = document.getElementById('boxConfigContent');
+    if (box && configContent) {
+        console.log('[TASK] Rafraichissement panneau configuration via boxConfigContent', boxId);
+        configContent.innerHTML = generateBoxConfigHTML(box);
     }
 }
 
@@ -333,6 +341,14 @@ function populateTaskFormWithData(boxId, task) {
             const labelInput = document.getElementById(`taskLabel_${boxId}`);
             if (activationColumnSelect) activationColumnSelect.value = task.parameters.column;
             if (labelInput) labelInput.value = task.parameters.label;
+            break;
+        case 'calendar_task':
+            const calendarColumnSelect = document.getElementById(`taskColumn_${boxId}`);
+            if (calendarColumnSelect) calendarColumnSelect.value = task.parameters.column;
+            break;
+        case 'routing_task':
+            const routingColumnSelect = document.getElementById(`taskColumn_${boxId}`);
+            if (routingColumnSelect) routingColumnSelect.value = task.parameters.column;
             break;
     }
 }
@@ -550,7 +566,15 @@ function processTask(task, row, box, taskIndex) {
             case 'activation':
                 processActivationTask(processedTask, task, row);
                 break;
-                
+
+            case 'calendar_task':
+                processCalendarTask(processedTask, task, row);
+                break;
+
+            case 'routing_task':
+                processRoutingTask(processedTask, task, row);
+                break;
+
             default:
                 processedTask.errorMessage = `Type de tâche non géré: ${task.action}`;
                 console.warn(processedTask.errorMessage);
@@ -713,9 +737,513 @@ function processActivationTask(processedTask, task, row) {
     console.log(`⚡ Tâche activation traitée: ${label} (${isActive ? 'active' : 'inactive'})`);
 }
 
+function processRoutingTask(processedTask, task, row) {
+    const columnName = task.parameters.column;
+    const rawQueueName = columnName ? row[columnName] : undefined;
+    const queueName = (rawQueueName === undefined || rawQueueName === null || String(rawQueueName).trim() === '')
+        ? ''
+        : String(rawQueueName).trim();
+    const queueExists = Array.isArray(queuesCache)
+        ? queuesCache.some(queue => String(queue && queue.name ? queue.name : '').trim() === queueName)
+        : false;
+
+    if (!queueName) {
+        processedTask.errorMessage = `Aucune valeur trouvée dans la colonne "${columnName}"`;
+        return;
+    }
+
+    processedTask.processedData = {
+        column: columnName,
+        queueName: queueName,
+        queueExists: queueExists
+    };
+    processedTask.isValid = true;
+    processedTask.requiresValidation = true;
+    processedTask.validationData = {
+        type: 'checkbox',
+        label: `Routage: ${queueName}`,
+        icon: 'fa-bullseye',
+        description: `Distribution vers : ${queueName}`
+    };
+
+    console.log('[TASK][ROUTING] Tache de routage traitee', {
+        column: columnName,
+        queueName,
+        queueExists
+    });
+}
+
 /**
  * Fonction utilitaire pour déterminer si une valeur d'activation est positive
  */
+function normalizeScheduleLookupValue(value) {
+    if (value === undefined || value === null) return '';
+    return String(value).trim().toLowerCase();
+}
+
+function parseRRuleParts(rrule) {
+    const parts = {};
+    if (!rrule || typeof rrule !== 'string') return parts;
+    rrule.split(';').forEach(pair => {
+        const sepIndex = pair.indexOf('=');
+        if (sepIndex <= 0) return;
+        const key = pair.substring(0, sepIndex).trim().toUpperCase();
+        const value = pair.substring(sepIndex + 1).trim();
+        parts[key] = value;
+    });
+    return parts;
+}
+
+function parseByDayToIndexes(byDayValue) {
+    if (!byDayValue) return [];
+    const dayMap = { MO: 0, TU: 1, WE: 2, TH: 3, FR: 4, SA: 5, SU: 6 };
+    return String(byDayValue)
+        .split(',')
+        .map(token => token.trim().toUpperCase())
+        .map(token => dayMap[token])
+        .filter(index => index !== undefined)
+        .sort((a, b) => a - b);
+}
+
+function convertHHmmToMinutes(hhmm) {
+    if (!hhmm || !/^\d{2}:\d{2}$/.test(hhmm)) return null;
+    const parts = hhmm.split(':');
+    const hour = parseInt(parts[0], 10);
+    const minute = parseInt(parts[1], 10);
+    if (Number.isNaN(hour) || Number.isNaN(minute)) return null;
+    return (hour * 60) + minute;
+}
+
+function formatMinutesToDisplay(totalMinutes) {
+    if (!Number.isFinite(totalMinutes) || totalMinutes < 0) return '-';
+    if (totalMinutes >= 1440) return '24h00';
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    return `${hours}h${String(minutes).padStart(2, '0')}`;
+}
+
+function buildWeeklyDayIntervalsFromSchedules(scheduleRefs) {
+    const dayIntervals = new Map();
+    if (!Array.isArray(scheduleRefs) || scheduleRefs.length === 0) {
+        return dayIntervals;
+    }
+
+    scheduleRefs.forEach(scheduleRef => {
+        const fullSchedule = resolveScheduleFromCache(scheduleRef);
+        if (!fullSchedule) return;
+
+        const rruleParts = parseRRuleParts(fullSchedule.rrule);
+        let dayIndexes = parseByDayToIndexes(rruleParts.BYDAY);
+        if (!dayIndexes.length) {
+            dayIndexes = [0, 1, 2, 3, 4, 5, 6];
+        }
+
+        const startTime = extractHHmmFromIsoDate(fullSchedule.start);
+        const endTime = extractHHmmFromIsoDate(fullSchedule.end);
+        const startMinutes = convertHHmmToMinutes(startTime);
+        const endMinutes = convertHHmmToMinutes(endTime);
+        if (!Number.isFinite(startMinutes) || !Number.isFinite(endMinutes) || endMinutes <= startMinutes) {
+            return;
+        }
+
+        dayIndexes.forEach(dayIndex => {
+            if (!dayIntervals.has(dayIndex)) {
+                dayIntervals.set(dayIndex, []);
+            }
+            dayIntervals.get(dayIndex).push({ start: startMinutes, end: endMinutes });
+        });
+    });
+
+    dayIntervals.forEach((intervals, dayIndex) => {
+        const mergedIntervals = intervals
+            .sort((left, right) => left.start - right.start)
+            .reduce((accumulator, interval) => {
+                if (!accumulator.length) {
+                    accumulator.push({ start: interval.start, end: interval.end });
+                    return accumulator;
+                }
+                const last = accumulator[accumulator.length - 1];
+                if (interval.start <= last.end) {
+                    last.end = Math.max(last.end, interval.end);
+                    return accumulator;
+                }
+                accumulator.push({ start: interval.start, end: interval.end });
+                return accumulator;
+            }, []);
+        dayIntervals.set(dayIndex, mergedIntervals);
+    });
+
+    return dayIntervals;
+}
+
+function buildWeeklyRangesFromDayIntervals(dayIntervals) {
+    if (!(dayIntervals instanceof Map) || dayIntervals.size === 0) {
+        return '-';
+    }
+
+    const groupedRanges = new Map();
+    for (let dayIndex = 0; dayIndex < 7; dayIndex += 1) {
+        const intervals = Array.isArray(dayIntervals.get(dayIndex)) ? dayIntervals.get(dayIndex) : [];
+        const normalizedIntervals = intervals
+            .map(interval => `${formatMinutesToDisplay(interval.start)}-${formatMinutesToDisplay(interval.end)}`)
+            .filter(intervalText => intervalText !== '--');
+        if (!normalizedIntervals.length) continue;
+
+        const intervalKey = normalizedIntervals.join('/');
+        if (!groupedRanges.has(intervalKey)) {
+            groupedRanges.set(intervalKey, {
+                dayIndexes: [],
+                intervalText: intervalKey
+            });
+        }
+        groupedRanges.get(intervalKey).dayIndexes.push(dayIndex);
+    }
+
+    const segments = Array.from(groupedRanges.values()).map(group => {
+        const dayLabel = formatDayIndexesCompact(group.dayIndexes);
+        return `${dayLabel}-${group.intervalText}`;
+    });
+
+    return segments.length ? segments.join(' / ') : '-';
+}
+
+function buildComplementaryClosingDayIntervals(openDayIntervals) {
+    const closingIntervals = new Map();
+    for (let dayIndex = 0; dayIndex < 7; dayIndex += 1) {
+        const openIntervals = Array.isArray(openDayIntervals.get(dayIndex)) ? openDayIntervals.get(dayIndex) : [];
+        let cursor = 0;
+        const complements = [];
+
+        openIntervals.forEach(interval => {
+            if (interval.start > cursor) {
+                complements.push({ start: cursor, end: interval.start });
+            }
+            cursor = Math.max(cursor, interval.end);
+        });
+
+        if (cursor < 1440) {
+            complements.push({ start: cursor, end: 1440 });
+        }
+
+        if (!openIntervals.length) {
+            complements.push({ start: 0, end: 1440 });
+        }
+
+        closingIntervals.set(dayIndex, complements.filter(interval => interval.end > interval.start));
+    }
+    return closingIntervals;
+}
+
+function resolveScheduleGroupFromCache(scheduleGroupNameOrId) {
+    const normalizedValue = normalizeScheduleLookupValue(scheduleGroupNameOrId);
+    if (!normalizedValue || !Array.isArray(scheduleGroupsCache)) return null;
+    return scheduleGroupsCache.find(group =>
+        normalizeScheduleLookupValue(group?.name) === normalizedValue
+        || normalizeScheduleLookupValue(group?.id) === normalizedValue
+    ) || null;
+}
+
+function resolveScheduleFromCache(scheduleRef) {
+    if (!scheduleRef || !Array.isArray(schedulesCache)) return null;
+    const refId = normalizeScheduleLookupValue(scheduleRef.id);
+    const refName = normalizeScheduleLookupValue(scheduleRef.name);
+    return schedulesCache.find(schedule =>
+        (refId && normalizeScheduleLookupValue(schedule?.id) === refId)
+        || (refName && normalizeScheduleLookupValue(schedule?.name) === refName)
+    ) || null;
+}
+
+function formatHHmmToDisplay(hhmm) {
+    if (!hhmm || !/^\d{2}:\d{2}$/.test(hhmm)) return '-';
+    const parts = hhmm.split(':');
+    const hour = parseInt(parts[0], 10);
+    return `${Number.isNaN(hour) ? parts[0] : String(hour)}h${parts[1]}`;
+}
+
+function extractHHmmFromIsoDate(value) {
+    if (!value) return null;
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return null;
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    return `${hours}:${minutes}`;
+}
+
+function formatDayIndexesCompact(dayIndexes) {
+    if (!Array.isArray(dayIndexes) || dayIndexes.length === 0) return '-';
+    const tokens = ['L', 'Ma', 'Me', 'J', 'V', 'S', 'D'];
+    const uniqueSorted = Array.from(new Set(dayIndexes)).sort((a, b) => a - b);
+    const ranges = [];
+    let rangeStart = uniqueSorted[0];
+    let prev = uniqueSorted[0];
+
+    for (let i = 1; i < uniqueSorted.length; i++) {
+        const current = uniqueSorted[i];
+        if (current === prev + 1) {
+            prev = current;
+            continue;
+        }
+        ranges.push([rangeStart, prev]);
+        rangeStart = current;
+        prev = current;
+    }
+    ranges.push([rangeStart, prev]);
+
+    return ranges.map(([start, end]) => {
+        if (start === end) return tokens[start];
+        return `${tokens[start]}${tokens[end]}`;
+    }).join(',');
+}
+
+// [FLOW-CALENDAR HELPER] Build a compact weekly schedule string (same format for opening and closing).
+function buildWeeklyRangesFromSchedules(scheduleRefs) {
+    const dayIntervals = buildWeeklyDayIntervalsFromSchedules(scheduleRefs);
+    return buildWeeklyRangesFromDayIntervals(dayIntervals);
+}
+
+function buildWeeklyOpeningFromSchedules(scheduleGroup) {
+    if (!scheduleGroup || !Array.isArray(scheduleGroup.openSchedules) || scheduleGroup.openSchedules.length === 0) {
+        return '-';
+    }
+    return buildWeeklyRangesFromSchedules(scheduleGroup.openSchedules);
+}
+
+function buildWeeklyClosingFromSchedules(scheduleGroup) {
+    if (!scheduleGroup) {
+        return '-';
+    }
+
+    if (Array.isArray(scheduleGroup.closedSchedules) && scheduleGroup.closedSchedules.length > 0) {
+        return buildWeeklyRangesFromSchedules(scheduleGroup.closedSchedules);
+    }
+
+    if (Array.isArray(scheduleGroup.openSchedules) && scheduleGroup.openSchedules.length > 0) {
+        const openDayIntervals = buildWeeklyDayIntervalsFromSchedules(scheduleGroup.openSchedules);
+        const complementaryClosingIntervals = buildComplementaryClosingDayIntervals(openDayIntervals);
+        const computedClosing = buildWeeklyRangesFromDayIntervals(complementaryClosingIntervals);
+        console.log('[TASK][CALENDAR] Fermetures calculees depuis le complement des ouvertures', {
+            scheduleGroupName: scheduleGroup.name,
+            computedClosing
+        });
+        return computedClosing;
+    }
+
+    return '-';
+}
+
+function buildDateAtLocalTime(year, month, day, sourceDate) {
+    const safeDate = sourceDate instanceof Date && !Number.isNaN(sourceDate.getTime()) ? sourceDate : new Date();
+    return new Date(
+        year,
+        month - 1,
+        day,
+        safeDate.getHours(),
+        safeDate.getMinutes(),
+        safeDate.getSeconds(),
+        safeDate.getMilliseconds()
+    );
+}
+
+function computeNextScheduleOccurrence(schedule, referenceDate = new Date()) {
+    if (!schedule) return null;
+    const startDate = new Date(schedule.start);
+    if (Number.isNaN(startDate.getTime())) return null;
+
+    const ref = referenceDate instanceof Date && !Number.isNaN(referenceDate.getTime())
+        ? referenceDate
+        : new Date();
+
+    if (!schedule.rrule) {
+        return startDate >= ref ? startDate : null;
+    }
+
+    const rruleParts = parseRRuleParts(schedule.rrule);
+    const freq = (rruleParts.FREQ || '').toUpperCase();
+
+    if (freq === 'YEARLY' && rruleParts.BYMONTH && rruleParts.BYMONTHDAY) {
+        const months = String(rruleParts.BYMONTH).split(',').map(v => parseInt(v, 10)).filter(v => !Number.isNaN(v));
+        const days = String(rruleParts.BYMONTHDAY).split(',').map(v => parseInt(v, 10)).filter(v => !Number.isNaN(v));
+        for (let year = ref.getFullYear(); year <= ref.getFullYear() + 6; year++) {
+            for (let i = 0; i < months.length; i++) {
+                for (let j = 0; j < days.length; j++) {
+                    const candidate = buildDateAtLocalTime(year, months[i], days[j], startDate);
+                    if (candidate >= ref) {
+                        return candidate;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    if (freq === 'WEEKLY') {
+        const byDays = parseByDayToIndexes(rruleParts.BYDAY);
+        const allowedDays = byDays.length ? byDays : [0, 1, 2, 3, 4, 5, 6];
+        for (let offset = 0; offset < 14; offset++) {
+            const candidate = new Date(ref);
+            candidate.setDate(ref.getDate() + offset);
+            const candidateDay = (candidate.getDay() + 6) % 7;
+            if (!allowedDays.includes(candidateDay)) continue;
+            candidate.setHours(startDate.getHours(), startDate.getMinutes(), startDate.getSeconds(), 0);
+            if (candidate >= ref) return candidate;
+        }
+        return null;
+    }
+
+    if (freq === 'DAILY') {
+        const candidate = new Date(ref);
+        candidate.setHours(startDate.getHours(), startDate.getMinutes(), startDate.getSeconds(), 0);
+        if (candidate >= ref) return candidate;
+        candidate.setDate(candidate.getDate() + 1);
+        return candidate;
+    }
+
+    return startDate >= ref ? startDate : null;
+}
+
+function formatDateToLocale(value, timeZone) {
+    if (!(value instanceof Date) || Number.isNaN(value.getTime())) return '-';
+    const options = {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric'
+    };
+    if (timeZone) options.timeZone = timeZone;
+    return new Intl.DateTimeFormat('fr-FR', options).format(value);
+}
+
+function buildNextHolidayFromSchedules(scheduleGroup) {
+    if (!scheduleGroup || !Array.isArray(scheduleGroup.holidaySchedules) || scheduleGroup.holidaySchedules.length === 0) {
+        return {
+            date: null,
+            name: null,
+            display: i18nTask('tab.flow.validation.calendar.no_holiday', 'Aucun holiday a venir')
+        };
+    }
+
+    let nextHoliday = null;
+    scheduleGroup.holidaySchedules.forEach(holidayRef => {
+        const fullSchedule = resolveScheduleFromCache(holidayRef);
+        if (!fullSchedule) return;
+        const nextOccurrence = computeNextScheduleOccurrence(fullSchedule, new Date());
+        if (!nextOccurrence) return;
+        if (!nextHoliday || nextOccurrence < nextHoliday.date) {
+            nextHoliday = {
+                date: nextOccurrence,
+                name: fullSchedule.name || holidayRef.name || '-'
+            };
+        }
+    });
+
+    if (!nextHoliday) {
+        return {
+            date: null,
+            name: null,
+            display: i18nTask('tab.flow.validation.calendar.no_holiday', 'Aucun holiday a venir')
+        };
+    }
+
+    const formattedDate = formatDateToLocale(nextHoliday.date, scheduleGroup.timeZone || 'Europe/Paris');
+    return {
+        date: nextHoliday.date,
+        name: nextHoliday.name,
+        display: `${formattedDate} (${nextHoliday.name})`
+    };
+}
+
+/**
+ * [FLOW-CALENDAR HELPER] Resolution des informations calendrier a partir du nom/ID de Schedule Group.
+ */
+function resolveScheduleGroupCalendarInsights(scheduleGroupNameOrId) {
+    const scheduleGroup = resolveScheduleGroupFromCache(scheduleGroupNameOrId);
+    if (!scheduleGroup) {
+        console.warn('[TASK][CALENDAR] Schedule Group introuvable dans le cache', {
+            input: scheduleGroupNameOrId
+        });
+        return {
+            found: false,
+            scheduleGroup: null,
+            weeklyOpening: '-',
+            weeklyClosing: '-',
+            nextHolidayDisplay: i18nTask('tab.flow.validation.calendar.not_found', 'Schedule Group introuvable'),
+            nextHolidayName: null
+        };
+    }
+
+    const weeklyOpening = buildWeeklyOpeningFromSchedules(scheduleGroup);
+    const weeklyClosing = buildWeeklyClosingFromSchedules(scheduleGroup);
+    const nextHoliday = buildNextHolidayFromSchedules(scheduleGroup);
+    console.log('[TASK][CALENDAR] Insights calendrier resolves', {
+        scheduleGroupName: scheduleGroup.name,
+        weeklyOpening,
+        weeklyClosing,
+        nextHoliday: nextHoliday.display
+    });
+
+    return {
+        found: true,
+        scheduleGroup: scheduleGroup,
+        weeklyOpening: weeklyOpening,
+        weeklyClosing: weeklyClosing,
+        nextHolidayDisplay: nextHoliday.display,
+        nextHolidayName: nextHoliday.name
+    };
+}
+
+function processCalendarTask(processedTask, task, row) {
+    const columnName = task.parameters.column;
+    const rawScheduleGroupValue = columnName ? row[columnName] : undefined;
+    const scheduleGroupName = (rawScheduleGroupValue === undefined || rawScheduleGroupValue === null || String(rawScheduleGroupValue).trim() === '')
+        ? '-'
+        : String(rawScheduleGroupValue);
+    const calendarInsights = resolveScheduleGroupCalendarInsights(scheduleGroupName);
+
+    processedTask.processedData = {
+        column: columnName,
+        value: rawScheduleGroupValue,
+        scheduleGroupName: scheduleGroupName,
+        weeklyOpening: calendarInsights.weeklyOpening,
+        weeklyClosing: calendarInsights.weeklyClosing,
+        nextHolidayDisplay: calendarInsights.nextHolidayDisplay,
+        nextHolidayName: calendarInsights.nextHolidayName
+    };
+
+    processedTask.isValid = true;
+    processedTask.requiresValidation = true;
+    processedTask.taskValidated = {
+        open: 'untested',
+        closed: 'untested',
+        vacation: 'untested'
+    };
+    processedTask.validationData = {
+        type: 'calendar_statuses',
+        label: `Schedule Group: ${scheduleGroupName}`,
+        icon: 'fa-calendar',
+        description: i18nTask(
+            'tab.flow.validation.calendar.description',
+            'Valider le comportement du Schedule Group pour les etats Ouvert, Ferme et Vacances'
+        ),
+        scheduleGroupName: scheduleGroupName,
+        weeklyOpening: calendarInsights.weeklyOpening,
+        weeklyClosing: calendarInsights.weeklyClosing,
+        nextHolidayDisplay: calendarInsights.nextHolidayDisplay,
+        nextHolidayName: calendarInsights.nextHolidayName,
+        statuses: [
+            { key: 'open', label: i18nTask('tab.flow.validation.calendar.behavior_open', 'Ouvert') },
+            { key: 'closed', label: i18nTask('tab.flow.validation.calendar.behavior_closed', 'Ferme') },
+            { key: 'vacation', label: i18nTask('tab.flow.validation.calendar.behavior_vacation', 'Vacances') }
+        ]
+    };
+
+    console.log('[TASK][CALENDAR] Tache calendrier traitee avec validation 3 etats', {
+        column: columnName,
+        scheduleGroupName: scheduleGroupName,
+        weeklyOpening: calendarInsights.weeklyOpening,
+        weeklyClosing: calendarInsights.weeklyClosing,
+        nextHoliday: calendarInsights.nextHolidayDisplay
+    });
+}
+
 function isActivationPositive(value) {
     if (typeof value === 'boolean') return value;
     if (typeof value === 'string') {
@@ -811,6 +1339,36 @@ function updateTaskParameters(boxId) {
             `;
             break;
         }
+        case 'calendar_task': {
+            const columns = getDataTableColumns(box.dataTable);
+            html = `
+                <div class="form-group">
+                    <label>${i18nTask('tab.flow.tasks.calendar_column', 'Colonne calendrier :')}</label>
+                    <select id="taskColumn_${boxId}" class="form-control" required>
+                        <option value="">${i18nTask('tab.flow.tasks.select_column', 'Selectionner une colonne')}</option>
+                        ${columns.map(col =>
+                            `<option value="${col}">${getColumnTitle(box.dataTable, col)}</option>`
+                        ).join('')}
+                    </select>
+                </div>
+            `;
+            break;
+        }
+        case 'routing_task': {
+            const columns = getDataTableColumns(box.dataTable);
+            html = `
+                <div class="form-group">
+                    <label>${i18nTask('tab.flow.tasks.routing_column', 'Colonne de routage :')}</label>
+                    <select id="taskColumn_${boxId}" class="form-control" required>
+                        <option value="">${i18nTask('tab.flow.tasks.select_column', 'Selectionner une colonne')}</option>
+                        ${columns.map(col =>
+                            `<option value="${col}">${getColumnTitle(box.dataTable, col)}</option>`
+                        ).join('')}
+                    </select>
+                </div>
+            `;
+            break;
+        }
     }
 
     parametersDiv.innerHTML = html;
@@ -893,6 +1451,24 @@ function saveTask(boxId) {
             taskData.parameters.label = label;
             break;
         }
+        case 'calendar_task': {
+            const calendarColumn = document.getElementById(`taskColumn_${boxId}`).value;
+            if (!calendarColumn) {
+                alert(i18nTask('tab.flow.tasks.alert.select_column', 'Veuillez selectionner une colonne'));
+                return;
+            }
+            taskData.parameters.column = calendarColumn;
+            break;
+        }
+        case 'routing_task': {
+            const routingColumn = document.getElementById(`taskColumn_${boxId}`).value;
+            if (!routingColumn) {
+                alert(i18nTask('tab.flow.tasks.alert.select_column', 'Veuillez selectionner une colonne'));
+                return;
+            }
+            taskData.parameters.column = routingColumn;
+            break;
+        }
     }
 
     const box = flowBoxes.get(boxId);
@@ -918,7 +1494,9 @@ function formatTaskDetails(task) {
         column: i18nTask('tab.flow.tasks.detail.column', 'Colonne'),
         text: i18nTask('tab.flow.tasks.detail.text', 'Texte'),
         pairs: i18nTask('tab.flow.tasks.detail.pairs', 'paire(s) cle/valeur'),
-        label: i18nTask('tab.flow.tasks.detail.label', 'Libelle')
+        label: i18nTask('tab.flow.tasks.detail.label', 'Libelle'),
+        calendar: i18nTask('tab.flow.tasks.detail.calendar', 'Calendrier'),
+        routing: i18nTask('tab.flow.tasks.detail.routing', 'Routage')
     };
 
     let details = '';
@@ -936,6 +1514,12 @@ function formatTaskDetails(task) {
         }
         case 'activation':
             details = `${labels.column}: ${task.parameters.column}, ${labels.label}: ${task.parameters.label}`;
+            break;
+        case 'calendar_task':
+            details = `${labels.calendar} - ${labels.column}: ${task.parameters.column || '-'}`;
+            break;
+        case 'routing_task':
+            details = `${labels.routing} - ${labels.column}: ${task.parameters.column || '-'}`;
             break;
     }
     return `<small class="text-muted">${details}</small>`;
@@ -1086,6 +1670,19 @@ function generateTaskSubSteps(box, rowData) {
                             ${task.parameters.label}
                             ${isActive ? '' : ' (Désactivé)'}
                         </span>
+                    </div>
+                `;
+                break;
+            case 'calendar_task':
+                // Pas d'impact visuel pour le moment.
+                subStepContent = '';
+                break;
+            case 'routing_task':
+                const routingQueueName = rowData ? rowData[task.parameters.column] : '';
+                subStepContent = `
+                    <div class="${subStepClass}">
+                        <i class="fa fa-bullseye"></i>
+                        <span>Distribution vers : ${routingQueueName || 'Non defini'}</span>
                     </div>
                 `;
                 break;

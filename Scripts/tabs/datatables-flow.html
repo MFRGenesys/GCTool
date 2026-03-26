@@ -57,29 +57,17 @@
                             </div>
                             <small data-i18n="tab.flow.palette.menu">Menu</small>
                         </div>
-                        
-                        <div class="palette-item" draggable="true" data-type="message">
-                            <div class="box-preview message-box">
-                                <i class="fa fa-file-audio"></i>
-                                <span>Message</span>
+
+                        <div class="palette-item" draggable="true" data-type="auto_link">
+                            <div class="box-preview route-box">
+                                <i class="fa fa-random"></i>
+                                <span>Liaison Auto</span>
                                 <div class="connection-points">
                                     <div class="input-point"></div>
                                     <div class="output-point"></div>
                                 </div>
                             </div>
-                            <small data-i18n="tab.flow.palette.message">Message</small>
-                        </div>
-                        
-                        <div class="palette-item" draggable="true" data-type="calendar">
-                            <div class="box-preview calendar-box">
-                                <i class="fa fa-calendar"></i>
-                                <span>Calendar</span>
-                                <div class="connection-points">
-                                    <div class="input-point"></div>
-                                    <div class="output-point"></div>
-                                </div>
-                            </div>
-                            <small data-i18n="tab.flow.palette.calendar">Calendar</small>
+                            <small>Liaison Auto</small>
                         </div>
 
                         <div class="palette-item" draggable="true" data-type="end">
@@ -127,6 +115,10 @@
                         </button>
                         <button class="btn btn-warning btn-sm btn-block" onclick="clearCanvas()">
                             <i class="fa fa-trash"></i> <span data-i18n="tab.flow.clear">Vider</span>
+                        </button>
+                        <hr style="margin: 10px 0;">
+                        <button type="button" class="btn btn-default btn-sm btn-block" id="toggleFlowMappingBtn" onclick="openFlowMappingModal()">
+                            <i class="fa fa-link"></i> Configurer mapping auto
                         </button>
                     </div>
                 </div>
@@ -213,12 +205,61 @@
                         <li><span class="label" style="background-color: #28a745;">Start</span> <span data-i18n="tab.flow.help.type_start">Point de depart</span></li>
                         <li><span class="label" style="background-color: #17a2b8;">Route</span> <span data-i18n="tab.flow.help.type_route">Passage simple</span></li>
                         <li><span class="label" style="background-color: #ffc107; color: #333;">Menu</span> <span data-i18n="tab.flow.help.type_menu">Branchement multiple</span></li>
-                        <li><span class="label" style="background-color: #496bd8;">Message</span> <span data-i18n="tab.flow.help.type_message">Diffusion d'un message</span></li>
-                        <li><span class="label" style="background-color: #ebd61d;">Calendar</span> <span data-i18n="tab.flow.help.type_calendar">Calendrier d'ouverture</span></li>
+                        <li><span class="label" style="background-color: #20c997;">Liaison Auto</span> <span>Dispatch selon mapping automatique</span></li>
                         <li><span class="label" style="background-color: #dc3545;">End</span> <span data-i18n="tab.flow.help.type_end">Point d'arrivee</span></li>
                         <li><span class="label" style="background-color: #dc3545;">Error</span> <span data-i18n="tab.flow.help.type_error">Point d'erreur</span></li>
                     </ul>
                 </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="flowMappingModal" tabindex="-1" role="dialog" aria-labelledby="flowMappingModalLabel">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+                <h4 class="modal-title" id="flowMappingModalLabel">
+                    <i class="fa fa-link"></i> Mapping automatique
+                </h4>
+            </div>
+            <div class="modal-body">
+                <div class="well well-sm" style="margin-bottom: 0;">
+                    <h5 style="margin-top: 0;"><i class="fa fa-list"></i> Mapping actuel</h5>
+                    <div id="flowCurrentMappingList" style="max-height: 260px; overflow-y: auto;"></div>
+                    <hr>
+                    <div class="row">
+                        <div class="col-md-5">
+                            <div class="form-group" style="margin-bottom: 8px;">
+                                <label for="flowNewMappingKey">Valeur de reference</label>
+                                <input type="text" class="form-control" id="flowNewMappingKey" placeholder="Ex: MENU">
+                            </div>
+                        </div>
+                        <div class="col-md-5">
+                            <div class="form-group" style="margin-bottom: 8px;">
+                                <label for="flowNewMappingDataTable">DataTable cible</label>
+                                <select class="form-control" id="flowNewMappingDataTable">
+                                    <option value="">Selectionner une DataTable...</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-2">
+                            <div class="form-group" style="margin-bottom: 8px;">
+                                <label>&nbsp;</label>
+                                <button type="button" class="btn btn-success btn-block" onclick="addFlowNewMapping()">
+                                    <i class="fa fa-plus"></i> Ajouter
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-default" onclick="cancelFlowMappingChanges()">Reinitialiser</button>
+                <button type="button" class="btn btn-primary" onclick="saveFlowMappingConfiguration()">Sauvegarder</button>
             </div>
         </div>
     </div>

@@ -119,6 +119,8 @@
         'tab.flow.generated_visuals.loading_desc': 'Analyzing flow paths with menu management...',
         'tab.flow.import_modal.title': 'Import a Flow',
         'tab.flow.import_modal.select_file': 'Select a JSON file:',
+        'tab.flow.generated_visuals.export_validation_excel': 'Export Excel',
+        'tab.flow.generated_visuals.export_drawio': 'Export draw.io',
 
         'tab.api_explorer.title': 'Genesys Cloud API Explorer',
         'tab.api_explorer.api_list': 'API list',

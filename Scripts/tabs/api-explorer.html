@@ -1,9 +1,9 @@
 <div class="box box-primary" id="apiExplorerRoot">
-  <div class="box-header with-border">
+  <!--<div class="box-header with-border">
     <h3 class="box-title">
       <i class="fa fa-code"></i> <span data-i18n="tab.api_explorer.title">API Explorer Genesys Cloud</span>
     </h3>
-  </div>
+  </div>-->
 
   <div class="box-body">
     <div class="api-explorer-layout">
@@ -177,9 +177,14 @@
             <div class="panel-heading">
               <div class="api-panel-header api-panel-header-inline">
                 <strong class="api-panel-title" data-i18n="tab.api_explorer.request_params">Parametres de la requete</strong>
-                <button id="apiExplorerToggleRequestPanelBtn" type="button" class="api-panel-toggle" title="Replier les parametres de requete" aria-label="Replier les parametres de requete" data-i18n-title="tab.api_explorer.request_params_toggle" data-i18n-aria-label="tab.api_explorer.request_params_toggle">
-                  <i class="fa fa-chevron-up"></i>
-                </button>
+                <span class="api-panel-actions">
+                  <button id="apiExplorerCloseAllTabsBtn" type="button" class="api-panel-toggle" title="Fermer tous les onglets requete/reponse et vider le cache local" aria-label="Fermer tous les onglets requete/reponse et vider le cache local">
+                    <i class="fa fa-times-circle"></i>
+                  </button>
+                  <button id="apiExplorerToggleRequestPanelBtn" type="button" class="api-panel-toggle" title="Replier les parametres de requete" aria-label="Replier les parametres de requete" data-i18n-title="tab.api_explorer.request_params_toggle" data-i18n-aria-label="tab.api_explorer.request_params_toggle">
+                    <i class="fa fa-chevron-up"></i>
+                  </button>
+                </span>
               </div>
             </div>
             <div id="apiExplorerRequestPanelBody" class="panel-body">

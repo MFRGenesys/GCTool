@@ -4,7 +4,6 @@ const path = require('path');
 const rootDir = path.resolve(__dirname, '..');
 const packageJsonPath = path.join(rootDir, 'package.json');
 const packageLockPath = path.join(rootDir, 'package-lock.json');
-const versionMetaPath = path.join(rootDir, 'Scripts', 'meta', 'version.json');
 const releaseNotesPath = path.join(rootDir, 'Scripts', 'release-notes.json');
 
 function readJson(filePath) {
@@ -67,14 +66,6 @@ function run() {
         writeJson(packageLockPath, packageLock);
     }
 
-    const versionMeta = fs.existsSync(versionMetaPath) ? readJson(versionMetaPath) : {};
-    versionMeta.version = nextVersion;
-    versionMeta.releasedAt = releaseDate;
-    if (!versionMeta.channel) {
-        versionMeta.channel = 'stable';
-    }
-    writeJson(versionMetaPath, versionMeta);
-
     const releaseNotes = fs.existsSync(releaseNotesPath)
         ? readJson(releaseNotesPath)
         : { releases: [] };
@@ -84,7 +75,7 @@ function run() {
     }
 
     releaseNotes.releases.unshift({
-        version: nextVersion,
+        version: `v${nextVersion}`,
         date: releaseDate,
         title: releaseTitle,
         changes: releaseChanges.length

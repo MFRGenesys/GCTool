@@ -866,6 +866,10 @@ function saveMappingConfiguration() {
     
     // Sauvegarder dans les cookies
     saveLiaisonMappingToCookie();
+    if (typeof refreshAllAutoLinkBoxes === 'function') {
+        console.log('[FLOW] Refresh boites Liaison Auto depuis Config Manager');
+        refreshAllAutoLinkBoxes();
+    }
     
     alert(i18nConfig('tab.datatables_controller.mapping.alert.save_success', 'Mapping configuration saved successfully!'));
     

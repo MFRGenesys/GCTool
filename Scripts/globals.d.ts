@@ -13,3 +13,4 @@ let queuesCache = [];
 let skillsCache = [];
 let promptsCache = [];
 let scheduleGroupsCache = [];
+let schedulesCache = [];

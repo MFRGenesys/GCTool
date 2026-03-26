@@ -10,6 +10,9 @@
     const FAVORITES_COOKIE_NAME = 'gctool_api_explorer_favorites';
     const POST_BODY_TEMPLATES_STORAGE_KEY = 'gctool_api_post_templates';
     const POST_BODY_TEMPLATES_LEGACY_COOKIE_NAME = 'gctool_api_post_templates';
+    const API_TABS_STATE_STORAGE_KEY = 'gctool_api_tabs_state';
+    const API_TABS_STATE_VERSION = 1;
+    const API_TABS_STATE_SAVE_DEBOUNCE_MS = 180;
     const FAVORITES_COOKIE_TTL_DAYS = 365;
     const POST_BODY_TEMPLATES_MAX_ITEMS = 200;
     const PROJECTION_AUTOCOMPLETE_DEBOUNCE_MS = 140;
@@ -29,6 +32,8 @@
     ];
     const SWAGGER_SCHEMA_MAX_DEPTH = 6;
     const SWAGGER_SCHEMA_MAX_FIELDS = 180;
+    let apiTabsStateSaveTimerId = null;
+    let apiTabsStateRestoreInProgress = false;
 
     const apiExplorerState = {
         // Etat runtime uniquement (pas de persistance locale, sauf favoris via cookie).
@@ -120,10 +125,12 @@
         loadPostBodyTemplatesFromStorage();
         bindUiEvents();
         buildCatalog();
+        restoreApiTabsStateFromStorage();
         pruneUnknownFavorites();
         renderCatalog();
         renderRequestTabs();
         renderResponseTabs();
+        restoreApiWorkbenchFromTabsState();
         renderPostBodyTemplatesDropdown();
         applyPanelLayoutState();
         loadSwaggerMetadataAsync();
@@ -191,6 +198,14 @@
         const toggleRequestPanelBtn = document.getElementById('apiExplorerToggleRequestPanelBtn');
         if (toggleRequestPanelBtn) {
             toggleRequestPanelBtn.addEventListener('click', toggleRequestPanelCollapse);
+        }
+
+        const closeAllTabsBtn = document.getElementById('apiExplorerCloseAllTabsBtn');
+        if (closeAllTabsBtn) {
+            closeAllTabsBtn.addEventListener('click', (event) => {
+                if (event) event.preventDefault();
+                closeAllApiTabsAndClearLocalCache();
+            });
         }
 
         const modeFieldsBtn = document.getElementById('apiExplorerModeFieldsBtn');
@@ -3403,6 +3418,271 @@
         if (apiExplorerState.activeResponseTabId && !getResponseTabById(apiExplorerState.activeResponseTabId)) {
             apiExplorerState.activeResponseTabId = null;
         }
+        queueSaveApiTabsStateToStorage();
+    }
+
+    function normalizeStoredRequestTab(rawTab) {
+        if (!isPlainObject(rawTab)) return null;
+        if (typeof rawTab.id !== 'string' || !rawTab.id) return null;
+        if (typeof rawTab.endpointId !== 'string' || !rawTab.endpointId) return null;
+
+        return {
+            id: rawTab.id,
+            endpointId: rawTab.endpointId,
+            httpMethod: typeof rawTab.httpMethod === 'string' ? rawTab.httpMethod : 'UNKNOWN',
+            methodName: typeof rawTab.methodName === 'string' ? rawTab.methodName : '',
+            title: typeof rawTab.title === 'string' ? rawTab.title : (typeof rawTab.methodName === 'string' ? rawTab.methodName : 'API'),
+            context: isPlainObject(rawTab.context) ? cloneJsonValue(rawTab.context) : null,
+            linkedResponseTabId: typeof rawTab.linkedResponseTabId === 'string' ? rawTab.linkedResponseTabId : null,
+            createdAt: Number.isFinite(rawTab.createdAt) ? rawTab.createdAt : Date.now()
+        };
+    }
+
+    function normalizeStoredResponseTab(rawTab) {
+        if (!isPlainObject(rawTab)) return null;
+        if (typeof rawTab.id !== 'string' || !rawTab.id) return null;
+        if (typeof rawTab.endpointId !== 'string' || !rawTab.endpointId) return null;
+
+        return {
+            id: rawTab.id,
+            endpointId: rawTab.endpointId,
+            httpMethod: typeof rawTab.httpMethod === 'string' ? rawTab.httpMethod : 'UNKNOWN',
+            methodName: typeof rawTab.methodName === 'string' ? rawTab.methodName : '',
+            title: typeof rawTab.title === 'string' ? rawTab.title : (typeof rawTab.methodName === 'string' ? rawTab.methodName : 'API'),
+            response: null,
+            projection: null,
+            executionMeta: null,
+            viewMode: typeof rawTab.viewMode === 'string' ? rawTab.viewMode : null,
+            linkedRequestTabId: typeof rawTab.linkedRequestTabId === 'string' ? rawTab.linkedRequestTabId : null,
+            statusMessage: typeof rawTab.statusMessage === 'string' ? rawTab.statusMessage : '',
+            statusLevel: typeof rawTab.statusLevel === 'string' ? rawTab.statusLevel : 'info',
+            createdAt: Number.isFinite(rawTab.createdAt) ? rawTab.createdAt : Date.now()
+        };
+    }
+
+    function computeNextTabSequence(tabs, prefix) {
+        if (!Array.isArray(tabs)) return 1;
+        let maxValue = 0;
+        tabs.forEach((tab) => {
+            if (!tab || typeof tab.id !== 'string') return;
+            if (!tab.id.startsWith(prefix)) return;
+            const seq = parseInt(tab.id.substring(prefix.length), 10);
+            if (Number.isFinite(seq) && seq > maxValue) {
+                maxValue = seq;
+            }
+        });
+        return maxValue + 1;
+    }
+
+    function loadApiTabsStateFromStorage() {
+        const storage = getSafeLocalStorage();
+        if (!storage) return null;
+
+        try {
+            const raw = storage.getItem(API_TABS_STATE_STORAGE_KEY);
+            if (!raw) return null;
+            const parsed = JSON.parse(raw);
+            return isPlainObject(parsed) ? parsed : null;
+        } catch (_error) {
+            return null;
+        }
+    }
+
+    function buildApiTabsStateSnapshot() {
+        return {
+            version: API_TABS_STATE_VERSION,
+            selectedEndpointId: apiExplorerState.selectedEndpointId || null,
+            activeRequestTabId: apiExplorerState.activeRequestTabId || null,
+            activeResponseTabId: apiExplorerState.activeResponseTabId || null,
+            nextRequestTabSequence: apiExplorerState.nextRequestTabSequence,
+            nextResponseTabSequence: apiExplorerState.nextResponseTabSequence,
+            requestTabs: apiExplorerState.requestTabs.map((tab) => ({
+                id: tab.id,
+                endpointId: tab.endpointId,
+                httpMethod: tab.httpMethod,
+                methodName: tab.methodName,
+                title: tab.title,
+                context: tab.context ? cloneJsonValue(tab.context) : null,
+                linkedResponseTabId: tab.linkedResponseTabId || null,
+                createdAt: tab.createdAt || Date.now()
+            })),
+            responseTabs: apiExplorerState.responseTabs.map((tab) => ({
+                id: tab.id,
+                endpointId: tab.endpointId,
+                httpMethod: tab.httpMethod,
+                methodName: tab.methodName,
+                title: tab.title,
+                viewMode: tab.viewMode || null,
+                linkedRequestTabId: tab.linkedRequestTabId || null,
+                statusMessage: tab.statusMessage || '',
+                statusLevel: tab.statusLevel || 'info',
+                createdAt: tab.createdAt || Date.now()
+            }))
+        };
+    }
+
+    function saveApiTabsStateToStorage() {
+        if (apiTabsStateRestoreInProgress) return false;
+        const storage = getSafeLocalStorage();
+        if (!storage) return false;
+
+        try {
+            storage.setItem(API_TABS_STATE_STORAGE_KEY, JSON.stringify(buildApiTabsStateSnapshot()));
+            return true;
+        } catch (_error) {
+            return false;
+        }
+    }
+
+    function queueSaveApiTabsStateToStorage() {
+        if (apiTabsStateRestoreInProgress) return;
+        if (apiTabsStateSaveTimerId) {
+            clearTimeout(apiTabsStateSaveTimerId);
+        }
+
+        apiTabsStateSaveTimerId = setTimeout(() => {
+            apiTabsStateSaveTimerId = null;
+            const saved = saveApiTabsStateToStorage();
+            if (!saved) {
+                console.warn('[API Explorer] Sauvegarde etat tabs impossible (localStorage indisponible ou plein).');
+            }
+        }, API_TABS_STATE_SAVE_DEBOUNCE_MS);
+    }
+
+    function clearApiTabsStateFromStorage() {
+        const storage = getSafeLocalStorage();
+        if (!storage) return;
+
+        try {
+            storage.removeItem(API_TABS_STATE_STORAGE_KEY);
+        } catch (_error) {
+            // ignore
+        }
+    }
+
+    function restoreApiTabsStateFromStorage() {
+        const stored = loadApiTabsStateFromStorage();
+        if (!stored) return false;
+
+        apiTabsStateRestoreInProgress = true;
+        try {
+            const restoredRequestTabs = Array.isArray(stored.requestTabs)
+                ? stored.requestTabs.map(normalizeStoredRequestTab).filter(Boolean)
+                : [];
+            const restoredResponseTabs = Array.isArray(stored.responseTabs)
+                ? stored.responseTabs.map(normalizeStoredResponseTab).filter(Boolean)
+                : [];
+
+            apiExplorerState.requestTabs = restoredRequestTabs;
+            apiExplorerState.responseTabs = restoredResponseTabs;
+            pruneUnknownRequestTabs();
+
+            const requestIds = new Set(apiExplorerState.requestTabs.map((tab) => tab.id));
+            const responseIds = new Set(apiExplorerState.responseTabs.map((tab) => tab.id));
+
+            apiExplorerState.requestTabs.forEach((tab) => {
+                if (tab.linkedResponseTabId && !responseIds.has(tab.linkedResponseTabId)) {
+                    tab.linkedResponseTabId = null;
+                }
+            });
+            apiExplorerState.responseTabs.forEach((tab) => {
+                if (tab.linkedRequestTabId && !requestIds.has(tab.linkedRequestTabId)) {
+                    tab.linkedRequestTabId = null;
+                }
+            });
+
+            apiExplorerState.activeRequestTabId = (typeof stored.activeRequestTabId === 'string' && requestIds.has(stored.activeRequestTabId))
+                ? stored.activeRequestTabId
+                : (apiExplorerState.requestTabs.length ? apiExplorerState.requestTabs[apiExplorerState.requestTabs.length - 1].id : null);
+            apiExplorerState.activeResponseTabId = (typeof stored.activeResponseTabId === 'string' && responseIds.has(stored.activeResponseTabId))
+                ? stored.activeResponseTabId
+                : (apiExplorerState.responseTabs.length ? apiExplorerState.responseTabs[apiExplorerState.responseTabs.length - 1].id : null);
+
+            const knownEndpointIds = new Set(apiExplorerState.catalog.map((item) => item.id));
+            if (typeof stored.selectedEndpointId === 'string' && knownEndpointIds.has(stored.selectedEndpointId)) {
+                apiExplorerState.selectedEndpointId = stored.selectedEndpointId;
+            } else if (apiExplorerState.activeRequestTabId) {
+                const activeRequestTab = getRequestTabById(apiExplorerState.activeRequestTabId);
+                apiExplorerState.selectedEndpointId = activeRequestTab ? activeRequestTab.endpointId : null;
+            } else if (apiExplorerState.activeResponseTabId) {
+                const activeResponseTab = getResponseTabById(apiExplorerState.activeResponseTabId);
+                apiExplorerState.selectedEndpointId = activeResponseTab ? activeResponseTab.endpointId : null;
+            } else {
+                apiExplorerState.selectedEndpointId = null;
+            }
+
+            const restoredReqSeq = Number(stored.nextRequestTabSequence);
+            const restoredRespSeq = Number(stored.nextResponseTabSequence);
+            apiExplorerState.nextRequestTabSequence = Number.isFinite(restoredReqSeq)
+                ? Math.max(restoredReqSeq, computeNextTabSequence(apiExplorerState.requestTabs, 'requestTab_'))
+                : computeNextTabSequence(apiExplorerState.requestTabs, 'requestTab_');
+            apiExplorerState.nextResponseTabSequence = Number.isFinite(restoredRespSeq)
+                ? Math.max(restoredRespSeq, computeNextTabSequence(apiExplorerState.responseTabs, 'responseTab_'))
+                : computeNextTabSequence(apiExplorerState.responseTabs, 'responseTab_');
+
+            if (apiExplorerState.nextRequestTabSequence < 1) apiExplorerState.nextRequestTabSequence = 1;
+            if (apiExplorerState.nextResponseTabSequence < 1) apiExplorerState.nextResponseTabSequence = 1;
+
+            const hasAnyRestoredTab = apiExplorerState.requestTabs.length > 0 || apiExplorerState.responseTabs.length > 0;
+            if (hasAnyRestoredTab) {
+                console.log('[API Explorer] Etat tabs restaure depuis localStorage', {
+                    requestTabs: apiExplorerState.requestTabs.length,
+                    responseTabs: apiExplorerState.responseTabs.length
+                });
+            }
+            return hasAnyRestoredTab;
+        } finally {
+            apiTabsStateRestoreInProgress = false;
+        }
+    }
+
+    function restoreApiWorkbenchFromTabsState() {
+        const activeResponseTab = getActiveResponseTab();
+        if (activeResponseTab) {
+            activateResponseTab(activeResponseTab.id, { skipPersist: true });
+            return true;
+        }
+
+        const activeRequestTab = getActiveRequestTab();
+        if (activeRequestTab) {
+            activateRequestTab(activeRequestTab.id, { skipPersist: true });
+            return true;
+        }
+
+        return false;
+    }
+
+    function closeAllApiTabsAndClearLocalCache() {
+        apiExplorerState.requestTabs = [];
+        apiExplorerState.responseTabs = [];
+        apiExplorerState.activeRequestTabId = null;
+        apiExplorerState.activeResponseTabId = null;
+        apiExplorerState.selectedEndpointId = null;
+        apiExplorerState.lastResponse = null;
+        apiExplorerState.lastProjection = null;
+        apiExplorerState.lastExecutionMeta = null;
+        apiExplorerState.nextRequestTabSequence = 1;
+        apiExplorerState.nextResponseTabSequence = 1;
+        rebuildProjectionAutocompletePaths();
+
+        renderCatalog();
+        renderRequestTabs();
+        renderResponseTabs();
+        updateResponseStats(null);
+        renderResponseText('Aucune reponse pour le moment.');
+
+        const emptyState = document.getElementById('apiExplorerEmptyState');
+        const workbench = document.getElementById('apiExplorerWorkbench');
+        if (workbench) workbench.style.display = 'none';
+        if (emptyState) emptyState.style.display = 'block';
+
+        if (apiTabsStateSaveTimerId) {
+            clearTimeout(apiTabsStateSaveTimerId);
+            apiTabsStateSaveTimerId = null;
+        }
+        clearApiTabsStateFromStorage();
+        setExecutionStatus('Onglets requete/reponse fermes. Cache local vide.', 'info');
+        console.log('[API Explorer] Tous les onglets requete/reponse ont ete fermes et le cache local a ete vide.');
     }
 
     function getRequestTabById(tabId) {
@@ -3445,6 +3725,7 @@
             closeRequestTabById(oldest.id, { fromLinked: true, skipActivation: true });
         }
 
+        queueSaveApiTabsStateToStorage();
         return tab;
     }
 
@@ -3464,6 +3745,7 @@
         activeTab.methodName = endpoint.methodName;
         activeTab.title = endpoint.methodName;
         activeTab.context = captureCurrentRequestContext(endpoint);
+        queueSaveApiTabsStateToStorage();
     }
 
     function activateRequestTab(tabId, options) {
@@ -3489,6 +3771,7 @@
         } else {
             persistActiveRequestTabContext();
         }
+        queueSaveApiTabsStateToStorage();
 
         const linkedResponseTab = tab.linkedResponseTabId ? getResponseTabById(tab.linkedResponseTabId) : null;
         if (linkedResponseTab && !safeOptions.skipLinkedResponseActivation) {
@@ -3537,6 +3820,7 @@
 
         renderRequestTabs();
         renderResponseTabs();
+        queueSaveApiTabsStateToStorage();
 
         if (safeOptions.skipActivation) return;
 
@@ -3636,6 +3920,7 @@
             closeResponseTabById(oldest.id, { fromLinked: true, skipActivation: true });
         }
 
+        queueSaveApiTabsStateToStorage();
         return tab;
     }
 
@@ -3674,6 +3959,7 @@
 
         renderResponseTabs();
         renderRequestTabs();
+        queueSaveApiTabsStateToStorage();
 
         if (safeOptions.skipActivation) return;
 
@@ -3848,6 +4134,7 @@
 
         renderRequestTabs();
         activateResponseTab(responseTab.id);
+        queueSaveApiTabsStateToStorage();
     }
 
     function updateActiveTabFromCurrentState() {
@@ -3866,6 +4153,7 @@
 
         renderResponseTabs();
         renderRequestTabs();
+        queueSaveApiTabsStateToStorage();
     }
 
     function activateResponseTab(tabId, options) {
@@ -3919,6 +4207,7 @@
             setExecutionStatus(tab.statusMessage, tab.statusLevel || 'info');
         }
 
+        queueSaveApiTabsStateToStorage();
         renderResponseTabs();
     }
 
@@ -3929,6 +4218,7 @@
         const activeTab = getActiveResponseTab();
         if (activeTab) {
             activeTab.viewMode = switchEl.checked ? 'node' : 'text';
+            queueSaveApiTabsStateToStorage();
         }
 
         const payload = getCurrentRenderableResponsePayload();

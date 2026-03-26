@@ -20,6 +20,8 @@ const FLOW_CANVAS_MIN_WIDTH = 700;
 const FLOW_CANVAS_MIN_HEIGHT = 740;
 
 let flowDesignerInitialized = false;
+let flowAutoMappingDisplayed = false;
+let flowTempLiaisonMapping = {};
 
 function i18nFlow(key, fallback, params) {
     if (window.GCToolI18n && typeof window.GCToolI18n.t === 'function') {
@@ -36,7 +38,7 @@ const BOX_TYPES = {
     start: {
         name: 'Start',
         displayName: 'Start',
-        description: 'Appeller le ',
+        description: '${i18nFlow("tab.flow.box.start_description", "Appeler le ")}',
         icon: 'fa-play',
         color: '#28a745',
         inputs: 0,
@@ -53,7 +55,7 @@ const BOX_TYPES = {
     route: {
         name: 'Route',
         displayName: 'Route',
-        description: 'Envoi sur ',
+        description: '${i18nFlow("tab.flow.box.route_description", "Envoi sur ")}',
         icon: 'fa-arrow-right',
         color: '#17a2b8',
         inputs: 1,
@@ -69,6 +71,7 @@ const BOX_TYPES = {
     menu: {
         name: 'Menu',
         displayName: 'Menu',
+        description: '${i18nFlow("tab.flow.box.menu_description", "Menu de choix ")}',
         detail: 'Menu ',
         icon: 'fa-sitemap',
         color: '#ffc107',
@@ -82,28 +85,25 @@ const BOX_TYPES = {
                 <mxGeometry x="{x}" y="{y}" width="120" height="80" as="geometry"/>
               </mxCell>`
     },
-    message: {
-        name: 'Message',
-        displayName: 'Message',
-        description: 'Message ',
-        icon: 'fa-comment',
-        color: '#6f42c1',
+    auto_link: {
+        name: 'Liaison Auto',
+        displayName: 'Liaison Auto',
+        description: 'Dispatch automatique',
+        icon: 'fa-random',
+        color: '#20c997',
         inputs: 1,
-        outputs: 1,
-        minOutputs: 1,
-        maxOutputs: 1,
-        supportsTasks: true,
-        tasks: [],
-        useDataTable: true,
-        promptCheck: true,
-        xml: `<mxCell id="{id}" value="{label}" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
-                <mxGeometry x="{x}" y="{y}" width="120" height="80" as="geometry"/>
+        outputs: 0,
+        minOutputs: 0,
+        maxOutputs: 50,
+        supportsTasks: false,
+        xml: `<mxCell id="{id}" value="{label}" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d1f2eb;strokeColor=#148f77;" vertex="1" parent="1">
+                <mxGeometry x="{x}" y="{y}" width="140" height="80" as="geometry"/>
               </mxCell>`
     },
     calendar: {
         name: 'Calendar',
         displayName: 'Calendar',
-        description: 'Calendar ',
+        description: '${i18nFlow("tab.flow.box.calendar_description", "Routage selon calendrier ")}',
         icon: 'fa-calendar',
         color: '#fd7e14',
         inputs: 1,
@@ -135,6 +135,7 @@ const BOX_TYPES = {
         name: 'Erreur',
         displayName: 'Erreur',
         detail: 'Erreur ',
+        description: '${i18nFlow("tab.flow.box.error_description", "Gestion des erreurs ")}',
         icon: 'fa-exclamation-triangle',
         color: '#dc3545',
         inputs: 1,
@@ -179,8 +180,363 @@ const TASK_ACTIONS = {
         requiresColumn: true,
         requiresLabel: true,
         parameters: ['column', 'label']
+    },
+    calendar_task: {
+        name: 'Calendrier',
+        icon: 'fa-calendar',
+        color: '#fd7e14',
+        requiresColumn: true,
+        parameters: ['column']
+    },
+    routing_task: {
+        name: 'Routage',
+        icon: 'fa-bullseye',
+        color: '#dc3545',
+        requiresColumn: true,
+        parameters: ['column']
     }
 };
+
+/**
+ * [FLOW-DESIGNER EVOLUTION] Helpers communs pour les sorties et le mapping auto.
+ */
+function getOutputMode(condition) {
+    if (!condition) return 'manual';
+    if (condition.mode === 'auto' || condition.mode === 'off' || condition.mode === 'manual') {
+        return condition.mode;
+    }
+    return condition.isDefault ? 'off' : 'manual';
+}
+
+function buildOutputConditionDefaults(mode = 'manual') {
+    const safeMode = (mode === 'auto' || mode === 'off' || mode === 'manual') ? mode : 'manual';
+    return {
+        mode: safeMode,
+        column: null,
+        value: null,
+        targetKeyColumn: null,
+        isDefault: safeMode === 'off',
+        autoMappingKey: null
+    };
+}
+
+function normalizeOutputCondition(condition) {
+    const initial = buildOutputConditionDefaults();
+    const merged = Object.assign(initial, condition || {});
+    merged.mode = getOutputMode(merged);
+    if (merged.mode === 'off') {
+        merged.isDefault = true;
+    } else {
+        merged.isDefault = false;
+    }
+    if (merged.mode === 'auto') {
+        merged.value = null;
+    }
+    return merged;
+}
+
+function getAutoMappingEntries() {
+    if (typeof LIAISON_MAPPING === 'undefined' || !LIAISON_MAPPING || typeof LIAISON_MAPPING !== 'object') {
+        return [];
+    }
+    return Object.keys(LIAISON_MAPPING).map((key) => ({
+        key,
+        datatableId: LIAISON_MAPPING[key]
+    }));
+}
+
+function applyAutoLinkOutputs(box, removeExtraConnections = false) {
+    if (!box || box.type !== 'auto_link') return;
+    const mappingEntries = getAutoMappingEntries();
+    box.autoMappingKeys = mappingEntries.map(entry => entry.key);
+    const previousOutputs = box.currentOutputs || 0;
+    box.currentOutputs = mappingEntries.length;
+
+    const rebuiltConditions = {};
+    mappingEntries.forEach((entry, index) => {
+        const existingCondition = normalizeOutputCondition(box.outputConditions ? box.outputConditions[index] : null);
+        rebuiltConditions[index] = {
+            ...existingCondition,
+            mode: 'auto',
+            isDefault: false,
+            value: null,
+            autoMappingKey: entry.key
+        };
+    });
+    box.outputConditions = rebuiltConditions;
+
+    if (removeExtraConnections && previousOutputs > box.currentOutputs) {
+        const maxValidIndex = box.currentOutputs - 1;
+        const connectionsToDelete = flowConnections.filter(conn =>
+            conn.from.boxId === box.id && conn.from.index > maxValidIndex
+        );
+        connectionsToDelete.forEach(conn => deleteConnection(conn.id));
+    }
+}
+
+function ensureBoxOutputConditions(box) {
+    if (!box) return;
+    if (!box.outputConditions || typeof box.outputConditions !== 'object') {
+        box.outputConditions = {};
+    }
+
+    if (box.type === 'auto_link') {
+        applyAutoLinkOutputs(box);
+        return;
+    }
+
+    const config = BOX_TYPES[box.type] || {};
+    if (typeof box.currentOutputs !== 'number' || Number.isNaN(box.currentOutputs)) {
+        box.currentOutputs = config.outputs || 0;
+    }
+
+    const rebuiltConditions = {};
+    let offModeAlreadyAssigned = false;
+    for (let i = 0; i < box.currentOutputs; i++) {
+        const normalizedCondition = normalizeOutputCondition(box.outputConditions[i]);
+        if (getOutputMode(normalizedCondition) === 'off') {
+            if (offModeAlreadyAssigned) {
+                normalizedCondition.mode = 'manual';
+                normalizedCondition.isDefault = false;
+            } else {
+                offModeAlreadyAssigned = true;
+            }
+        }
+        rebuiltConditions[i] = normalizedCondition;
+    }
+    box.outputConditions = rebuiltConditions;
+}
+
+/**
+ * [FLOW-DESIGNER EVOLUTION] Normalisation des cles de mapping auto.
+ */
+function normalizeAutoMappingKeyValue(value) {
+    if (value === undefined || value === null) return '';
+    return String(value).trim().toUpperCase();
+}
+
+function normalizeRoutingKeyValue(value) {
+    if (value === undefined || value === null) return '';
+    return String(value).trim().toLowerCase();
+}
+
+/**
+ * [FLOW-DESIGNER EVOLUTION] Resolution du routage "Auto" vers la cible finale.
+ * Le bloc auto_link sert uniquement de dispatch: il n'est pas ajoute au parcours visuel.
+ */
+function resolveAutoOutputRouting(currentBox, rowData, outputIndex, condition, connectionsForOutput) {
+    const autoLabel = i18nFlow('tab.flow.output.mode_auto_label', 'Auto');
+    const baseConditionLabel = `${condition?.column || '?'} (${autoLabel})`;
+    console.log('[FLOW-AUTO] Analyse sortie auto', {
+        boxId: currentBox?.id,
+        outputIndex,
+        column: condition?.column,
+        targetKeyColumn: condition?.targetKeyColumn
+    });
+
+    if (!condition || !condition.column || !condition.targetKeyColumn) {
+        return {
+            matched: false,
+            error: true,
+            conditionLabel: baseConditionLabel,
+            reason: i18nFlow(
+                'tab.flow.path.auto_missing_fields',
+                'Configuration auto incomplete: "condition column" et "target key" sont requis'
+            )
+        };
+    }
+
+    if (!Array.isArray(connectionsForOutput) || connectionsForOutput.length === 0) {
+        return {
+            matched: false,
+            error: true,
+            conditionLabel: baseConditionLabel,
+            reason: i18nFlow('tab.flow.path.auto_no_connection', 'Aucune connexion sur la sortie Auto')
+        };
+    }
+
+    const rawMappingValue = rowData ? rowData[condition.column] : null;
+    const mappingKey = normalizeAutoMappingKeyValue(rawMappingValue);
+    if (!mappingKey) {
+        return {
+            matched: false,
+            error: true,
+            conditionLabel: baseConditionLabel,
+            reason: i18nFlow(
+                'tab.flow.path.auto_empty_value',
+                'La valeur de la colonne "{column}" est vide pour le routage auto',
+                { column: condition.column }
+            )
+        };
+    }
+
+    const mappedDataTableId = (typeof LIAISON_MAPPING !== 'undefined' && LIAISON_MAPPING)
+        ? LIAISON_MAPPING[mappingKey]
+        : null;
+    if (!mappedDataTableId) {
+        return {
+            matched: false,
+            error: true,
+            conditionLabel: `${condition.column} = "${mappingKey}" (${autoLabel})`,
+            reason: i18nFlow(
+                'tab.flow.path.auto_missing_mapping',
+                'Valeur "{value}" absente du mapping automatique',
+                { value: mappingKey }
+            )
+        };
+    }
+
+    const firstConnection = connectionsForOutput[0];
+    const firstTargetBox = flowBoxes.get(firstConnection.to.boxId);
+    if (!firstTargetBox) {
+        return {
+            matched: false,
+            error: true,
+            conditionLabel: `${condition.column} = "${mappingKey}" (${autoLabel})`,
+            reason: i18nFlow('tab.flow.path.auto_target_not_found', 'Boite cible introuvable pour la sortie Auto')
+        };
+    }
+
+    const targetKeyValue = (rowData && condition.targetKeyColumn in rowData)
+        ? rowData[condition.targetKeyColumn]
+        : rowData?.key;
+
+    // Compatibilité: si l'utilisateur relie directement la sortie auto à une boîte standard.
+    if (firstTargetBox.type !== 'auto_link') {
+        console.warn('[FLOW-AUTO] Sortie auto connectee sans bloc auto_link', {
+            boxId: currentBox.id,
+            outputIndex,
+            connectedTo: firstTargetBox.id
+        });
+        return {
+            matched: true,
+            error: false,
+            conditionLabel: `${condition.column} = "${mappingKey}" (${autoLabel} direct)`,
+            detailMessage: i18nFlow(
+                'tab.flow.path.auto_direct_detail',
+                'Liaison Auto directe: {column}="{value}" -> {target}',
+                {
+                    column: condition.column,
+                    value: mappingKey,
+                    target: firstTargetBox.displayName || firstTargetBox.type
+                }
+            ),
+            box: firstTargetBox,
+            keyValue: targetKeyValue,
+            mappingKey,
+            mappedDataTableId,
+            autoLinkSkipped: true
+        };
+    }
+
+    ensureBoxOutputConditions(firstTargetBox);
+    const autoOutputIndex = Array.isArray(firstTargetBox.autoMappingKeys)
+        ? firstTargetBox.autoMappingKeys.findIndex((key) => normalizeAutoMappingKeyValue(key) === mappingKey)
+        : -1;
+    if (autoOutputIndex < 0) {
+        return {
+            matched: false,
+            error: true,
+            conditionLabel: `${condition.column} = "${mappingKey}" (${autoLabel})`,
+            reason: i18nFlow(
+                'tab.flow.path.auto_key_missing_in_block',
+                'La cle "{value}" n existe pas dans le bloc Liaison Auto connecte',
+                { value: mappingKey }
+            )
+        };
+    }
+
+    const dispatchConnection = flowConnections.find((conn) =>
+        conn.from.boxId === firstTargetBox.id && conn.from.index === autoOutputIndex
+    );
+    if (!dispatchConnection) {
+        return {
+            matched: false,
+            error: true,
+            conditionLabel: `${condition.column} = "${mappingKey}" (${autoLabel})`,
+            reason: i18nFlow(
+                'tab.flow.path.auto_output_unlinked',
+                'Aucune liaison sortante depuis le bloc Liaison Auto pour la cle "{value}"',
+                { value: mappingKey }
+            )
+        };
+    }
+
+    const dispatchedTargetBox = flowBoxes.get(dispatchConnection.to.boxId);
+    if (!dispatchedTargetBox) {
+        return {
+            matched: false,
+            error: true,
+            conditionLabel: `${condition.column} = "${mappingKey}" (${autoLabel})`,
+            reason: i18nFlow(
+                'tab.flow.path.auto_dispatched_target_missing',
+                'Boite cible introuvable pour la cle auto "{value}"',
+                { value: mappingKey }
+            )
+        };
+    }
+
+    const detailMessage = i18nFlow(
+        'tab.flow.path.auto_dispatch_detail',
+        'Liaison Auto: {column}="{value}" -> mapping {mapping} -> {target}',
+        {
+            column: condition.column,
+            value: mappingKey,
+            mapping: getDataTableNameById(mappedDataTableId) || mappedDataTableId,
+            target: dispatchedTargetBox.displayName || dispatchedTargetBox.type
+        }
+    );
+
+    console.log('[FLOW-AUTO] Dispatch resolu', {
+        sourceBoxId: currentBox.id,
+        outputIndex,
+        mappingKey,
+        mappedDataTableId,
+        autoLinkBoxId: firstTargetBox.id,
+        autoOutputIndex,
+        targetBoxId: dispatchedTargetBox.id
+    });
+
+    return {
+        matched: true,
+        error: false,
+        conditionLabel: `${condition.column} = "${mappingKey}" (${autoLabel})`,
+        detailMessage,
+        box: dispatchedTargetBox,
+        keyValue: targetKeyValue,
+        mappingKey,
+        mappedDataTableId,
+        autoLinkBoxId: firstTargetBox.id,
+        autoLinkOutputIndex: autoOutputIndex
+    };
+}
+
+function resolveBoxTypeConfig(boxOrType) {
+    const isTypeArg = typeof boxOrType === 'string';
+    const box = isTypeArg ? null : boxOrType;
+    const type = isTypeArg ? boxOrType : boxOrType?.type;
+    const knownConfig = type ? BOX_TYPES[type] : null;
+    const fallbackOutputs = Math.max(0, Number(box?.currentOutputs || 1));
+    const fallbackConfig = {
+        name: type || 'Unknown',
+        displayName: box?.displayName || type || 'Unknown',
+        description: box?.description || '',
+        icon: 'fa-square',
+        color: box?.color || '#6c757d',
+        inputs: 1,
+        outputs: fallbackOutputs,
+        minOutputs: 0,
+        maxOutputs: Math.max(1, fallbackOutputs),
+        unique: false,
+        supportsTasks: false,
+        useDataTable: true,
+        tasks: []
+    };
+    if (!knownConfig) {
+        console.warn('[FLOW] Type de boite inconnu, fallback applique', { type });
+    }
+    return Object.assign({}, fallbackConfig, knownConfig || {});
+}
 /**
  * Vérification des dépendances Bootstrap
  */
@@ -221,6 +577,7 @@ function initializeFlowDesigner() {
     setupFlowCanvas();
     setupDragAndDrop();
     setupConnectionEvents();
+    setupFlowAutoMappingControls();
     optimizeInitialLayout();
     loadFlowFromCookie();
     loadGeneratedVisualsFromStorage();
@@ -360,7 +717,7 @@ function handleCanvasDrop(e) {
     const y = pointer.y;
     
     // Vérifier si c'est une boîte unique (Start)
-    if (BOX_TYPES[draggedBoxType].unique && hasBoxOfType(draggedBoxType)) {
+    if (resolveBoxTypeConfig(draggedBoxType).unique && hasBoxOfType(draggedBoxType)) {
         alert(i18nFlow('tab.flow.alert.single_start', 'Une seule boite Start est autorisee dans le flux'));
         return;
     }
@@ -382,24 +739,27 @@ function handleCanvasDragOver(e) {
  * Création d'une boîte de flux
  */
 function createFlowBox(type, x, y) {
-    const boxConfig = BOX_TYPES[type];
+    const boxConfig = resolveBoxTypeConfig(type);
     const boxId = `box_${nextBoxId++}`;
+    const isAutoLinkBox = type === 'auto_link';
+    const autoMappingEntries = isAutoLinkBox ? getAutoMappingEntries() : [];
     
     const box = {
         id: boxId,
         type: type,
         x: Math.max(0, x - 60), // Centrer la boîte
         y: Math.max(0, y - 40),
-        width: 120,
+        width: isAutoLinkBox ? 140 : 120,
         height: 80,
         displayName: boxConfig.displayName,
         dataTable: null,
         displayColumn: null,
         outputColumns: {},
         outputConditions: {}, 
-        currentOutputs: boxConfig.outputs, 
+        currentOutputs: isAutoLinkBox ? autoMappingEntries.length : boxConfig.outputs,
         freeText: boxConfig.useDataTable ? null : '',
         description: boxConfig.description,
+        autoMappingKeys: autoMappingEntries.map(entry => entry.key),
         data: {},
         testConfig: {
             description: "Étape de connexion au service client", // Message descriptif
@@ -407,16 +767,7 @@ function createFlowBox(type, x, y) {
             validationSteps: [] // Pour les boîtes complexes
         }
     };
-    
-    // Initialiser les conditions de sortie
-    for (let i = 0; i < box.currentOutputs; i++) {
-        box.outputConditions[i] = {
-            column: null,
-            value: null,
-            isDefault: false,
-            targetKeyColumn:null
-        };
-    }
+    ensureBoxOutputConditions(box);
 
     // Créer l'élément SVG de la boîte
     const boxElement = createBoxSVG(box, boxConfig);
@@ -433,7 +784,226 @@ function createFlowBox(type, x, y) {
     selectBox(boxId);
     onFlowChanged();
 
-    console.log(`📦 Boîte ${type} créée:`, boxId);
+    console.log(`📦 Boîte ${type} créée:`, boxId, { outputs: box.currentOutputs });
+}
+
+/**
+ * [FLOW-DESIGNER EVOLUTION] Initialisation du panneau Mapping dans Flow.
+ */
+function setupFlowAutoMappingControls() {
+    const selector = document.getElementById('flowNewMappingDataTable');
+    const mappingModal = document.getElementById('flowMappingModal');
+    if (!selector) {
+        console.log('[FLOW] Panneau mapping non present (setup ignore).');
+        return;
+    }
+    updateFlowMappingDataTableSelector();
+    displayFlowCurrentMapping();
+    if (mappingModal && typeof $ !== 'undefined' && $.fn && $.fn.modal) {
+        $('#flowMappingModal')
+            .off('hidden.bs.modal.flowMapping')
+            .on('hidden.bs.modal.flowMapping', function () {
+                flowAutoMappingDisplayed = false;
+                cancelFlowMappingChanges();
+                console.log('[FLOW] Modal mapping fermee');
+            });
+    }
+    console.log('[FLOW] Panneau mapping initialise');
+}
+
+function openFlowMappingModal() {
+    const mappingModal = document.getElementById('flowMappingModal');
+    if (!mappingModal) {
+        console.warn('[FLOW] Modal mapping introuvable');
+        return;
+    }
+    flowTempLiaisonMapping = (typeof LIAISON_MAPPING !== 'undefined' && LIAISON_MAPPING)
+        ? { ...LIAISON_MAPPING }
+        : {};
+    updateFlowMappingDataTableSelector();
+    displayFlowCurrentMapping();
+    flowAutoMappingDisplayed = true;
+    if (typeof $ !== 'undefined' && $.fn && $.fn.modal) {
+        $('#flowMappingModal').modal('show');
+    } else {
+        mappingModal.style.display = 'block';
+    }
+    console.log('[FLOW] Modal mapping ouverte');
+}
+
+function closeFlowMappingModal() {
+    const mappingModal = document.getElementById('flowMappingModal');
+    if (!mappingModal) return;
+    flowAutoMappingDisplayed = false;
+    if (typeof $ !== 'undefined' && $.fn && $.fn.modal) {
+        $('#flowMappingModal').modal('hide');
+    } else {
+        mappingModal.style.display = 'none';
+    }
+}
+
+function updateFlowMappingDataTableSelector() {
+    const selector = document.getElementById('flowNewMappingDataTable');
+    if (!selector) return;
+
+    selector.innerHTML = `<option value="">${i18nFlow('tab.flow.mapping.select_datatable', 'Selectionner une DataTable...')}</option>`;
+    dataTablesCache.forEach((dataTable) => {
+        const option = document.createElement('option');
+        option.value = dataTable.id;
+        option.textContent = dataTable.name;
+        selector.appendChild(option);
+    });
+
+    if (typeof $ !== 'undefined' && $.fn && $.fn.select2) {
+        const $selector = $('#flowNewMappingDataTable');
+        if ($selector.data('select2')) {
+            $selector.select2('destroy');
+        }
+        $selector.select2({ width: '100%' });
+    }
+}
+
+function displayFlowCurrentMapping() {
+    const mappingList = document.getElementById('flowCurrentMappingList');
+    if (!mappingList) return;
+    mappingList.innerHTML = '';
+
+    const mappingKeys = Object.keys(flowTempLiaisonMapping || {});
+    if (mappingKeys.length === 0) {
+        mappingList.innerHTML = `<p class="text-muted"><i class="fa fa-info-circle"></i> ${i18nFlow('tab.flow.mapping.none', 'Aucun mapping configure')}</p>`;
+        return;
+    }
+
+    mappingKeys.forEach((key) => {
+        const datatableId = flowTempLiaisonMapping[key];
+        const datatableName = getDataTableNameById(datatableId);
+        const mappingRow = document.createElement('div');
+        mappingRow.className = 'mapping-row';
+        mappingRow.style.padding = '4px 0';
+        mappingRow.innerHTML = `
+            <div class="row">
+                <div class="col-md-4">
+                    <span class="mapping-key"><code>${key}</code></span>
+                </div>
+                <div class="col-md-6">
+                    <span class="mapping-datatable">${datatableName}</span>
+                    <small class="text-muted">(${datatableId})</small>
+                </div>
+                <div class="col-md-2 text-right">
+                    <button type="button" class="btn btn-xs btn-danger flow-remove-mapping-btn">
+                        <i class="fa fa-trash"></i>
+                    </button>
+                </div>
+            </div>
+        `;
+        const removeBtn = mappingRow.querySelector('.flow-remove-mapping-btn');
+        if (removeBtn) {
+            removeBtn.addEventListener('click', () => removeFlowMappingKey(key));
+        }
+        mappingList.appendChild(mappingRow);
+    });
+}
+
+function addFlowNewMapping() {
+    const keyInput = document.getElementById('flowNewMappingKey');
+    const datatableSelect = document.getElementById('flowNewMappingDataTable');
+    if (!keyInput || !datatableSelect) return;
+
+    const newKey = (keyInput.value || '').trim().toUpperCase();
+    const selectedDataTable = datatableSelect.value;
+    if (!newKey) {
+        alert(i18nFlow('tab.flow.mapping.alert.reference_required', 'Veuillez saisir une valeur de reference'));
+        keyInput.focus();
+        return;
+    }
+    if (!selectedDataTable) {
+        alert(i18nFlow('tab.flow.mapping.alert.datatable_required', 'Veuillez selectionner une DataTable'));
+        datatableSelect.focus();
+        return;
+    }
+    if (flowTempLiaisonMapping[newKey]) {
+        const replace = confirm(i18nFlow('tab.flow.mapping.confirm.replace', 'Cette valeur existe deja. Voulez-vous la remplacer ?'));
+        if (!replace) return;
+    }
+
+    flowTempLiaisonMapping[newKey] = selectedDataTable;
+    keyInput.value = '';
+    datatableSelect.value = '';
+    if (typeof $ !== 'undefined' && $.fn && $.fn.select2) {
+        $('#flowNewMappingDataTable').trigger('change');
+    }
+    displayFlowCurrentMapping();
+    console.log('[FLOW] Mapping ajoute', { key: newKey, datatableId: selectedDataTable });
+}
+
+function removeFlowMappingKey(key) {
+    if (!confirm(i18nFlow('tab.flow.mapping.confirm.delete', 'Supprimer ce mapping ?'))) {
+        return;
+    }
+    delete flowTempLiaisonMapping[key];
+    displayFlowCurrentMapping();
+    console.log('[FLOW] Mapping supprime', key);
+}
+
+function saveFlowMappingConfiguration() {
+    if (typeof LIAISON_MAPPING === 'undefined' || !LIAISON_MAPPING) {
+        alert(i18nFlow('tab.flow.mapping.alert.unavailable', 'Mapping automatique indisponible'));
+        return;
+    }
+    Object.keys(LIAISON_MAPPING).forEach((key) => delete LIAISON_MAPPING[key]);
+    Object.keys(flowTempLiaisonMapping).forEach((key) => {
+        LIAISON_MAPPING[key] = flowTempLiaisonMapping[key];
+    });
+    if (typeof saveLiaisonMappingToCookie === 'function') {
+        saveLiaisonMappingToCookie();
+    }
+    refreshAllAutoLinkBoxes();
+    alert(i18nFlow('tab.flow.mapping.alert.saved', 'Mapping sauvegarde'));
+    closeFlowMappingModal();
+    console.log('[FLOW] Mapping sauvegarde', LIAISON_MAPPING);
+}
+
+function cancelFlowMappingChanges() {
+    flowTempLiaisonMapping = (typeof LIAISON_MAPPING !== 'undefined' && LIAISON_MAPPING)
+        ? { ...LIAISON_MAPPING }
+        : {};
+    const keyInput = document.getElementById('flowNewMappingKey');
+    const datatableSelect = document.getElementById('flowNewMappingDataTable');
+    if (keyInput) keyInput.value = '';
+    if (datatableSelect) datatableSelect.value = '';
+    if (typeof $ !== 'undefined' && $.fn && $.fn.select2) {
+        $('#flowNewMappingDataTable').trigger('change');
+    }
+    displayFlowCurrentMapping();
+    console.log('[FLOW] Modifications mapping annulees');
+}
+
+function refreshAutoLinkBoxOutputs(boxId) {
+    const box = flowBoxes.get(boxId);
+    if (!box || box.type !== 'auto_link') {
+        console.warn('refreshAutoLinkBoxOutputs ignore: boite invalide', boxId);
+        return;
+    }
+    applyAutoLinkOutputs(box, true);
+    recreateBoxSVG(boxId);
+    if (selectedBox === boxId) {
+        showBoxConfigPanel(boxId);
+    }
+    onFlowChanged();
+    console.log('[FLOW] Sorties liaison auto rafraichies', { boxId, outputs: box.currentOutputs });
+}
+
+function refreshAllAutoLinkBoxes() {
+    flowBoxes.forEach((box, boxId) => {
+        if (box.type !== 'auto_link') return;
+        applyAutoLinkOutputs(box, true);
+        recreateBoxSVG(boxId);
+        console.log('[FLOW] Refresh auto-link global', { boxId, outputs: box.currentOutputs });
+    });
+    if (selectedBox && flowBoxes.get(selectedBox)?.type === 'auto_link') {
+        showBoxConfigPanel(selectedBox);
+    }
+    onFlowChanged();
 }
 
 // À la fin de chaque modification du flux :
@@ -445,6 +1015,7 @@ function onFlowChanged() {
  * Création de l'élément SVG d'une boîte
  */
 function createBoxSVG(box, config) {
+    const safeConfig = config || resolveBoxTypeConfig(box);
     const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
     group.setAttribute('id', box.id);
     group.setAttribute('class', 'flow-box');
@@ -454,7 +1025,7 @@ function createBoxSVG(box, config) {
     const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
     rect.setAttribute('width', box.width);
     rect.setAttribute('height', box.height);
-    rect.setAttribute('fill', config.color);
+    rect.setAttribute('fill', safeConfig.color || box.color || '#6c757d');
     rect.setAttribute('stroke', '#333');
     rect.setAttribute('stroke-width', '2');
     rect.setAttribute('rx', '5');
@@ -471,7 +1042,7 @@ function createBoxSVG(box, config) {
     text.textContent = box.displayName;
 
     // Points de connexion
-    createConnectionPoints(group, box, config);
+    createConnectionPoints(group, box, safeConfig);
     
     // Événements
     group.addEventListener('click', () => selectBox(box.id));
@@ -481,7 +1052,7 @@ function createBoxSVG(box, config) {
     group.appendChild(rect);
     group.appendChild(text);
     
-    if (config.useDataTable) {
+    if (safeConfig.useDataTable) {
         // Texte de la DataTable (si configurée)
         const dataTableText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
         dataTableText.setAttribute('x', box.width / 2);
@@ -512,8 +1083,9 @@ function createBoxSVG(box, config) {
  * Création des points de connexion - Version avec sorties dynamiques
  */
 function createConnectionPoints(group, box, config) {
+    const safeConfig = config || resolveBoxTypeConfig(box);
     // Points d'entrée (inchangé)
-    for (let i = 0; i < config.inputs; i++) {
+    for (let i = 0; i < (safeConfig.inputs || 0); i++) {
         const point = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
         //point.setAttribute('cx', 0);
         //point.setAttribute('cy', box.height / 2);
@@ -585,7 +1157,7 @@ function handleConnectionPoint(boxId, type, index) {
         if (type === 'input' && connectionStart.type === 'output') {
             createConnection(connectionStart, { boxId, type, index });
         }
-        cancelConnection();
+        cancelConnection(true);
     }
 }
 
@@ -601,13 +1173,41 @@ function cleanupConnectionState() {
         tempLine = null;
     }
     
-    // Réinitialiser tous les points de connexion
-    document.querySelectorAll('.connection-point').forEach(point => {
-        point.style.fill = '#fff';
-        point.style.strokeWidth = '2';
-    });
+    // Réinitialiser visuellement les points selon l'etat reel des connexions.
+    refreshOutputConnectionPointStyles();
     
     console.log('🧹 État de connexion nettoyé');
+}
+
+/**
+ * [FLOW-DESIGNER EVOLUTION] Mise a jour visuelle des points de sortie:
+ * - Gris si la sortie est deja connectee
+ * - Blanc sinon
+ * - Rouge temporaire si l'utilisateur est en train de demarrer une liaison
+ */
+function refreshOutputConnectionPointStyles(boxId = null) {
+    const selector = boxId
+        ? `.connection-point.output-point[data-box-id="${boxId}"]`
+        : '.connection-point.output-point';
+    const outputPoints = document.querySelectorAll(selector);
+    outputPoints.forEach((point) => {
+        const pointBoxId = point.getAttribute('data-box-id');
+        const outputIndex = parseInt(point.getAttribute('data-index'), 10);
+        const isConnected = getConnectionsCountForOutput(pointBoxId, outputIndex) > 0;
+        point.style.fill = isConnected ? '#b0b0b0' : '#fff';
+        point.style.stroke = isConnected ? '#666' : '#333';
+        point.style.strokeWidth = '2';
+    });
+
+    if (isConnecting && connectionStart && connectionStart.type === 'output') {
+        const activePoint = document.querySelector(
+            `.connection-point.output-point[data-box-id="${connectionStart.boxId}"][data-index="${connectionStart.index}"]`
+        );
+        if (activePoint) {
+            activePoint.style.fill = '#ff6b6b';
+            activePoint.style.stroke = '#333';
+        }
+    }
 }
 
 /**
@@ -620,9 +1220,17 @@ function createConnection(from, to) {
     );
     
     if (existingConnection) {
-        alert(i18nFlow('tab.flow.alert.output_already_connected', 'Cette sortie est deja connectee'));
-        redrawConnection(existingConnection.id)
-        return;
+        const shouldReplace = confirm(i18nFlow(
+            'tab.flow.confirm.replace_connection',
+            'Cette sortie est deja connectee. Voulez-vous remplacer la liaison existante ?'
+        ));
+        if (!shouldReplace) {
+            redrawConnection(existingConnection.id);
+            console.log('🔗 Remplacement de liaison annule par utilisateur', { from, to });
+            return;
+        }
+        console.log('🔗 Remplacement de liaison accepte', { from, oldTo: existingConnection.to, newTo: to });
+        deleteConnection(existingConnection.id);
     }
 
     const connection = {
@@ -633,8 +1241,9 @@ function createConnection(from, to) {
     
     flowConnections.push(connection);
     drawConnection(connection);
+    refreshOutputConnectionPointStyles(from.boxId);
+    console.log('🔗 Connexion creee:', connection);
     onFlowChanged();
-    console.log('🔗 Connexion créée (multiple autorisée):', connection);
 }
 
 /**
@@ -723,6 +1332,14 @@ function drawConnection(connection) {
             deleteConnection(connection.id);
         }
     });
+    connectionGroup.addEventListener('dblclick', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (confirm(i18nFlow('tab.flow.confirm.delete_connection_double_click', 'Supprimer cette connexion ?'))) {
+            console.log('🔗 Suppression liaison via double-clic', connection.id);
+            deleteConnection(connection.id);
+        }
+    });
 
     // Ajouter au groupe des connexions
     const connectionsGroup = document.getElementById('connectionsGroup');
@@ -735,14 +1352,20 @@ function drawConnection(connection) {
  */
 function isDefaultOutput(box, outputIndex) {
     const condition = box?.outputConditions?.[outputIndex];
-    return Boolean(condition && condition.isDefault);
+    return getOutputMode(condition) === 'off' || Boolean(condition && condition.isDefault);
 }
 
 function getConditionText(box, outputIndex) {
-    const condition = box.outputConditions[outputIndex];
+    const condition = normalizeOutputCondition(box.outputConditions[outputIndex]);
     if (!condition) return null;
+
+    if (box.type === 'auto_link') {
+        const mappingKey = condition.autoMappingKey || (Array.isArray(box.autoMappingKeys) ? box.autoMappingKeys[outputIndex] : null);
+        return mappingKey || `Sortie ${outputIndex + 1}`;
+    }
+    const outputMode = getOutputMode(condition);
     
-    if (condition.column && condition.value) {
+    if (outputMode === 'manual' && condition.column && condition.value) {
         const fullText = `${condition.column} = "${condition.value}"`;
         
         // Raccourcir si trop long (plus de 20 caracteres)
@@ -756,7 +1379,11 @@ function getConditionText(box, outputIndex) {
         return fullText;
     }
 
-    if (condition.isDefault) {
+    if (outputMode === 'auto' && condition.column) {
+        return `${condition.column} (Auto)`;
+    }
+
+    if (outputMode === 'off') {
         return `Sortie ${outputIndex + 1}`;
     }
     
@@ -765,6 +1392,76 @@ function getConditionText(box, outputIndex) {
 
 function getFlowStepIconClass(type) {
     return (BOX_TYPES[type] && BOX_TYPES[type].icon) ? BOX_TYPES[type].icon : 'fa-circle';
+}
+
+/**
+ * [FLOW-VISUAL TASK ICONS] Escaping minimal pour les attributs HTML (title).
+ */
+function escapeFlowHtmlAttribute(value) {
+    if (value === undefined || value === null) return '';
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}
+
+/**
+ * [FLOW-VISUAL TASK ICONS] Recupere la valeur associee a la tache pour le tooltip.
+ * Priorite: colonne liee -> fallback selon type de tache.
+ */
+function resolveTaskLinkedValueForVisual(task, rowData) {
+    if (!task || !task.parameters) return '-';
+    if (task.parameters.column) {
+        const linkedValue = rowData ? rowData[task.parameters.column] : undefined;
+        if (linkedValue === undefined || linkedValue === null || String(linkedValue).trim() === '') {
+            return '-';
+        }
+        return String(linkedValue);
+    }
+
+    if (task.action === 'identification') return task.parameters.text || '-';
+    if (task.action === 'activation') return task.parameters.label || '-';
+    if (task.action === 'client_data') {
+        const pairCount = Array.isArray(task.parameters.keyValuePairs) ? task.parameters.keyValuePairs.length : 0;
+        return `${pairCount} pair(s)`;
+    }
+    return '-';
+}
+
+/**
+ * [FLOW-VISUAL TASK ICONS] Genere le groupe d'icones de taches pour le coin haut droit de l'etape.
+ */
+function generateFlowStepTaskIconsHtml(box, rowData) {
+    if (!box || !Array.isArray(box.tasks) || box.tasks.length === 0) {
+        return '';
+    }
+
+    console.log('[FLOW][TASK-ICONS] Construction des icones de taches', {
+        boxId: box.id,
+        tasksCount: box.tasks.length
+    });
+
+    const iconsHtml = box.tasks.map((task, taskIndex) => {
+        const actionConfig = TASK_ACTIONS[task.action] || {};
+        const iconClass = actionConfig.icon || 'fa-tasks';
+        const actionName = actionConfig.name || task.action || 'Task';
+        const linkedColumn = task?.parameters?.column || '-';
+        const linkedValue = resolveTaskLinkedValueForVisual(task, rowData);
+        const tooltip = `${actionName} | ${i18nFlow('tab.flow.tasks.detail.column', 'Colonne')}: ${linkedColumn} | ${i18nFlow('tab.flow.tasks.value', 'Valeur')}: ${linkedValue}`;
+        const taskColor = actionConfig.color || '#6c757d';
+
+        return `
+            <span class="flow-task-icon-badge"
+                  style="--flow-task-color:${taskColor};"
+                  title="${escapeFlowHtmlAttribute(tooltip)}"
+                  data-task-index="${taskIndex}">
+                <i class="fa ${iconClass}" aria-hidden="true"></i>
+            </span>
+        `;
+    }).join('');
+
+    return `<div class="flow-step-task-icons">${iconsHtml}</div>`;
 }
 
 function hasFlowBranchContext(branchIndex) {
@@ -887,14 +1584,19 @@ function deselectBox() {
  * Génération du HTML de configuration - Version avec sorties dynamiques
  */
 function generateBoxConfigHTML(box) {
-    const config = BOX_TYPES[box.type];
+    const config = resolveBoxTypeConfig(box);
+    ensureBoxOutputConditions(box);
+    const isAutoLinkBox = box.type === 'auto_link';
     
-    let html = `<h5 class="box-config-title"><i class="fa ${config.icon}"></i><input type="text" class="form-control box-title-input"
+    let html = isAutoLinkBox
+        ? `<h5 class="box-config-title"><i class="fa ${config.icon}"></i> ${box.displayName}</h5>`
+        : `<h5 class="box-config-title"><i class="fa ${config.icon}"></i><input type="text" class="form-control box-title-input"
                          id="boxDisplayName" 
                          onchange="updateBoxDisplayName('${box.id}', this.value)"
                          value="${box.displayName}"></h5>`;
-    //Ajout d'un champ description
-    html += `
+    // Ajout d'un champ description (non applicable au bloc liaison auto).
+    if (!isAutoLinkBox) {
+        html += `
         <div class="form-group">
             <label>${i18nFlow('tab.flow.config.step_description_label', "Description de l'etape (pour les tests) :")}</label>
             <textarea class="form-control" id="boxDescription" rows="3" 
@@ -904,6 +1606,7 @@ function generateBoxConfigHTML(box) {
         </div>
         <hr>
     `;
+    }
     if (box.type === 'error') {
         html += `
             <div class="form-group">
@@ -924,6 +1627,8 @@ function generateBoxConfigHTML(box) {
                 </div>
             </div>
         `;
+    } else if (box.type === 'auto_link') {
+        html += generateAutoLinkConfigHTML(box);
     } else {        
         html += `
             <div class="form-group">
@@ -993,6 +1698,43 @@ function generateBoxConfigHTML(box) {
     return html;
 }
 
+function generateAutoLinkConfigHTML(box) {
+    const mappingEntries = getAutoMappingEntries();
+    const mappingRows = mappingEntries.length > 0
+        ? mappingEntries.map((entry, index) => `
+            <tr>
+                <td>${index + 1}</td>
+                <td><code>${entry.key}</code></td>
+                <td>${getDataTableNameById(entry.datatableId)} <small class="text-muted">(${entry.datatableId})</small></td>
+            </tr>
+        `).join('')
+        : `<tr><td colspan="3" class="text-muted">${i18nFlow('tab.flow.auto_link.no_mapping', 'Aucun mapping automatique configure')}</td></tr>`;
+
+    return `
+        <div class="well well-sm">
+            <h5><i class="fa fa-random"></i> ${i18nFlow('tab.flow.auto_link.title', 'Liaison automatique')}</h5>
+            <p class="text-muted">${i18nFlow('tab.flow.auto_link.description', 'Bloc non configurable. Les sorties sont basees sur le mapping automatique.')}</p>
+            <p><strong>${i18nFlow('tab.flow.auto_link.outputs_count', 'Nombre de sorties')}:</strong> ${box.currentOutputs}</p>
+            <button type="button" class="btn btn-info btn-sm" onclick="refreshAutoLinkBoxOutputs('${box.id}')">
+                <i class="fa fa-refresh"></i> ${i18nFlow('tab.flow.auto_link.refresh', 'Refresh')}
+            </button>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-condensed table-bordered">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>${i18nFlow('tab.flow.auto_link.reference_value', 'Valeur de reference')}</th>
+                        <th>${i18nFlow('tab.flow.auto_link.target_datatable', 'DataTable cible')}</th>
+                    </tr>
+                </thead>
+                <tbody>${mappingRows}</tbody>
+            </table>
+        </div>
+        <hr>
+    `;
+}
+
 /**
  * Génération des options DataTable
  */
@@ -1009,11 +1751,109 @@ function generateBoxConfigHTML(box) {
  * Génération du HTML pour une sortie spécifique
  */
 function generateOutputConfigHTML(box, outputIndex, columns) {
-    const condition = box.outputConditions[outputIndex] || { column: null, value: null, isDefault: false, targetKeyColumn : null };
-    const minOutputs = BOX_TYPES[box.type]?.minOutputs ?? 0;
+    const condition = normalizeOutputCondition(box.outputConditions[outputIndex]);
+    const mode = getOutputMode(condition);
+    const autoMappingEntries = getAutoMappingEntries();
+    const minOutputs = resolveBoxTypeConfig(box).minOutputs ?? 0;
     const removeDisabled = box.currentOutputs <= minOutputs;
+    const modeSwitchName = `flow-output-mode-${box.id}-${outputIndex}`;
+    const modeAutoId = `${modeSwitchName}-auto`;
+    const modeOffId = `${modeSwitchName}-off`;
+    const modeManualId = `${modeSwitchName}-manual`;
     
-    const defaultLabel = condition.isDefault ? `<span class="label label-info">${i18nFlow('tab.flow.output.default', 'Par defaut')}</span>` : '';
+    const defaultLabel = mode === 'off' ? `<span class="label label-info">${i18nFlow('tab.flow.output.default', 'Par defaut')}</span>` : '';
+
+    const autoFields = `
+        <div class="row output-fields-auto" style="${mode === 'auto' ? '' : 'display: none;'}">
+            <div class="col-md-6">
+                <label>${i18nFlow('tab.flow.output.condition_column', 'Colonne de condition :')}</label>
+                <select class="form-control output-condition-column"
+                        data-output="${outputIndex}" data-box="${box.id}"
+                        onchange="updateOutputCondition('${box.id}', ${outputIndex}, 'column', this.value)">
+                    <option value="">${i18nFlow('tab.flow.output.select_condition_column', 'Selectionner une colonne...')}</option>
+                    ${columns.map(col =>
+                        `<option value="${col}" ${condition.column === col ? 'selected' : ''}>${getColumnTitle(box.dataTable, col)}</option>`
+                    ).join('')}
+                </select>
+            </div>
+            <div class="col-md-6">
+                <label>${i18nFlow('tab.flow.output.target_key', 'Cle cible :')}</label>
+                <select class="form-control output-condition-keyValue"
+                        data-output="${outputIndex}" data-box="${box.id}"
+                        onchange="updateOutputCondition('${box.id}', ${outputIndex}, 'targetKeyColumn', this.value)">
+                    <option value="">${i18nFlow('tab.flow.output.select_key_column', 'Selectionner une colonne cle...')}</option>
+                    ${columns.map(col =>
+                        `<option value="${col}" ${condition.targetKeyColumn === col ? 'selected' : ''}>${getColumnTitle(box.dataTable, col)}</option>`
+                    ).join('')}
+                </select>
+            </div>
+            <div class="col-md-12" style="margin-top: 8px;">
+                <small class="text-muted">
+                    ${i18nFlow('tab.flow.output.auto_mapping_info', 'Mapping automatique actif')} (${autoMappingEntries.length})
+                </small>
+            </div>
+        </div>
+    `;
+
+    const manualFields = `
+        <div class="row output-fields-manual" style="${mode === 'manual' ? '' : 'display: none;'}">
+            <div class="col-md-6">
+                <label>${i18nFlow('tab.flow.output.condition_column', 'Colonne de condition :')}</label>
+                <select class="form-control output-condition-column"
+                        data-output="${outputIndex}" data-box="${box.id}"
+                        onchange="updateOutputCondition('${box.id}', ${outputIndex}, 'column', this.value)">
+                    <option value="">${i18nFlow('tab.flow.output.select_condition_column', 'Selectionner une colonne...')}</option>
+                    ${columns.map(col =>
+                        `<option value="${col}" ${condition.column === col ? 'selected' : ''}>${getColumnTitle(box.dataTable, col)}</option>`
+                    ).join('')}
+                </select>
+            </div>
+            <div class="col-md-6">
+                <label>${i18nFlow('tab.flow.output.target_key', 'Cle cible :')}</label>
+                <select class="form-control output-condition-keyValue"
+                        data-output="${outputIndex}" data-box="${box.id}"
+                        onchange="updateOutputCondition('${box.id}', ${outputIndex}, 'targetKeyColumn', this.value)">
+                    <option value="">${i18nFlow('tab.flow.output.select_key_column', 'Selectionner une colonne cle...')}</option>
+                    ${columns.map(col =>
+                        `<option value="${col}" ${condition.targetKeyColumn === col ? 'selected' : ''}>${getColumnTitle(box.dataTable, col)}</option>`
+                    ).join('')}
+                </select>
+            </div>
+            <div class="col-md-12" style="margin-top: 10px;">
+                <label>${i18nFlow('tab.flow.output.expected_value', 'Valeur attendue :')}</label>
+                <input type="text" class="form-control output-condition-value"
+                       data-output="${outputIndex}" data-box="${box.id}"
+                       value="${condition.value || ''}"
+                       placeholder="${i18nFlow('tab.flow.output.value_to_test', 'Valeur a tester')}"
+                       onchange="updateOutputCondition('${box.id}', ${outputIndex}, 'value', this.value)"
+                       ${!condition.column ? 'disabled' : ''}>
+            </div>
+        </div>
+    `;
+
+    // [FLOW-DESIGNER EVOLUTION] En mode Off, la cle cible reste obligatoire
+    // pour recuperer la keyValue de la prochaine etape.
+    const offFields = `
+        <div class="row output-fields-off" style="margin-top: 10px; ${mode === 'off' ? '' : 'display: none;'}">
+            <div class="col-md-6">
+                <label>${i18nFlow('tab.flow.output.target_key', 'Cle cible :')}</label>
+                <select class="form-control output-condition-keyValue"
+                        data-output="${outputIndex}" data-box="${box.id}"
+                        onchange="updateOutputCondition('${box.id}', ${outputIndex}, 'targetKeyColumn', this.value)">
+                    <option value="">${i18nFlow('tab.flow.output.select_key_column', 'Selectionner une colonne cle...')}</option>
+                    ${columns.map(col =>
+                        `<option value="${col}" ${condition.targetKeyColumn === col ? 'selected' : ''}>${getColumnTitle(box.dataTable, col)}</option>`
+                    ).join('')}
+                </select>
+            </div>
+            <div class="col-md-6">
+                <div class="alert alert-info" style="margin-bottom: 0; padding: 8px; margin-top: 19px;">
+                    ${i18nFlow('tab.flow.output.off_mode_help', 'Sortie standard Indiquez la clé pour la prochaine étape.')}
+                </div>
+            </div>
+        </div>
+    `;
+
     return `
         <div class="output-config" id="output-config-${outputIndex}" style="border: 1px solid #ddd; padding: 10px; margin: 10px 0; border-radius: 5px;">
             <div class="row">
@@ -1029,52 +1869,43 @@ function generateOutputConfigHTML(box, outputIndex, columns) {
                     </button>
                 </div>
             </div>
-            
+             
             <div class="row">
                 <div class="col-md-6">
-                    <label>${i18nFlow('tab.flow.output.condition_column', 'Colonne de condition :')}</label>
-                    <select class="form-control output-condition-column" 
-                            data-output="${outputIndex}" data-box="${box.id}"
-                            onchange="updateOutputCondition('${box.id}', ${outputIndex}, 'column', this.value)">
-                        <option value="">${i18nFlow('tab.flow.output.no_condition_default', 'Aucune condition (defaut)')}</option>
-                        ${columns.map(col => 
-                            `<option value="${col}" ${condition.column === col ? 'selected' : ''}>${getColumnTitle(box.dataTable, col)}</option>`
-                        ).join('')}
-                    </select>
-                </div>
-                <div class="col-md-6">
-                    <label>${i18nFlow('tab.flow.output.target_key', 'Cle cible :')}</label>
-                    <select class="form-control output-condition-keyValue"
-                            data-output="${outputIndex}" data-box="${box.id}"
-                            onchange="updateOutputCondition('${box.id}', ${outputIndex}, 'targetKeyColumn', this.value)">
-                        <option value="">${i18nFlow('tab.flow.output.select_key_column', 'Selectionner une colonne cle...')}</option>
-                        ${columns.map(col => 
-                            `<option value="${col}" ${condition.targetKeyColumn === col ? 'selected' : ''}>${getColumnTitle(box.dataTable, col)}</option>`
-                        ).join('')}
-                    </select>
-                </div>
-                <div class="col-md-6">
-                    <label>${i18nFlow('tab.flow.output.expected_value', 'Valeur attendue :')}</label>
-                    <input type="text" class="form-control output-condition-value" 
-                           data-output="${outputIndex}" data-box="${box.id}"
-                           value="${condition.value || ''}" 
-                           placeholder="${i18nFlow('tab.flow.output.value_to_test', 'Valeur a tester')}"
-                           onchange="updateOutputCondition('${box.id}', ${outputIndex}, 'value', this.value)"
-                           ${!condition.column ? 'disabled' : ''}>
-                </div>
-            </div>
-            
-            <div class="row" style="margin-top: 10px;">
-                <div class="col-md-12">
-                    <label>
-                        <input type="checkbox" 
-                               onchange="updateOutputCondition('${box.id}', ${outputIndex}, 'isDefault', this.checked)"
-                               ${condition.isDefault ? 'checked' : ''}>
-                        ${i18nFlow('tab.flow.output.use_default_output', 'Utiliser comme sortie par defaut')}
-                    </label>
-                    <small class="text-muted block">${i18nFlow('tab.flow.output.default_help', "Si aucune autre condition n'est remplie, utiliser cette sortie")}</small>
+                    <label>${i18nFlow('tab.flow.output.mode', 'Mode de sortie :')}</label>
+                    <!-- [FLOW-DESIGNER EVOLUTION] Switch 3 positions Auto / Off / Manuel -->
+                    <div class="flow-output-mode-switch" role="radiogroup" aria-label="${i18nFlow('tab.flow.output.mode', 'Mode de sortie')}">
+                        <input type="radio"
+                               name="${modeSwitchName}"
+                               id="${modeAutoId}"
+                               value="auto"
+                               ${mode === 'auto' ? 'checked' : ''}
+                               onchange="updateOutputCondition('${box.id}', ${outputIndex}, 'mode', 'auto')">
+                        <label for="${modeAutoId}">Auto</label>
+
+                        <input type="radio"
+                               name="${modeSwitchName}"
+                               id="${modeOffId}"
+                               value="off"
+                               ${mode === 'off' ? 'checked' : ''}
+                               onchange="updateOutputCondition('${box.id}', ${outputIndex}, 'mode', 'off')">
+                        <label for="${modeOffId}">Off</label>
+
+                        <input type="radio"
+                               name="${modeSwitchName}"
+                               id="${modeManualId}"
+                               value="manual"
+                               ${mode === 'manual' ? 'checked' : ''}
+                               onchange="updateOutputCondition('${box.id}', ${outputIndex}, 'mode', 'manual')">
+                        <label for="${modeManualId}">Manuel</label>
+
+                        <span class="flow-output-mode-slider"></span>
+                    </div>
                 </div>
             </div>
+            ${offFields}
+            ${autoFields}
+            ${manualFields}
         </div>
     `;
 }
@@ -1084,9 +1915,13 @@ function generateOutputConfigHTML(box, outputIndex, columns) {
  */
 function addOutput(boxId) {
     const box = flowBoxes.get(boxId);
-    const config = BOX_TYPES[box.type];
+    if (!box || box.type === 'auto_link') {
+        console.warn('Ajout de sortie non autorise pour ce type de boite:', boxId);
+        return;
+    }
+    const config = resolveBoxTypeConfig(box);
     
-    if (!box || box.currentOutputs >= config.maxOutputs) {
+    if (box.currentOutputs >= config.maxOutputs) {
         console.warn('Impossible d\'ajouter une sortie:', box ? 'Maximum atteint' : 'Boîte introuvable');
         return;
     }
@@ -1096,12 +1931,7 @@ function addOutput(boxId) {
     box.currentOutputs++;
     
     // Initialiser la condition pour la nouvelle sortie
-    box.outputConditions[newOutputIndex] = {
-        column: null,
-        value: null,
-        isDefault: false,
-        targetKeyColumn: null
-    };
+    box.outputConditions[newOutputIndex] = buildOutputConditionDefaults('manual');
     
     // Recréer l'élément SVG
     recreateBoxSVG(boxId);
@@ -1126,9 +1956,13 @@ function removeOutput(boxId) {
  */
 function removeOutputAt(boxId, outputIndex) {
     const box = flowBoxes.get(boxId);
-    const config = BOX_TYPES[box.type];
+    if (!box || box.type === 'auto_link') {
+        console.warn('Suppression de sortie non autorisee pour ce type de boite:', boxId);
+        return;
+    }
+    const config = resolveBoxTypeConfig(box);
     
-    if (!box || box.currentOutputs <= config.minOutputs) {
+    if (box.currentOutputs <= config.minOutputs) {
         console.warn('Impossible de supprimer une sortie:', box ? 'Minimum atteint' : 'Boîte introuvable');
         return;
     }
@@ -1159,12 +1993,7 @@ function removeOutputAt(boxId, outputIndex) {
     for (let i = 0; i < box.currentOutputs; i++) {
         if (i === outputIndex) continue;
         const nextIndex = i > outputIndex ? i - 1 : i;
-        rebuiltConditions[nextIndex] = box.outputConditions[i] || {
-            column: null,
-            value: null,
-            isDefault: false,
-            targetKeyColumn: null
-        };
+        rebuiltConditions[nextIndex] = normalizeOutputCondition(box.outputConditions[i]);
     }
 
     // Supprimer la sortie sélectionnée
@@ -1194,7 +2023,7 @@ function recreateBoxSVG(boxId) {
     }
     
     // Recréer l'élément SVG
-    const config = BOX_TYPES[box.type];
+    const config = resolveBoxTypeConfig(box);
     const boxElement = createBoxSVG(box, config);
     
     // Ajouter au groupe des boîtes
@@ -1203,6 +2032,7 @@ function recreateBoxSVG(boxId) {
     
     // Mettre à jour toutes les connexions liées à cette boîte
     updateAllConnectionsForBox(boxId);
+    refreshOutputConnectionPointStyles(boxId);
     
     // Remettre en surbrillance si c'était la boîte sélectionnée
     if (selectedBox === boxId) {
@@ -1327,6 +2157,8 @@ function updateBoxVisual(boxId) {
     if (dataTableText) {
         if (box.type === 'error') {
             dataTableText.textContent = 'Message d\'erreur';
+        } else if (box.type === 'auto_link') {
+            dataTableText.textContent = 'Liaison Auto';
         } else {
             dataTableText.textContent = box.dataTable ? getDataTableNameById(box.dataTable) : 'Non configuré';
         }
@@ -1345,7 +2177,6 @@ function updateBoxVisual(boxId) {
     }
 }
 
-
 /**
  * Configuration des événements de connexion
  */
@@ -1359,7 +2190,7 @@ function setupConnectionEvents() {
     // Événement pour annuler les connexions avec Escape
     document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape' && isConnecting) {
-            cancelConnection();
+            cancelConnection(false);
         }
     });
 }
@@ -1416,14 +2247,14 @@ function handleConnectionMouseUp(e) {
     
     // Si on n'a pas cliqué sur un point d'entrée, annuler la connexion
     if (!e.target.classList.contains('connection-point')) {
-        cancelConnection();
+        cancelConnection(false);
     }
 }
 
 /**
  * Annulation d'une connexion en cours
  */
-function cancelConnection() {
+function cancelConnection(connected) {
     isConnecting = false;
     connectionStart = null;
     
@@ -1432,31 +2263,42 @@ function cancelConnection() {
         tempLine = null;
     }
     
-    // Réinitialiser les styles des points de connexion
-    document.querySelectorAll('.connection-point').forEach(point => {
-        point.style.fill = '#fff';
-    });
+    // Restaurer l'etat visuel reel des points output.
+    refreshOutputConnectionPointStyles();
     
-    console.log('Connexion annulée');
+    if (!connected) {
+        console.log('Connexion annulée');
+    }
 }
 
 /**
  * Suppression d'une connexion - Version mise à jour
  */
 function deleteConnection(connectionId) {
+    let deleteTxt = "";
+    let fromBoxIdToRefresh = null;
     // Supprimer de la liste des connexions
     const connectionIndex = flowConnections.findIndex(conn => conn.id === connectionId);
     if (connectionIndex !== -1) {
+        deleteTxt = `De ${flowConnections[connectionIndex].from.boxId} vers ${flowConnections[connectionIndex].to.boxId}`;
+        fromBoxIdToRefresh = flowConnections[connectionIndex].from.boxId;
         flowConnections.splice(connectionIndex, 1);
     }
     
     // Supprimer le groupe complet (ligne + texte)
     const connectionElement = document.querySelector(`[data-connection-id="${connectionId}"]`);
     if (connectionElement) {
+        deleteTxt += ` (${connectionElement.querySelector('.connection-text textPath')?.textContent || 'sans condition'})`;
         connectionElement.remove();
     }
     
-    console.log('Connexion supprimée:', connectionId);
+    if (fromBoxIdToRefresh) {
+        refreshOutputConnectionPointStyles(fromBoxIdToRefresh);
+    } else {
+        refreshOutputConnectionPointStyles();
+    }
+    console.log('Connexion ' + deleteTxt + ' supprimée :', connectionId);
+    onFlowChanged();
 }
 
 /**
@@ -1566,39 +2408,76 @@ function redrawConnection(connectionId) {
 function updateOutputCondition(boxId, outputIndex, property, value) {
     const box = flowBoxes.get(boxId);
     if (!box) return;
+    ensureBoxOutputConditions(box);
     
     // Initialiser la condition si elle n'existe pas
     if (!box.outputConditions[outputIndex]) {
-        box.outputConditions[outputIndex] = { column: null, value: null, isDefault: false };
+        box.outputConditions[outputIndex] = buildOutputConditionDefaults('manual');
     }
     
-    const condition = box.outputConditions[outputIndex];
+    const condition = normalizeOutputCondition(box.outputConditions[outputIndex]);
+    box.outputConditions[outputIndex] = condition;
     
     // Mettre à jour la propriété
-    if (property === 'column') {
+    if (property === 'mode') {
+        const safeMode = (value === 'auto' || value === 'off' || value === 'manual') ? value : 'manual';
+        condition.mode = safeMode;
+        condition.isDefault = safeMode === 'off';
+        if (safeMode === 'off') {
+            condition.column = null;
+            condition.value = null;
+            Object.keys(box.outputConditions).forEach((key) => {
+                const keyIndex = parseInt(key, 10);
+                if (keyIndex === outputIndex) return;
+                const sibling = normalizeOutputCondition(box.outputConditions[keyIndex]);
+                if (getOutputMode(sibling) === 'off') {
+                    sibling.mode = 'manual';
+                    sibling.isDefault = false;
+                    box.outputConditions[keyIndex] = sibling;
+                }
+            });
+        } else if (safeMode === 'auto') {
+            condition.value = null;
+        }
+    } else if (property === 'column') {
         condition.column = value || null;
         // Si on vide la colonne, vider aussi la valeur
-        if (!value) {
+        if (!value && getOutputMode(condition) === 'manual') {
             condition.value = null;
         }
     } else if (property === 'value') {
-        condition.value = value || null;
+        if (getOutputMode(condition) === 'manual') {
+            condition.value = value || null;
+        }
     } else if (property === 'targetKeyColumn') {
         condition.targetKeyColumn = value || null;
     } else if (property === 'isDefault') {
-        // Si on marque comme défaut, démarquer les autres
+        // Compatibilite historique: l'ancien "default" devient mode off.
         if (value) {
             Object.keys(box.outputConditions).forEach(key => {
-                if (parseInt(key) !== outputIndex) {
-                    box.outputConditions[key].isDefault = false;
+                if (parseInt(key, 10) !== outputIndex) {
+                    const sibling = normalizeOutputCondition(box.outputConditions[key]);
+                    sibling.isDefault = false;
+                    if (getOutputMode(sibling) === 'off') {
+                        sibling.mode = 'manual';
+                    }
+                    box.outputConditions[key] = sibling;
                 }
             });
+            condition.mode = 'off';
+            condition.column = null;
+            condition.value = null;
+        } else if (getOutputMode(condition) === 'off') {
+            condition.mode = 'manual';
         }
-        condition.isDefault = value;
+        condition.isDefault = value ? true : false;
     }
-    
-    const affectedConnections = flowConnections.filter(conn => 
-        conn.from.boxId === boxId && conn.from.index === outputIndex
+
+    const shouldRefreshWholeBoxConnections = property === 'mode' || property === 'isDefault';
+    const affectedConnections = flowConnections.filter(conn =>
+        conn.from.boxId === boxId && (
+            shouldRefreshWholeBoxConnections ? true : conn.from.index === outputIndex
+        )
     );
     
     affectedConnections.forEach(connection => {
@@ -1606,7 +2485,7 @@ function updateOutputCondition(boxId, outputIndex, property, value) {
     });
 
     onFlowChanged();
-    console.log(`Condition mise à jour pour ${boxId} sortie ${outputIndex}:`, condition);
+    console.log(`🔧 Condition mise a jour pour ${boxId} sortie ${outputIndex}:`, { property, value, condition });
     
     // Rafraîchir l'affichage
     showBoxConfigPanel(boxId);
@@ -1852,9 +2731,9 @@ function validateFlow(show) {
     
     // Validation des boîtes
     for (let box of flowBoxes.values()) {
-        const config = BOX_TYPES[box.type];
+        const config = resolveBoxTypeConfig(box);
         
-        if (box.type === 'error') {
+        if (box.type === 'error' || box.type === 'auto_link') {
             continue;
         }
 
@@ -1867,59 +2746,62 @@ function validateFlow(show) {
         if (!box.displayColumn && box.dataTable) {
             errors.push(i18nFlow('tab.flow.validation.error_no_display_column', "La boite {type} ({id}) n'a pas de colonne d'affichage", { type: box.type, id: box.id }));
         }
-
-        // Validation spécifique pour le composant Message
-        if (box.type === 'message') {
-            const connectedOutputs = flowConnections.filter(conn => conn.from.boxId === box.id);
-            if (connectedOutputs.length === 0) {
-                errors.push(i18nFlow('tab.flow.validation.error_message_no_output', 'Le composant Message ({id}) doit avoir une sortie connectee', { id: box.id }));
-            }
-            if (connectedOutputs.length > 1) {
-                errors.push(i18nFlow('tab.flow.validation.error_message_too_many_outputs', "Le composant Message ({id}) ne peut avoir qu'une seule sortie", { id: box.id }));
-            }
-        }
-        
-        // Validation spécifique pour le composant Calendar
-        if (box.type === 'calendar') {
-            const connectedOutputs = flowConnections.filter(conn => conn.from.boxId === box.id);
-            if (connectedOutputs.length !== 3) {
-                errors.push(i18nFlow('tab.flow.validation.error_calendar_output_count', 'Le composant Calendar ({id}) doit avoir exactement 3 sorties connectees (Open, Closed, Vacation)', { id: box.id }));
-            }
-            // Vérifier que les sorties sont dans le bon ordre
-            const outputIndices = connectedOutputs.map(conn => conn.from.index);
-            if (!outputIndices.includes(0) || !outputIndices.includes(1) || !outputIndices.includes(2)) {
-                errors.push(i18nFlow('tab.flow.validation.error_calendar_missing_states', 'Le composant Calendar ({id}) doit avoir des connexions pour chaque etat (Open, Closed, Vacation)', { id: box.id }));
-            }
-        }
         
         // Valider les conditions de sortie pour les autres types
-        if (config.outputs > 0 && box.type !== 'calendar') {
+        if (config.outputs > 0) {
             let hasDefault = false;
             let hasConditions = false;
+            let hasAutoRouting = false;
             
             for (let i = 0; i < box.currentOutputs; i++) {
-                const condition = box.outputConditions[i];
+                const condition = normalizeOutputCondition(box.outputConditions[i]);
                 const connectionsForOutput = flowConnections.filter(conn => 
                     conn.from.boxId === box.id && conn.from.index === i
                 );
                 
                 if (connectionsForOutput.length > 0) {
-                    if (condition.isDefault) {
+                    const mode = getOutputMode(condition);
+                    if (mode === 'off') {
                         hasDefault = true;
                     }
-                    if (condition.column && condition.value) {
+                    if (mode === 'manual' && condition.column && condition.value) {
                         hasConditions = true;
                     }
-                    if (condition.column && !condition.value && !condition.isDefault) {
+                    if (mode === 'auto' && condition.column && condition.targetKeyColumn) {
+                        hasAutoRouting = true;
+                    }
+                    if (mode === 'manual' && condition.column && !condition.value) {
                         errors.push(i18nFlow('tab.flow.validation.error_output_missing_value', 'La sortie {output} de la boite {type} ({id}) a une colonne mais pas de valeur definie', {
                             output: i + 1, type: box.type, id: box.id
                         }));
+                    }
+                    if (mode === 'auto' && (!condition.column || !condition.targetKeyColumn)) {
+                        errors.push(i18nFlow('tab.flow.validation.error_output_auto_missing_fields', 'La sortie {output} de la boite {type} ({id}) en mode Auto doit definir "condition column" et "target key"', {
+                            output: i + 1, type: box.type, id: box.id
+                        }));
+                    }
+                    if (mode === 'off' && !condition.targetKeyColumn) {
+                        errors.push(i18nFlow(
+                            'tab.flow.validation.error_output_off_missing_target_key',
+                            'La sortie {output} de la boite {type} ({id}) en mode Off doit definir "target key"',
+                            { output: i + 1, type: box.type, id: box.id }
+                        ));
+                    }
+                    if (mode === 'auto' && condition.column && condition.targetKeyColumn) {
+                        const autoTargetBox = flowBoxes.get(connectionsForOutput[0].to.boxId);
+                        if (!autoTargetBox || autoTargetBox.type !== 'auto_link') {
+                            errors.push(i18nFlow(
+                                'tab.flow.validation.error_auto_output_requires_autolink',
+                                'La sortie {output} de la boite {type} ({id}) en mode Auto doit etre connectee a une boite "Liaison Auto"',
+                                { output: i + 1, type: box.type, id: box.id }
+                            ));
+                        }
                     }
                 }
             }
             
             // Vérifier qu'il y a au moins une condition ou une sortie par défaut
-            if (!hasDefault && !hasConditions && box.type !== 'end') {
+            if (!hasDefault && !hasConditions && !hasAutoRouting && box.type !== 'end') {
                 errors.push(i18nFlow('tab.flow.validation.error_missing_condition_or_default', 'La boite {type} ({id}) doit avoir au moins une condition ou une sortie par defaut', {
                     type: box.type, id: box.id
                 }));
@@ -2086,7 +2968,8 @@ function generateConditionalFlowPath(row, currentBox, keyValue, visitedBoxes = n
     //console.log(`DEBUG generateConditionalFlowPath currentBox = `, currentBox);
     //console.log(`DEBUG currentBox KeyValue = `, keyValue);
     //console.log(`DEBUG currentRow = `, row);
-    
+    console.log(`[BOX][${depth}][${currentBox.id}] currentBox = `, currentBox);	
+            
 
     // Gestion spéciale pour les boîtes d'erreur
     if (currentBox.type === 'error') {
@@ -2103,6 +2986,26 @@ function generateConditionalFlowPath(row, currentBox, keyValue, visitedBoxes = n
             });
     }
 
+    // [FLOW-DESIGNER EVOLUTION] Le bloc auto_link ne doit pas apparaitre comme etape visuelle.
+    // Si on tombe dessus directement (mauvais cablage), on retourne une erreur explicite.
+    if (currentBox.type === 'auto_link') {
+        const autoLinkError = i18nFlow(
+            'tab.flow.path.auto_link_direct_error',
+            'Le bloc Liaison Auto doit etre atteint via une sortie en mode Auto'
+        );
+        console.warn('[FLOW-AUTO] Bloc auto_link atteint directement pendant la generation', {
+            boxId: currentBox.id,
+            keyValue
+        });
+        return Promise.resolve({
+            html: `<span class="flow-step error">❌ ${autoLinkError}</span>`,
+            details: [`${i18nFlow('tab.flow.path.error_detail_prefix', 'Erreur:')} ${autoLinkError}`],
+            xml: generateMxGraphModelWrapper([], []),
+            validator: validator,
+            validationGroups: []
+        });
+    }
+
     if (keyValue === null) {
         keyValue = row.key;
     }
@@ -2110,22 +3013,55 @@ function generateConditionalFlowPath(row, currentBox, keyValue, visitedBoxes = n
     // Pour les autres types, récupérer les données de la DataTable
     return getDataTableRowsWithCache(currentBox.dataTable)
         .then(dataTableRows => {
-            const currentRowData = dataTableRows.find(r => r.key === keyValue) || row;
-            //console.log(`DEBUG currentRowData = `, currentRowData);	
+            //console.log(`DEBUG dataTableRows for box ${currentBox.id} = `, dataTableRows);
+            //console.log(`DEBUG currentkey : `, keyValue );
+            const normalizedKeyValue = normalizeRoutingKeyValue(keyValue);
+            let currentRowData = dataTableRows.find(r => normalizeRoutingKeyValue(r?.key) === normalizedKeyValue);
+            if (!currentRowData) {
+                const routingError = i18nFlow(
+                    'tab.flow.path.key_not_found_for_box',
+                    'Aucune ligne trouvee pour la cle "{key}" dans la DataTable de la boite {boxId}',
+                    { key: keyValue, boxId: currentBox.id }
+                );
+                if (depth === 0) {
+                    currentRowData = row;
+                    console.warn('[FLOW][ROUTING] Cle non trouvee, fallback row applique (depth 0)', {
+                        boxId: currentBox.id,
+                        requestedKey: keyValue,
+                        rootRowKey: row?.key
+                    });
+                } else {
+                    console.error('[FLOW][ROUTING] Echec routage: cle non trouvee hors racine', {
+                        boxId: currentBox.id,
+                        depth,
+                        requestedKey: keyValue
+                    });
+                    return {
+                        html: `<span class="flow-step error">❌ ${routingError}</span>`,
+                        details: [`${i18nFlow('tab.flow.path.error_detail_prefix', 'Erreur:')} ${routingError}`],
+                        xml: generateMxGraphModelWrapper([], []),
+                        validator: validator,
+                        validationGroups: []
+                    };
+                }
+            }
+            console.log(`[BOX][DATA][${depth}][${currentBox.id}] currentRowData = `, currentRowData);	
             
             currentBox.data = currentRowData;
 
-            const stepDisplayText = currentBox.displayColumn
+            /*const stepDisplayText = currentBox.displayColumn
                 ? `${getColumnTitle(currentBox.dataTable,currentBox.displayColumn)}: ${currentRowData[currentBox.displayColumn] || 'N/A'}`
-                : currentBox.type;
+                : currentBox.type;*/
+            const stepDisplayText = currentBox.displayName + " : " + `${currentRowData[currentBox.displayColumn] || 'N/A'}`   
+            const taskIconsHtml = generateFlowStepTaskIconsHtml(currentBox, currentRowData);
             let html = `<div class="flow-step ${currentBox.type}">
+                ${taskIconsHtml}
                 <i class="fa ${getFlowStepIconClass(currentBox.type)} flow-step-icon"></i>
                 <span class="flow-step-text">${stepDisplayText}</span>
-            `;
+                `;
 
             let details = [`${currentBox.type}: ${currentRowData[currentBox.displayColumn] || currentBox.displayName}`];
-            const label = getColumnTitle(currentBox.dataTable,currentBox.displayColumn) + '/' + currentRowData[currentBox.displayColumn] 
-            const currentBoxXML = generateBoxXML(currentBox, position, label, branchContext);
+            const currentBoxXML = generateBoxXML(currentBox, position, stepDisplayText, branchContext);
             const currentBoxXmlId = extractFirstBoxId(currentBoxXML) || currentBoxInstanceId;
             validator.addBox(currentBox, {
                 instanceId: currentBoxXmlId,
@@ -2154,24 +3090,7 @@ function generateConditionalFlowPath(row, currentBox, keyValue, visitedBoxes = n
                 return { html, details, xml: generateMxGraphModelWrapper(allXMLBoxes, allConnections), validator: validator, validationGroups: [] };
             }
 
-            // Gestion spéciale pour le composant Message
-            if (currentBox.type === 'message') {
-                html +=`${BOX_TYPES[currentBox.type].promptCheck ? 
-                        `<br><small class="prompt-status">${checkPromptExistence(currentRowData[currentBox.displayColumn]) ? '✅ Prompt trouvé' : '❌ Prompt manquant'}</small>` 
-                        : ''}
-                </div>`;
-                details = [`Message: ${currentRowData[currentBox.displayColumn] || 'Non configuré'}`];
-            }
-            // Gestion spéciale pour le composant Calendar
-            else if (currentBox.type === 'calendar') {
-                const calendarStatus = checkCalendarStatus(currentRowData[currentBox.displayColumn]);
-                html += `<br><small class="calendar-status">${calendarStatus}</small>
-                </div>`;
-                details = [`Calendrier: ${currentRowData[currentBox.displayColumn] || 'Non configuré'} (${calendarStatus})`];
-            }
-            else {
-                html += `</div>`;
-            }
+            html += `</div>`;
             
             // Gestion spéciale pour les boîtes Menu
             if (currentBox.type === 'menu') {
@@ -2191,52 +3110,6 @@ function generateConditionalFlowPath(row, currentBox, keyValue, visitedBoxes = n
                         };
                     });
             }
-            // Gestion spéciale pour Calendar avec ses 3 sorties fixes
-            else if (currentBox.type === 'calendar') {
-                const outgoingConnections = flowConnections.filter(conn => conn.from.boxId === currentBox.id);
-                const outputPromises = outgoingConnections.map((conn, idx) => {
-                    const targetBox = flowBoxes.get(conn.to.boxId);
-                    if (!targetBox) return null;
-                    
-                    return generateConditionalFlowPath(
-                        row, 
-                        targetBox, 
-                        keyValue,
-                        new Set(visitedBoxes), 
-                        depth + 1, 
-                        idx,
-                        validator,
-                        layoutCalculatorInstance
-                    ).then(result => {
-                        const currentXmlId = currentBoxXmlId;
-                        const targetXmlId = buildFlowInstanceId(targetBox.id, idx);
-                        const connXML = generateConnectionXML(currentXmlId, targetXmlId, `conn_${currentXmlId}_to_${targetXmlId}`, BOX_TYPES[currentBox.type].outputLabels[idx]);
-                        return {
-                            output: BOX_TYPES[currentBox.type].outputLabels[idx],
-                            result: result,
-                            connection: connXML
-                        };
-                    });
-                });
-
-                return Promise.all(outputPromises.filter(p => p !== null))
-                    .then(results => {
-                        results.forEach(r => {
-                            html += `<div class="calendar-branch">${r.output}: ${r.result.html}</div>`;
-                            details = details.concat(r.result.details);
-                            allXMLBoxes = allXMLBoxes.concat(r.result.xml.boxes || []);
-                            allConnections.push(r.connection);
-                        });
-
-                        return {
-                            html,
-                            details,
-                            xml: generateMxGraphModelWrapper(allXMLBoxes, allConnections),
-                            validator: validator,
-                            validationGroups: results.flatMap(r => r.result.validationGroups || [])
-                        };
-                    });
-            }
             else {
                 // Gestion normale pour les autres types
                 const nextBox = findNextBoxWithConditions(currentBox, currentRowData);
@@ -2244,8 +3117,17 @@ function generateConditionalFlowPath(row, currentBox, keyValue, visitedBoxes = n
                 
                 if (nextBox.box) {
                     html += ' <i class="fa fa-arrow-right"></i> ';
-                    details.push(`Condition: ${nextBox.condition} sur la clé : ${nextBox.keyValue}`);
-                    
+                    const routeDetail = nextBox.detailMessage || `Condition: ${nextBox.condition} sur la clé : ${nextBox.keyValue}`;
+                    details.push(routeDetail);
+                    if (nextBox.autoRouting) {
+                        console.log('[FLOW-AUTO] Routage auto applique dans parcours standard', {
+                            from: currentBox.id,
+                            to: nextBox.box.id,
+                            condition: nextBox.condition,
+                            keyValue: nextBox.keyValue
+                        });
+                    }
+                    console.log(`[BOX][ROUTE][${depth}][${currentBox.id} -> ${nextBox.box.id}] routeDetail = `, routeDetail);
                     return generateConditionalFlowPath(row, nextBox.box,nextBox.keyValue, new Set(visitedBoxes), depth + 1, branchIndex, validator, layoutCalculatorInstance)
                         .then(nextPath => {
                             html += nextPath.html;
@@ -2271,8 +3153,16 @@ function generateConditionalFlowPath(row, currentBox, keyValue, visitedBoxes = n
 
                         });
                 } else {
-                    html += ` <span class="flow-step error">${i18nFlow('tab.flow.path.no_output_found_html', '❌ Aucune sortie trouvee')}</span>`;
+                    const noOutputText = nextBox.reason || i18nFlow('tab.flow.path.no_output_found_html', '❌ Aucune sortie trouvee');
+                    html += ` <span class="flow-step error">❌ ${noOutputText}</span>`;
                     details.push(`${i18nFlow('tab.flow.path.error_detail_prefix', 'Erreur:')} ${nextBox.reason}`);
+                    if (nextBox.autoRouting) {
+                        console.warn('[FLOW-AUTO] Echec de routage auto dans parcours standard', {
+                            boxId: currentBox.id,
+                            condition: nextBox.condition,
+                            reason: nextBox.reason
+                        });
+                    }
                     return {
                         html,
                         details,
@@ -2293,6 +3183,19 @@ function generateConditionalFlowPath(row, currentBox, keyValue, visitedBoxes = n
                 validationGroups: []
             };
         });
+}
+
+function createMenuOutputErrorPath(outputIndex, label, reason) {
+    return Promise.resolve({
+        label: label || `${i18nFlow('tab.flow.output.output', 'Sortie')} ${parseInt(outputIndex, 10) + 1}`,
+        html: `<span class="flow-step error">❌ ${reason}</span>`,
+        details: [`${i18nFlow('tab.flow.path.error_detail_prefix', 'Erreur:')} ${reason}`],
+        boxes: [],
+        connections: [],
+        branchBoxIds: [],
+        validationGroups: [],
+        outputIndex: parseInt(outputIndex, 10)
+    });
 }
 
 /**
@@ -2325,14 +3228,111 @@ function generateMenuFlowPaths(row, menuBox, currentRowData, visitedBoxes, depth
     
     Object.keys(connectionsByOutput).forEach((outputIndex, branchIdx) => {
         const connections = connectionsByOutput[outputIndex];
-        const condition = menuBox.outputConditions[outputIndex];
-        
-        const columnValue = currentRowData[condition.column];
-        if ((columnValue && columnValue.toString() === condition.value && currentRowData[condition.targetKeyColumn]) || condition.isDefault) {
+        const condition = normalizeOutputCondition(menuBox.outputConditions[outputIndex]);
+        const mode = getOutputMode(condition);
+
+        if (mode === 'manual') {
+            const columnValue = condition.column ? currentRowData[condition.column] : null;
+            const manualKeyValue = condition.targetKeyColumn ? currentRowData[condition.targetKeyColumn] : null;
+            const isManualMatch = columnValue
+                && columnValue.toString() === condition.value
+                && manualKeyValue;
+            if (isManualMatch) {
+                const outputKeyValue = manualKeyValue;
                 outputPromises.push(
-                    generateMenuOutputPath(row, menuBox, currentRowData, connections, condition,currentRowData[condition.targetKeyColumn], outputIndex, visitedBoxes, depth, branchIdx,validator, layoutCalculatorInstance)
+                    generateMenuOutputPath(
+                        row,
+                        menuBox,
+                        currentRowData,
+                        connections,
+                        condition,
+                        outputKeyValue,
+                        outputIndex,
+                        visitedBoxes,
+                        depth,
+                        branchIdx,
+                        validator,
+                        layoutCalculatorInstance
+                    )
                 );
+            } else if (columnValue && columnValue.toString() === condition.value) {
+                console.log('[FLOW-MENU] Sortie manuelle ignoree (keyValue vide), passage sortie suivante', {
+                    menuBoxId: menuBox.id,
+                    outputIndex,
+                    targetKeyColumn: condition.targetKeyColumn
+                });
             }
+            return;
+        }
+
+        if (mode === 'auto') {
+            const autoRouting = resolveAutoOutputRouting(menuBox, currentRowData, parseInt(outputIndex, 10), condition, connections);
+            if (autoRouting.matched && autoRouting.box) {
+                outputPromises.push(
+                    generateMenuOutputPath(
+                        row,
+                        menuBox,
+                        currentRowData,
+                        connections,
+                        condition,
+                        autoRouting.keyValue,
+                        outputIndex,
+                        visitedBoxes,
+                        depth,
+                        branchIdx,
+                        validator,
+                        layoutCalculatorInstance,
+                        autoRouting
+                    )
+                );
+                return;
+            }
+            if (autoRouting.error) {
+                console.log('[FLOW-AUTO] Sortie Ignorée Echec routage auto dans menu', {
+                    menuBoxId: menuBox.id,
+                    outputIndex,
+                    reason: autoRouting.reason
+                });
+                //const autoLabel = `${i18nFlow('tab.flow.output.output', 'Sortie')} ${parseInt(outputIndex, 10) + 1} (${i18nFlow('tab.flow.output.mode_auto_label', 'Auto')})`;
+                //outputPromises.push(createMenuOutputErrorPath(outputIndex, autoLabel, autoRouting.reason));
+            }
+            return;
+        }
+
+        if (mode === 'off') {
+            if (!condition.targetKeyColumn) {
+                console.log('[FLOW-MENU] Sortie Off ignoree (target key manquante), passage sortie suivante', {
+                    menuBoxId: menuBox.id,
+                    outputIndex
+                });
+                return;
+            }
+            const outputKeyValue = currentRowData[condition.targetKeyColumn];
+            if (outputKeyValue === undefined || outputKeyValue === null || String(outputKeyValue).trim() === '') {
+                console.log('[FLOW-MENU] Sortie Off ignoree (keyValue vide), passage sortie suivante', {
+                    menuBoxId: menuBox.id,
+                    outputIndex,
+                    targetKeyColumn: condition.targetKeyColumn
+                });
+                return;
+            }
+            outputPromises.push(
+                generateMenuOutputPath(
+                    row,
+                    menuBox,
+                    currentRowData,
+                    connections,
+                    condition,
+                    outputKeyValue,
+                    outputIndex,
+                    visitedBoxes,
+                    depth,
+                    branchIdx,
+                    validator,
+                    layoutCalculatorInstance
+                )
+            );
+        }
     });
     
     return Promise.all(outputPromises)
@@ -2375,7 +3375,7 @@ function generateMenuFlowPaths(row, menuBox, currentRowData, visitedBoxes, depth
                 if (branchBoxIds.length > 0) {
                     validationGroups.push({
                         menuBoxId: menuBox.id,
-                        menuLabel: menuBox.displayName || BOX_TYPES[menuBox.type].name,
+                        menuLabel: menuBox.displayName || resolveBoxTypeConfig(menuBox).name,
                         branchLabel: outputResult.label,
                         boxIds: branchBoxIds
                     });
@@ -2411,9 +3411,9 @@ function generateMenuFlowPaths(row, menuBox, currentRowData, visitedBoxes, depth
 /**
  * Génération du parcours pour une sortie spécifique d'une boîte Menu - Version avec XML
  */
-function generateMenuOutputPath(row, menuBox, currentRowData, connections, condition,targetKeyColumn, outputIndex, visitedBoxes, depth, branchIndex,validator, layoutCalculatorInstance) {
+function generateMenuOutputPath(row, menuBox, currentRowData, connections, condition,targetKeyColumn, outputIndex, visitedBoxes, depth, branchIndex,validator, layoutCalculatorInstance, autoRouting = null) {
     const connection = connections[0];
-    const targetBox = flowBoxes.get(connection.to.boxId);
+    const targetBox = autoRouting?.box || flowBoxes.get(connection.to.boxId);
     //console.log(`DEBUG generateMenuOutputPath Menu =: `, outputIndex);
     
     if (!targetBox) {
@@ -2432,10 +3432,15 @@ function generateMenuOutputPath(row, menuBox, currentRowData, connections, condi
     // Déterminer le label de la sortie
     let label = `Sortie ${parseInt(outputIndex) + 1}`;
     if (condition) {
-        if (condition.isDefault) {
-            label += ' (Par défaut)';
-        } else if (condition.column && condition.value) {
+        const mode = getOutputMode(condition);
+        if (mode === 'off') {
+            label += ' (Off)';
+        } else if (mode === 'manual' && condition.column && condition.value) {
             label += ` (${condition.column} = "${condition.value}")`;
+        } else if (mode === 'auto' && condition.column) {
+            label += autoRouting?.mappingKey
+                ? ` (${condition.column} = "${autoRouting.mappingKey}" / Auto)`
+                : ` (${condition.column} / Auto)`;
         }
     }
     
@@ -2443,10 +3448,15 @@ function generateMenuOutputPath(row, menuBox, currentRowData, connections, condi
     return generateConditionalFlowPath(row, targetBox,targetKeyColumn, new Set(visitedBoxes), depth + 1, branchIndex, validator, layoutCalculatorInstance)
         .then(branchPath => {
             const branchData = extractBoxesAndConnectionsFromXML(branchPath.xml);
+            const detailEntries = [];
+            if (autoRouting?.detailMessage) {
+                detailEntries.push(autoRouting.detailMessage);
+            }
+            detailEntries.push(...(branchPath.details || []));
             return {
                 label: label,
                 html: ' <i class="fa fa-arrow-right"></i> ' + branchPath.html,
-                details: branchPath.details,
+                details: detailEntries,
                 boxes: branchData.boxes,
                 connections: branchData.connections,
                 branchBoxIds: extractBoxIdsFromBoxXmlList(branchData.boxes),
@@ -2489,21 +3499,20 @@ function checkPromptExistence(promptId) {
  * Détermination de quelle sortie sera effectivement prise
  */
 function determineTakenOutput(menuBox, currentRowData) {
-    const boxConfig = BOX_TYPES[menuBox.type];
-    
     // Tester chaque sortie avec ses conditions
     for (let outputIndex = 0; outputIndex < menuBox.currentOutputs; outputIndex++) {
-        const condition = menuBox.outputConditions[outputIndex];
+        const condition = normalizeOutputCondition(menuBox.outputConditions[outputIndex]);
+        const mode = getOutputMode(condition);
         
         if (!condition) continue;
         
-        // Si pas de condition mais marquée comme défaut
-        if (!condition.column && condition.isDefault) {
+        // Si mode Off, on garde cette sortie pour la fin
+        if (mode === 'off') {
             continue; // On garde cette sortie pour la fin
         }
         
         // Tester la condition
-        if (condition.column && condition.value) {
+        if (mode === 'manual' && condition.column && condition.value) {
             const columnValue = currentRowData[condition.column];
             if (columnValue && columnValue.toString() === condition.value) {
                 return outputIndex;
@@ -2513,8 +3522,8 @@ function determineTakenOutput(menuBox, currentRowData) {
     
     // Si aucune condition n'est remplie, chercher la sortie par défaut
     for (let outputIndex = 0; outputIndex < menuBox.currentOutputs; outputIndex++) {
-        const condition = menuBox.outputConditions[outputIndex];
-        if (condition && condition.isDefault) {
+        const condition = normalizeOutputCondition(menuBox.outputConditions[outputIndex]);
+        if (condition && getOutputMode(condition) === 'off') {
             return outputIndex;
         }
     }
@@ -2527,68 +3536,127 @@ function determineTakenOutput(menuBox, currentRowData) {
  * Recherche de la prochaine boîte selon les conditions
  */
 function findNextBoxWithConditions(currentBox, rowData) {
-    const boxConfig = BOX_TYPES[currentBox.type];
-    
     // Récupérer toutes les connexions sortantes de cette boîte
     const outgoingConnections = flowConnections.filter(conn => conn.from.boxId === currentBox.id);
     
     if (outgoingConnections.length === 0) {
         return { box: null, reason: 'Aucune connexion sortante', condition: null };
     }
-    
-    // Tester chaque sortie avec ses conditions
+
+    // [FLOW-DESIGNER EVOLUTION] Les sorties Off sont traitees en fallback.
+    const offCandidates = [];
+
+    // Tester chaque sortie conditionnelle (manual/auto) avec priorité à l'ordre des sorties.
     for (let outputIndex = 0; outputIndex < currentBox.currentOutputs; outputIndex++) {
-        const condition = currentBox.outputConditions[outputIndex];
+        const condition = normalizeOutputCondition(currentBox.outputConditions[outputIndex]);
+        const mode = getOutputMode(condition);
         const connectionsForOutput = outgoingConnections.filter(conn => conn.from.index === outputIndex);
         
         if (connectionsForOutput.length === 0) continue;
-        
-        // Si pas de condition ou condition par défaut, on utilisera cette sortie en dernier recours
-        if (!condition.column) {
-            if (condition.isDefault) {
-                const targetBox = flowBoxes.get(connectionsForOutput[0].to.boxId);
-                return { 
-                    box: targetBox, 
-                    condition: 'Sortie par défaut',
-                    keyValue: rowData[condition.targetKeyColumn],
-                    reason: null 
+
+        if (mode === 'off') {
+            offCandidates.push({
+                outputIndex,
+                condition,
+                connectionsForOutput
+            });
+            continue;
+        }
+
+        if (mode === 'auto') {
+            const autoRouting = resolveAutoOutputRouting(currentBox, rowData, outputIndex, condition, connectionsForOutput);
+            if (autoRouting.matched && autoRouting.box) {
+                return {
+                    box: autoRouting.box,
+                    condition: autoRouting.conditionLabel,
+                    detailMessage: autoRouting.detailMessage,
+                    keyValue: autoRouting.keyValue,
+                    reason: null,
+                    autoRouting
+                };
+            }
+            if (autoRouting.error) {
+                return {
+                    box: null,
+                    condition: autoRouting.conditionLabel,
+                    reason: autoRouting.reason,
+                    autoRouting
                 };
             }
             continue;
         }
-        
-        // Tester la condition
-        const columnValue = rowData[condition.column];
-        if (columnValue && columnValue.toString() === condition.value) {
+
+        // Mode manual
+        const columnValue = condition.column ? rowData[condition.column] : null;
+        const isManualMatch = columnValue !== undefined
+            && columnValue !== null
+            && columnValue.toString() === condition.value;
+            //console.log(`[FLOW-MANUAL] Evaluation condition manual`, columnValue, condition.value);
+        if (isManualMatch) {
+            //console.log(`[FLOW-MANUAL] Condition manual match pour la box ${currentBox.id} sur la colonne ${condition.column} avec la valeur ${condition.value}`);
             const targetBox = flowBoxes.get(connectionsForOutput[0].to.boxId);
-            return { 
-                box: targetBox, 
+            return {
+                box: targetBox,
                 condition: `${condition.column} = "${condition.value}"`,
+                detailMessage: `Condition: ${condition.column} = "${condition.value}" sur la clé : ${rowData[condition.targetKeyColumn]}`,
                 keyValue: rowData[condition.targetKeyColumn],
-                reason: null 
+                reason: null
             };
         }
     }
     
-    // Si aucune condition n'est remplie, chercher la sortie par défaut
-    for (let outputIndex = 0; outputIndex < boxConfig.outputs; outputIndex++) {
-        const condition = currentBox.outputConditions[outputIndex];
-        const connectionsForOutput = outgoingConnections.filter(conn => conn.from.index === outputIndex);
-        
-        if (connectionsForOutput.length > 0 && condition.isDefault) {
-            const targetBox = flowBoxes.get(connectionsForOutput[0].to.boxId);
-            return { 
-                box: targetBox, 
-                condition: 'Sortie par défaut (aucune condition remplie)',
-                reason: null 
+    // Fallback: première sortie Off disponible.
+    for (let i = 0; i < offCandidates.length; i++) {
+        const candidate = offCandidates[i];
+        const targetBox = flowBoxes.get(candidate.connectionsForOutput[0].to.boxId);
+        if (targetBox) {
+            if (!candidate.condition.targetKeyColumn) {
+                const offReason = i18nFlow(
+                    'tab.flow.path.off_missing_target_key',
+                    'Sortie Off sans "target key" configure'
+                );
+                console.warn('[FLOW-OFF] Sortie Off invalide (target key manquante)', {
+                    boxId: currentBox.id,
+                    outputIndex: candidate.outputIndex
+                });
+                return {
+                    box: null,
+                    condition: 'Sortie standard (Off)',
+                    reason: offReason
+                };
+            }
+            const offKeyValue = rowData[candidate.condition.targetKeyColumn];
+            if (offKeyValue === undefined || offKeyValue === null || String(offKeyValue).trim() === '') {
+                const offReason = i18nFlow(
+                    'tab.flow.path.off_missing_keyvalue',
+                    'Aucune valeur de keyValue dans la colonne "{column}" pour la sortie Off',
+                    { column: candidate.condition.targetKeyColumn }
+                );
+                console.warn('[FLOW-OFF] Sortie Off invalide (keyValue vide)', {
+                    boxId: currentBox.id,
+                    outputIndex: candidate.outputIndex,
+                    targetKeyColumn: candidate.condition.targetKeyColumn
+                });
+                return {
+                    box: null,
+                    condition: 'Sortie standard (Off)',
+                    reason: offReason
+                };
+            }
+            return {
+                box: targetBox,
+                condition: 'Sortie standard (Off)',
+                detailMessage: i18nFlow('tab.flow.path.off_output_taken', 'Sortie standard (Off) appliquee'),
+                keyValue: offKeyValue,
+                reason: null
             };
         }
     }
     
-    return { 
-        box: null, 
+    return {
+        box: null,
         reason: 'Aucune condition remplie et aucune sortie par défaut définie',
-        condition: null 
+        condition: null
     };
 }
 
@@ -2822,18 +3890,45 @@ function processFlowImport() {
     reader.readAsText(file);
 }
 
+function normalizeImportedFlowBox(boxData) {
+    const normalizedType = boxData && boxData.type ? boxData.type : 'route';
+    const typeConfig = resolveBoxTypeConfig(normalizedType);
+    const normalizedBox = {
+        ...(boxData || {}),
+        type: normalizedType,
+        displayName: (boxData && boxData.displayName) || typeConfig.displayName,
+        description: (boxData && boxData.description) || typeConfig.description || '',
+        x: Number.isFinite(boxData?.x) ? boxData.x : 0,
+        y: Number.isFinite(boxData?.y) ? boxData.y : 0,
+        width: Number.isFinite(boxData?.width) ? boxData.width : (normalizedType === 'auto_link' ? 140 : 120),
+        height: Number.isFinite(boxData?.height) ? boxData.height : 80,
+        dataTable: boxData?.dataTable || null,
+        displayColumn: boxData?.displayColumn || null,
+        outputConditions: (boxData && typeof boxData.outputConditions === 'object') ? boxData.outputConditions : {},
+        currentOutputs: Number.isFinite(boxData?.currentOutputs) ? boxData.currentOutputs : (typeConfig.outputs || 0),
+        tasks: Array.isArray(boxData?.tasks) ? boxData.tasks : [],
+        color: boxData?.color || typeConfig.color || '#6c757d'
+    };
+    ensureBoxOutputConditions(normalizedBox);
+    return normalizedBox;
+}
+
 function processFlowDataImport(flowData){
+    const idMapping = new Map();
     // Importer les boîtes
     flowData.boxes.forEach(boxData => {
         // Recréer chaque boîte
+        const normalizedBox = normalizeImportedFlowBox(boxData);
+        const newBoxId = `box_${nextBoxId++}`;
         const box = {
-            ...boxData,
-            id: `box_${nextBoxId++}` // Nouveau ID pour éviter les conflits
+            ...normalizedBox,
+            id: newBoxId // Nouveau ID pour éviter les conflits
         };
+        idMapping.set(boxData.id, newBoxId);
         
         flowBoxes.set(box.id, box);
         
-        const boxConfig = BOX_TYPES[box.type];
+        const boxConfig = resolveBoxTypeConfig(box);
         const boxElement = createBoxSVG(box, boxConfig);
         
         const boxesGroup = document.getElementById('boxesGroup');
@@ -2842,15 +3937,34 @@ function processFlowDataImport(flowData){
     
     // Importer les connexions
     flowData.connections.forEach(connData => {
+        if (!connData || !connData.from || !connData.to) {
+            console.warn('[FLOW] Connexion legacy ignoree (incomplete)', connData);
+            return;
+        }
+        const mappedFromBoxId = idMapping.get(connData.from.boxId) || connData.from.boxId;
+        const mappedToBoxId = idMapping.get(connData.to.boxId) || connData.to.boxId;
+        if (!flowBoxes.has(mappedFromBoxId) || !flowBoxes.has(mappedToBoxId)) {
+            console.warn('[FLOW] Connexion ignoree (boite introuvable)', connData);
+            return;
+        }
         // Adapter les IDs des connexions
         const connection = {
             ...connData,
-            id: `conn_${flowConnections.length + 1}`
+            id: `conn_${flowConnections.length + 1}`,
+            from: {
+                ...connData.from,
+                boxId: mappedFromBoxId
+            },
+            to: {
+                ...connData.to,
+                boxId: mappedToBoxId
+            }
         };
         
         flowConnections.push(connection);
         drawConnection(connection);
     });
+    refreshOutputConnectionPointStyles();
     updateFlowCanvasSize();
     
     // ✅ Fermer la modal avec Bootstrap

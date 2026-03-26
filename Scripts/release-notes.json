@@ -1,6 +1,17 @@
 {
   "releases": [
     {
+      "version": "v1.6.4",
+      "date": "2026-03-10",
+      "title": "Refonte de la génération du CdTest",
+      "changes": [
+        "Modification du fonctionnement des tâches.",
+        "Passage du Calendrier de Box à Task",
+        "Analyse des calendriers de GCloud pour rendu dans la validation",
+        "Refonte de l'export Excel"
+      ]
+    },
+    {
       "version": "v1.6.3",
       "date": "2026-03-02",
       "title": "Amélioration de la génération du Body de API Explorer",
