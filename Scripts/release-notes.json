@@ -1,6 +1,14 @@
 {
   "releases": [
     {
+      "version": "v1.6.5",
+      "date": "2026-03-27",
+      "title": "Ajout filtre Datatable",
+      "changes": [
+        "Ajout d'un champ de filtre global pour les DataTables."
+      ]
+    },
+    {
       "version": "v1.6.4",
       "date": "2026-03-10",
       "title": "Refonte de la génération du CdTest",

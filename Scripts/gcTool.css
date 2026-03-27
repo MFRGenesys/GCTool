@@ -1683,6 +1683,37 @@ option[style*="color: #d9534f"] {
     border-radius: 0 0 5px 5px;
 }
 
+.datatable-list-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: nowrap;
+}
+
+.datatable-list-title {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.datatable-list-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    flex: 0 0 auto;
+    margin-left: auto;
+    white-space: nowrap;
+}
+
+.datatable-list-filter-input {
+    width: 260px;
+}
+
+.datatable-list-counter {
+    white-space: nowrap;
+}
+
 @keyframes slideDown {
     from {
         opacity: 0;
@@ -1707,6 +1738,14 @@ option[style*="color: #d9534f"] {
 
 /* Responsive pour les aperçus dans la liste */
 @media (max-width: 768px) {
+    .datatable-list-toolbar {
+        flex-shrink: 1;
+    }
+
+    .datatable-list-filter-input {
+        width: 220px;
+    }
+
     .datatable-preview-container .table {
         font-size: 10px;
     }

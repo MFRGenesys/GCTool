@@ -25,11 +25,25 @@
                     <!-- DataTables List Section -->
                     <div class="config-section">
                         <div class="box box-info">
-                            <div class="box-header with-border" style="cursor: pointer;" onclick="toggleDataTablesList()">
-                                <h3 class="box-title">
+                            <div class="box-header with-border datatable-list-header" style="cursor: pointer;" onclick="toggleDataTablesList()">
+                                <h3 class="box-title datatable-list-title">
                                     <i class="fa fa-list" id="dataTablesListIcon"></i>
                                     <span data-i18n="tab.datatables_controller.list_title">Liste des DataTables</span>
                                 </h3>
+                                <div class="datatable-list-toolbar">
+                                    <input
+                                        id="datatable-list-filter-input"
+                                        type="text"
+                                        class="form-control datatable-list-filter-input"
+                                        placeholder="Filtrer par nom..."
+                                        autocomplete="off"
+                                        spellcheck="false"
+                                    />
+                                    <span
+                                        id="datatable-list-filter-counter"
+                                        class="small text-muted datatable-list-counter"
+                                    >0 / 0</span>
+                                </div>
                             </div>
                             <div class="box-body" id="dataTablesListContent">
                                 <div id="dataTablesList">

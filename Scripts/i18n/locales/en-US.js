@@ -68,6 +68,7 @@
 
         'tab.datatables_controller.title': 'Genesys DataTables Controller',
         'tab.datatables_controller.list_title': 'DataTables List',
+        'tab.datatables_controller.filter_placeholder': 'Filter by name...',
         'tab.datatables_controller.schema_title': 'Configuration Relationship Diagram',
         'tab.datatables_controller.schema_toggle': 'Show/Hide Diagram',
         'tab.datatables_controller.reorganize': 'Reorganize',

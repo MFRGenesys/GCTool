@@ -49,8 +49,164 @@ function toggleDataTablesList() {
 
 // Variables de configuration
 let dataTableConfigurations = {};
+const DATATABLE_LIST_FILTER_STORAGE_KEY = 'datatable-controller-list-filter';
+let dataTableListFilterValue = '';
+
+function getDataTableListFilterInput() {
+    return document.getElementById('datatable-list-filter-input');
+}
+
+function getDataTableListFilterCounter() {
+    return document.getElementById('datatable-list-filter-counter');
+}
+
+function normalizeDataTableListFilterValue(value) {
+    return String(value || '').trim().replace(/\s+/g, ' ');
+}
+
+function normalizeDataTableListSearchToken(value) {
+    return String(value || '').trim().toLowerCase();
+}
+
+function compactDataTableListSearchValue(value) {
+    return normalizeDataTableListSearchToken(value).replace(/[^a-z0-9]+/g, '');
+}
+
+function getDataTableListFilterTerms(filterValue) {
+    const normalizedFilter = normalizeDataTableListFilterValue(filterValue);
+    if (!normalizedFilter) {
+        return [];
+    }
+
+    return normalizedFilter
+        .split(' ')
+        .map(term => normalizeDataTableListSearchToken(term))
+        .filter(Boolean);
+}
+
+function doesDataTableMatchListFilter(dataTableName, filterValue) {
+    const terms = getDataTableListFilterTerms(filterValue);
+    if (!terms.length) {
+        return true;
+    }
+
+    const normalizedName = normalizeDataTableListSearchToken(dataTableName);
+    const compactName = compactDataTableListSearchValue(dataTableName);
+
+    return terms.every(term => {
+        const compactTerm = compactDataTableListSearchValue(term);
+        return normalizedName.includes(term) || (!!compactTerm && compactName.includes(compactTerm));
+    });
+}
+
+function loadDataTableListFilterFromStorage() {
+    if (typeof window === 'undefined' || !window.localStorage) {
+        return '';
+    }
+
+    try {
+        return localStorage.getItem(DATATABLE_LIST_FILTER_STORAGE_KEY) || '';
+    } catch (error) {
+        console.warn('[DT Controller] Impossible de lire le filtre de liste depuis localStorage.', error);
+        return '';
+    }
+}
+
+function saveDataTableListFilterToStorage(filterValue) {
+    if (typeof window === 'undefined' || !window.localStorage) {
+        return;
+    }
+
+    const normalizedFilter = normalizeDataTableListFilterValue(filterValue);
+
+    try {
+        if (normalizedFilter) {
+            localStorage.setItem(DATATABLE_LIST_FILTER_STORAGE_KEY, normalizedFilter);
+        } else {
+            localStorage.removeItem(DATATABLE_LIST_FILTER_STORAGE_KEY);
+        }
+    } catch (error) {
+        console.warn('[DT Controller] Impossible de sauvegarder le filtre de liste dans localStorage.', error);
+    }
+}
+
+function updateDataTableListFilterCounter(visibleCount, totalCount) {
+    const counter = getDataTableListFilterCounter();
+    if (!counter) {
+        return;
+    }
+
+    counter.textContent = `${visibleCount} / ${totalCount}`;
+}
+
+function applyDataTableListFilter() {
+    const items = document.querySelectorAll('#dataTablesList .datatable-list-item');
+    const totalCount = dataTablesCache.length;
+    let visibleCount = 0;
+
+    items.forEach(item => {
+        const dataTableName = item.dataset.datatableName || '';
+        const isVisible = doesDataTableMatchListFilter(dataTableName, dataTableListFilterValue);
+
+        item.style.display = isVisible ? '' : 'none';
+        if (isVisible) {
+            visibleCount += 1;
+        }
+    });
+
+    updateDataTableListFilterCounter(visibleCount, totalCount);
+}
+
+function handleDataTableListFilterInput(event) {
+    dataTableListFilterValue = event.target.value || '';
+    saveDataTableListFilterToStorage(dataTableListFilterValue);
+    applyDataTableListFilter();
+}
+
+function initializeDataTableListFilter() {
+    const input = getDataTableListFilterInput();
+    if (!input) {
+        return;
+    }
+
+    const placeholder = i18nDt('tab.datatables_controller.filter_placeholder', 'Filter by name...');
+    input.placeholder = placeholder;
+    input.setAttribute('aria-label', placeholder);
+
+    if (!input.dataset.filterInitialized) {
+        input.value = dataTableListFilterValue;
+        input.addEventListener('input', handleDataTableListFilterInput);
+        input.addEventListener('click', event => event.stopPropagation());
+        input.addEventListener('mousedown', event => event.stopPropagation());
+
+        const toolbar = input.closest('.datatable-list-toolbar');
+        if (toolbar && !toolbar.dataset.filterStopPropagation) {
+            toolbar.addEventListener('click', event => event.stopPropagation());
+            toolbar.addEventListener('mousedown', event => event.stopPropagation());
+            toolbar.dataset.filterStopPropagation = 'true';
+        }
+
+        input.dataset.filterInitialized = 'true';
+    } else if (input.value !== dataTableListFilterValue) {
+        input.value = dataTableListFilterValue;
+    }
+}
 
 // Gestion de la sélection de DataTable
+function initializeDataTablesController() {
+    console.log('ðŸ”§ Initialisation du contrÃ´leur DataTables');
+    dataTableListFilterValue = loadDataTableListFilterFromStorage();
+    initializeDataTableListFilter();
+
+    populateDataTableSelectors();
+    displayDataTables();
+    updateCurrentConfigInfo();
+
+    if (typeof initializeSchemaVisualization === 'function') {
+        initializeSchemaVisualization();
+    }
+}
+
 function setupDataTableSelector() {
     if (typeof $ !== 'undefined' && $.fn.select2) {
         $('#datatableSelector').on('change', function() {
@@ -650,10 +806,13 @@ function updateDataTableListItemState(datatableId) {
 // Affichage des DataTables avec boutons de contrôle
 function displayDataTables() {
     const dataTablesList = document.getElementById('dataTablesList');
-    dataTablesList.innerHTML = '<br>';
+    dataTablesList.innerHTML = '';
     
     dataTablesCache.forEach(dataTable => {
         const div = document.createElement('div');
+        div.className = 'datatable-item datatable-list-item';
+        div.dataset.datatableId = dataTable.id;
+        div.dataset.datatableName = dataTable.name;
         div.style.margin = '10px 0';
         div.style.padding = '10px';
         div.style.border = '1px solid #ddd';
@@ -703,6 +862,9 @@ function displayDataTables() {
         
         dataTablesList.appendChild(div);
     });
+
+    initializeDataTableListFilter();
+    applyDataTableListFilter();
 
     // Actualisation du schéma si il est visible
     const schemaSection = document.getElementById('schemaSection');
