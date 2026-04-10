@@ -1,1 +1,4 @@
 Scripts/org-configs.local.js
+Server/
+Scripts/tabs/api-tester.html
+Scripts/tabs/api-tester.js

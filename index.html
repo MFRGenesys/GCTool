@@ -96,6 +96,11 @@
                         <i class="fa fa-code"></i> <span data-i18n="app.tabs.api_explorer">API Explorer</span>
                     </a>
                 </li>
+                <li role="presentation">
+                    <a href="#api-tester" aria-controls="api-tester" role="tab" data-toggle="tab">
+                        <i class="fa fa-plug"></i> <span data-i18n="app.tabs.api_tester">API Tester</span>
+                    </a>
+                </li>
                 <!-- Prêt pour d'autres onglets -->
                 <li role="presentation" class="disabled">
                     <a href="#" aria-controls="" role="tab">
@@ -135,6 +140,9 @@
                 <div role="tabpanel" class="tab-pane" id="api-explorer">
                     <div id="apiExplorerContent"><!-- charge dynamiquement --></div>
                 </div>
+                <div role="tabpanel" class="tab-pane" id="api-tester">
+                    <div id="apiTesterContent"><!-- charge dynamiquement --></div>
+                </div>
             </div>
         </div>
     </div>
@@ -165,6 +173,7 @@
     <script src="./Scripts/tabs/exportXml.js"></script>
     <script src="./Scripts/tabs/priorisation.js"></script>
     <script src="./Scripts/tabs/api-explorer.js"></script>
+    <script src="./Scripts/tabs/api-tester.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>

@@ -1,6 +1,44 @@
 {
   "releases": [
     {
+      "version": "v1.7.1",
+      "date": "2026-04-10",
+      "title": "API Tester multi mocks",
+      "changes": [
+        "Gestion coté Serveur et Client du multi mocks",
+        "Ajout d'un bouton de génération de json pour création de la DataAction",
+        "Ajout de fonction au test dataset pour la génération de réponses dynamiques (ex: random, regex, etc.)",
+        "Ajout d'une aide à l'utilisateur",
+        "Ajout de la gestion du POST et interprétation du body de la requete pour les règles de réponse dynamique"
+        , "Ajout d'un import Swagger JSON en lot pour creer plusieurs mocks GET/POST avec conversion type/format vers regex"
+      ]
+    },
+    {
+      "version": "v1.7.0",
+      "date": "2026-03-31",
+      "title": "Socle API Tester + serveur mock local",
+      "changes": [
+        "Ajout d'un onglet API Tester pour preparer la configuration d'un mock de Data Actions.",
+        "Ajout d'un serveur Node local dans le repertoire Server avec endpoint GET /api/test et endpoint admin de configuration.",
+        "Ajout d'une persistance runtime locale pour le backend mock avec exclusion git des fichiers generes localement.",
+        "Ajout d'un moteur de reponse dynamique selon les query params du GET via le dataset de test.",
+        "Ajout d'un export JSON de modele Data Action pour accelerer la creation dans Genesys Cloud.",
+        "Ajout de la gestion de plusieurs mocks simultanes avec liste serveur, rechargement et suppression depuis l'onglet API Tester.",
+        "Deplacement de l'architecture cible dans une aide overlay et affichage temporaire du warning de faisabilite.",
+        "Ajout du support POST avec body JSON de test et moteur de regles dataset enrichi: equals, contains, exists, AND/OR sur query params et body."
+      ]
+    },
+    {
+      "version": "v1.6.6",
+      "date": "2026-03-31",
+      "title": "Capsules Datatable Controller par org",
+      "changes": [
+        "Stockage des configurations DataTables par org dans le localStorage avec migration automatique depuis l'ancien stockage global.",
+        "Stockage du mapping automatique par org avec conservation des noms de DataTables pour permettre la copie inter-org.",
+        "Ajout d'une interface de copie depuis une autre org mémorisée avec bilan détaillé des copies réussies et échouées."
+      ]
+    },
+    {
       "version": "v1.6.5",
       "date": "2026-03-27",
       "title": "Ajout filtre Datatable",

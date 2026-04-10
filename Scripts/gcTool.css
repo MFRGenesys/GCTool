@@ -3278,3 +3278,174 @@ display: inline-block;
     width: 100%;
   }
 }
+
+#apiTesterRoot .api-tester-status {
+  margin-bottom: 12px;
+}
+
+#apiTesterRoot .api-tester-titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+#apiTesterRoot .api-tester-feasibility-alert {
+  transition: opacity 0.25s ease, max-height 0.25s ease, margin 0.25s ease, padding 0.25s ease;
+  max-height: 120px;
+  overflow: hidden;
+}
+
+#apiTesterRoot .api-tester-feasibility-alert-hidden {
+  opacity: 0;
+  max-height: 0;
+  margin: 0 !important;
+  padding-top: 0;
+  padding-bottom: 0;
+  border-width: 0;
+  overflow: hidden;
+}
+
+#apiTesterRoot .api-tester-architecture-list {
+  padding-left: 18px;
+  margin-bottom: 10px;
+}
+
+#apiTesterRoot .api-tester-panel-titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+#apiTesterRoot .api-tester-server-mocks-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+#apiTesterRoot .api-tester-server-mocks-row .form-control {
+  flex: 1 1 auto;
+}
+
+#apiTesterRoot .api-tester-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+#apiTesterRoot .api-tester-hidden-input {
+  display: none;
+}
+
+#apiTesterRoot .api-tester-codearea,
+#apiTesterRoot .api-tester-output,
+#apiTesterRoot .api-tester-preview-block {
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+#apiTesterRoot .api-tester-preview-row {
+  margin-bottom: 12px;
+}
+
+#apiTesterRoot .api-tester-preview-label {
+  font-weight: 600;
+  margin-bottom: 4px;
+  color: #33485c;
+}
+
+#apiTesterRoot .api-tester-preview-block {
+  background: #111820;
+  color: #e5eef6;
+  border-radius: 4px;
+  padding: 10px;
+  margin: 0;
+  min-height: 60px;
+  max-height: 800px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+#apiTesterRoot .api-tester-output {
+  background: #f7f9fb;
+  border: 1px solid #d8e2eb;
+  border-radius: 4px;
+  padding: 12px;
+  margin: 0;
+  min-height: 180px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+#apiTesterRoot .api-tester-overlay {
+  position: fixed;
+  inset: 0;
+  display: none;
+  z-index: 1100;
+}
+
+#apiTesterRoot .api-tester-overlay.is-open {
+  display: block;
+}
+
+#apiTesterRoot .api-tester-overlay-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(17, 24, 32, 0.55);
+}
+
+#apiTesterRoot .api-tester-overlay-card {
+  position: relative;
+  width: min(760px, calc(100vw - 32px));
+  margin: 60px auto;
+  background: #ffffff;
+  border-radius: 8px;
+  box-shadow: 0 16px 48px rgba(17, 24, 32, 0.28);
+  overflow: hidden;
+  max-height: calc(100vh - 120px);
+}
+
+#apiTesterRoot .api-tester-overlay-card-wide {
+  width: min(960px, calc(100vw - 32px));
+}
+
+#apiTesterRoot .api-tester-overlay-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 18px;
+  border-bottom: 1px solid #d8e2eb;
+}
+
+#apiTesterRoot .api-tester-overlay-body {
+  padding: 18px;
+  max-height: calc(100vh - 220px);
+  overflow: auto;
+}
+
+@media (max-width: 991px) {
+  #apiTesterRoot .api-tester-titlebar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  #apiTesterRoot .api-tester-panel-titlebar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  #apiTesterRoot .api-tester-server-mocks-row {
+    flex-direction: column;
+  }
+
+  #apiTesterRoot .api-tester-actions .btn {
+    width: 100%;
+  }
+
+  #apiTesterRoot .api-tester-server-mocks-row .btn {
+    width: 100%;
+  }
+}

@@ -124,6 +124,9 @@ async function loadTabContents() {
         // Charger la page API Explorer
         await loadTabFromFile('api-explorer', 'apiExplorerContent');
 
+        // Charger la page API Tester
+        await loadTabFromFile('api-tester', 'apiTesterContent');
+
         initializeInformationPage();
 
         console.log('📑 Contenu des onglets chargé depuis les fichiers');
@@ -265,6 +268,15 @@ $(document).ready(function() {
                 }
                 else {
                     console.warn('initializeApiExplorerTab introuvable.');
+                }
+                break;
+            case '#api-tester':
+                console.log('Init API Tester via case exact');
+                if (typeof initializeApiTesterTab === 'function') {
+                    initializeApiTesterTab();
+                }
+                else {
+                    console.warn('initializeApiTesterTab introuvable.');
                 }
                 break;
 

@@ -9,6 +9,752 @@ function i18nConfig(key, fallback, params) {
     return fallback;
 }
 
+const DATATABLE_CONTROLLER_STORAGE_KEY = 'gctool.datatableController.orgCapsules';
+const DATATABLE_CONTROLLER_STORAGE_VERSION = 1;
+const LEGACY_DATATABLE_CONFIG_KEY = 'genesysDataTableConfigs';
+const LEGACY_LIAISON_MAPPING_KEY = 'genesysLiaisonMapping';
+
+function getDataTableControllerStorageBackend() {
+    if (typeof window === 'undefined' || !window.localStorage) {
+        return null;
+    }
+
+    try {
+        return window.localStorage;
+    } catch (error) {
+        console.warn('[DT Controller] LocalStorage indisponible.', error);
+        return null;
+    }
+}
+
+function getAvailableDataTablesCache() {
+    return typeof dataTablesCache !== 'undefined' && Array.isArray(dataTablesCache)
+        ? dataTablesCache
+        : [];
+}
+
+function getExistingDataTableNameById(datatableId) {
+    if (!datatableId) {
+        return '';
+    }
+
+    const dataTable = getAvailableDataTablesCache().find(dt => dt && dt.id === datatableId);
+    return dataTable && typeof dataTable.name === 'string' ? dataTable.name : '';
+}
+
+function normalizeDataTableControllerStorageKeyPart(value, fallback) {
+    const normalized = String(value || '')
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '_')
+        .replace(/^_+|_+$/g, '');
+
+    return normalized || fallback;
+}
+
+function buildCurrentDataTableControllerOrgContext() {
+    const appOrganization = typeof appState !== 'undefined'
+        && appState
+        && appState.currentUser
+        && appState.currentUser.organization
+        ? appState.currentUser.organization
+        : null;
+    const selectedConfig = typeof selectedOrgConfig !== 'undefined' && selectedOrgConfig
+        ? selectedOrgConfig
+        : (typeof appState !== 'undefined' && appState && appState.currentUser
+            ? appState.currentUser.selectedOrgConfig
+            : null);
+    const orgId = (typeof currentOrgId === 'string' && currentOrgId)
+        || (appOrganization && typeof appOrganization.id === 'string' ? appOrganization.id : '');
+    const orgName = (appOrganization && typeof appOrganization.name === 'string' && appOrganization.name)
+        || (selectedConfig && typeof selectedConfig.name === 'string' ? selectedConfig.name : '')
+        || 'Organisation inconnue';
+    const orgKey = typeof selectedOrgKey === 'string' && selectedOrgKey ? selectedOrgKey : '';
+    const region = typeof ORGREGION === 'string' && ORGREGION ? ORGREGION : '';
+    const clientId = selectedConfig && typeof selectedConfig.clientId === 'string'
+        ? selectedConfig.clientId
+        : '';
+
+    let capsuleKey = '';
+    if (orgId) {
+        capsuleKey = `orgId:${orgId}`;
+    } else if (orgKey) {
+        capsuleKey = `orgKey:${orgKey}`;
+    } else {
+        capsuleKey = [
+            'org',
+            normalizeDataTableControllerStorageKeyPart(orgName, 'unknown'),
+            normalizeDataTableControllerStorageKeyPart(region, 'default'),
+            normalizeDataTableControllerStorageKeyPart(clientId, 'client')
+        ].join(':');
+    }
+
+    return {
+        capsuleKey,
+        orgId,
+        orgKey,
+        orgName,
+        region,
+        clientId
+    };
+}
+
+function deepCloneDataTableControllerValue(value) {
+    return JSON.parse(JSON.stringify(value || {}));
+}
+
+function normalizeStoredColumnConfiguration(columnConfig) {
+    if (!columnConfig || typeof columnConfig !== 'object' || Array.isArray(columnConfig)) {
+        return null;
+    }
+
+    const normalized = { ...columnConfig };
+    if (normalized.type === 'liaison') {
+        const liaisonTargetId = typeof normalized.liaisonTarget === 'string' ? normalized.liaisonTarget : '';
+        const liaisonTargetName = typeof normalized.liaisonTargetName === 'string'
+            ? normalized.liaisonTargetName
+            : getExistingDataTableNameById(liaisonTargetId);
+
+        normalized.liaisonTarget = liaisonTargetId;
+        normalized.liaisonTargetName = liaisonTargetName || '';
+    }
+
+    return normalized;
+}
+
+function normalizeStoredDataTableConfiguration(configuration, fallbackDatatableId, fallbackDatatableName) {
+    if (!configuration || typeof configuration !== 'object' || Array.isArray(configuration)) {
+        return null;
+    }
+
+    const normalizedColumns = {};
+    const sourceColumns = configuration.columns && typeof configuration.columns === 'object'
+        ? configuration.columns
+        : {};
+
+    Object.keys(sourceColumns).forEach(columnName => {
+        const normalizedColumn = normalizeStoredColumnConfiguration(sourceColumns[columnName]);
+        if (normalizedColumn) {
+            normalizedColumns[columnName] = normalizedColumn;
+        }
+    });
+
+    const datatableId = typeof configuration.datatableId === 'string' && configuration.datatableId
+        ? configuration.datatableId
+        : (typeof fallbackDatatableId === 'string' ? fallbackDatatableId : '');
+    const datatableName = typeof configuration.datatableName === 'string' && configuration.datatableName
+        ? configuration.datatableName
+        : (typeof fallbackDatatableName === 'string' && fallbackDatatableName
+            ? fallbackDatatableName
+            : getExistingDataTableNameById(datatableId));
+
+    return {
+        ...configuration,
+        datatableId,
+        datatableName: datatableName || '',
+        columns: normalizedColumns
+    };
+}
+
+function normalizeStoredDataTableConfigurationsMap(configurationsMap) {
+    if (!configurationsMap || typeof configurationsMap !== 'object' || Array.isArray(configurationsMap)) {
+        return {};
+    }
+
+    const normalizedMap = {};
+    Object.keys(configurationsMap).forEach(datatableId => {
+        const configuration = configurationsMap[datatableId];
+        const fallbackName = configuration && typeof configuration.datatableName === 'string'
+            ? configuration.datatableName
+            : getExistingDataTableNameById(datatableId);
+        const normalizedConfiguration = normalizeStoredDataTableConfiguration(configuration, datatableId, fallbackName);
+        if (normalizedConfiguration) {
+            normalizedMap[datatableId] = normalizedConfiguration;
+        }
+    });
+
+    return normalizedMap;
+}
+
+function normalizeStoredLiaisonMappingEntry(mappingValue) {
+    if (typeof mappingValue === 'string') {
+        return {
+            datatableId: mappingValue,
+            datatableName: getExistingDataTableNameById(mappingValue) || ''
+        };
+    }
+
+    if (!mappingValue || typeof mappingValue !== 'object' || Array.isArray(mappingValue)) {
+        return null;
+    }
+
+    const datatableId = typeof mappingValue.datatableId === 'string' ? mappingValue.datatableId : '';
+    const datatableName = typeof mappingValue.datatableName === 'string' && mappingValue.datatableName
+        ? mappingValue.datatableName
+        : getExistingDataTableNameById(datatableId);
+
+    return {
+        datatableId,
+        datatableName: datatableName || ''
+    };
+}
+
+function normalizeStoredLiaisonMappingMap(mappingMap) {
+    if (!mappingMap || typeof mappingMap !== 'object' || Array.isArray(mappingMap)) {
+        return {};
+    }
+
+    const normalizedMap = {};
+    Object.keys(mappingMap).forEach(key => {
+        const normalizedEntry = normalizeStoredLiaisonMappingEntry(mappingMap[key]);
+        if (normalizedEntry) {
+            normalizedMap[key] = normalizedEntry;
+        }
+    });
+
+    return normalizedMap;
+}
+
+function normalizeDataTableControllerOrgCapsule(capsuleKey, rawCapsule) {
+    const capsule = rawCapsule && typeof rawCapsule === 'object' && !Array.isArray(rawCapsule)
+        ? rawCapsule
+        : {};
+    const rawOrg = capsule.org && typeof capsule.org === 'object' && !Array.isArray(capsule.org)
+        ? capsule.org
+        : {};
+    const currentContext = buildCurrentDataTableControllerOrgContext();
+
+    return {
+        org: {
+            capsuleKey,
+            orgId: typeof rawOrg.orgId === 'string' ? rawOrg.orgId : '',
+            orgKey: typeof rawOrg.orgKey === 'string' ? rawOrg.orgKey : '',
+            orgName: typeof rawOrg.orgName === 'string' && rawOrg.orgName
+                ? rawOrg.orgName
+                : (capsuleKey === currentContext.capsuleKey ? currentContext.orgName : ''),
+            region: typeof rawOrg.region === 'string' ? rawOrg.region : '',
+            clientId: typeof rawOrg.clientId === 'string' ? rawOrg.clientId : ''
+        },
+        dataTableConfigurations: normalizeStoredDataTableConfigurationsMap(capsule.dataTableConfigurations),
+        liaisonMapping: normalizeStoredLiaisonMappingMap(capsule.liaisonMapping),
+        createdAt: typeof capsule.createdAt === 'string' ? capsule.createdAt : '',
+        updatedAt: typeof capsule.updatedAt === 'string' ? capsule.updatedAt : ''
+    };
+}
+
+function normalizeDataTableControllerStorageState(rawState) {
+    const parsed = rawState && typeof rawState === 'object' && !Array.isArray(rawState)
+        ? rawState
+        : {};
+    const rawCapsules = parsed.orgCapsules && typeof parsed.orgCapsules === 'object' && !Array.isArray(parsed.orgCapsules)
+        ? parsed.orgCapsules
+        : {};
+    const normalizedCapsules = {};
+
+    Object.keys(rawCapsules).forEach(capsuleKey => {
+        normalizedCapsules[capsuleKey] = normalizeDataTableControllerOrgCapsule(capsuleKey, rawCapsules[capsuleKey]);
+    });
+
+    return {
+        version: DATATABLE_CONTROLLER_STORAGE_VERSION,
+        orgCapsules: normalizedCapsules
+    };
+}
+
+function readDataTableControllerStorageState() {
+    const storage = getDataTableControllerStorageBackend();
+    if (!storage) {
+        return normalizeDataTableControllerStorageState(null);
+    }
+
+    try {
+        const rawValue = storage.getItem(DATATABLE_CONTROLLER_STORAGE_KEY);
+        if (!rawValue) {
+            return normalizeDataTableControllerStorageState(null);
+        }
+        return normalizeDataTableControllerStorageState(JSON.parse(rawValue));
+    } catch (error) {
+        console.error('[DT Controller] Erreur de lecture du stockage par org.', error);
+        return normalizeDataTableControllerStorageState(null);
+    }
+}
+
+function writeDataTableControllerStorageState(state) {
+    const storage = getDataTableControllerStorageBackend();
+    if (!storage) {
+        return false;
+    }
+
+    try {
+        storage.setItem(
+            DATATABLE_CONTROLLER_STORAGE_KEY,
+            JSON.stringify(normalizeDataTableControllerStorageState(state))
+        );
+        return true;
+    } catch (error) {
+        console.error('[DT Controller] Erreur d\'écriture du stockage par org.', error);
+        return false;
+    }
+}
+
+function ensureDataTableControllerCurrentOrgCapsule(state) {
+    const orgContext = buildCurrentDataTableControllerOrgContext();
+    if (!state.orgCapsules[orgContext.capsuleKey]) {
+        state.orgCapsules[orgContext.capsuleKey] = normalizeDataTableControllerOrgCapsule(orgContext.capsuleKey, {
+            org: orgContext,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+        });
+    }
+
+    const capsule = state.orgCapsules[orgContext.capsuleKey];
+    capsule.org = {
+        capsuleKey: orgContext.capsuleKey,
+        orgId: orgContext.orgId,
+        orgKey: orgContext.orgKey,
+        orgName: orgContext.orgName,
+        region: orgContext.region,
+        clientId: orgContext.clientId
+    };
+    if (!capsule.createdAt) {
+        capsule.createdAt = new Date().toISOString();
+    }
+    capsule.updatedAt = new Date().toISOString();
+
+    return {
+        orgContext,
+        capsule
+    };
+}
+
+function applyStoredDataTableControllerCapsuleToRuntime(capsule) {
+    dataTableConfigurations = deepCloneDataTableControllerValue(capsule.dataTableConfigurations);
+
+    Object.keys(LIAISON_MAPPING).forEach(key => {
+        delete LIAISON_MAPPING[key];
+    });
+
+    Object.keys(capsule.liaisonMapping).forEach(key => {
+        const mappingEntry = capsule.liaisonMapping[key];
+        if (mappingEntry && mappingEntry.datatableId) {
+            LIAISON_MAPPING[key] = mappingEntry.datatableId;
+        }
+    });
+}
+
+function buildStoredDataTableConfigurationsSnapshot() {
+    return normalizeStoredDataTableConfigurationsMap(dataTableConfigurations);
+}
+
+function buildStoredLiaisonMappingSnapshot() {
+    return normalizeStoredLiaisonMappingMap(LIAISON_MAPPING);
+}
+
+function getLegacyCookieValue(cookieName) {
+    const cookies = String(document.cookie || '').split(';');
+    for (let i = 0; i < cookies.length; i += 1) {
+        const part = cookies[i].trim();
+        if (!part) {
+            continue;
+        }
+
+        const separatorIndex = part.indexOf('=');
+        if (separatorIndex === -1) {
+            continue;
+        }
+
+        const name = part.substring(0, separatorIndex).trim();
+        const value = part.substring(separatorIndex + 1);
+        if (name === cookieName) {
+            return value;
+        }
+    }
+
+    return '';
+}
+
+function readLegacyFlatDataTableControllerStorage() {
+    const storage = getDataTableControllerStorageBackend();
+    let rawConfigurations = null;
+    let rawMapping = null;
+
+    if (storage) {
+        try {
+            const storedConfigurations = storage.getItem(LEGACY_DATATABLE_CONFIG_KEY);
+            if (storedConfigurations) {
+                rawConfigurations = JSON.parse(storedConfigurations);
+            }
+        } catch (error) {
+            console.warn('[DT Controller] Erreur de lecture du legacy localStorage pour les configurations.', error);
+        }
+
+        try {
+            const storedMapping = storage.getItem(LEGACY_LIAISON_MAPPING_KEY);
+            if (storedMapping) {
+                rawMapping = JSON.parse(storedMapping);
+            }
+        } catch (error) {
+            console.warn('[DT Controller] Erreur de lecture du legacy localStorage pour le mapping.', error);
+        }
+    }
+
+    if (!rawConfigurations) {
+        try {
+            const cookieValue = getLegacyCookieValue(LEGACY_DATATABLE_CONFIG_KEY);
+            if (cookieValue) {
+                rawConfigurations = JSON.parse(decodeURIComponent(cookieValue));
+            }
+        } catch (error) {
+            console.warn('[DT Controller] Erreur de lecture du cookie legacy pour les configurations.', error);
+        }
+    }
+
+    if (!rawMapping) {
+        try {
+            const cookieValue = getLegacyCookieValue(LEGACY_LIAISON_MAPPING_KEY);
+            if (cookieValue) {
+                rawMapping = JSON.parse(decodeURIComponent(cookieValue));
+            }
+        } catch (error) {
+            console.warn('[DT Controller] Erreur de lecture du cookie legacy pour le mapping.', error);
+        }
+    }
+
+    const configurations = normalizeStoredDataTableConfigurationsMap(rawConfigurations);
+    const liaisonMapping = normalizeStoredLiaisonMappingMap(rawMapping);
+
+    return {
+        dataTableConfigurations: configurations,
+        liaisonMapping,
+        hasLegacyData: Object.keys(configurations).length > 0 || Object.keys(liaisonMapping).length > 0
+    };
+}
+
+function clearLegacyDataTableControllerStorage() {
+    const storage = getDataTableControllerStorageBackend();
+    if (storage) {
+        try {
+            storage.removeItem(LEGACY_DATATABLE_CONFIG_KEY);
+            storage.removeItem(LEGACY_LIAISON_MAPPING_KEY);
+        } catch (error) {
+            console.warn('[DT Controller] Nettoyage legacy localStorage incomplet.', error);
+        }
+    }
+
+    document.cookie = `${LEGACY_DATATABLE_CONFIG_KEY}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;`;
+    document.cookie = `${LEGACY_LIAISON_MAPPING_KEY}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;`;
+}
+
+function migrateLegacyDataTableControllerStorageIntoCurrentCapsule(state, capsule) {
+    const legacyData = readLegacyFlatDataTableControllerStorage();
+    if (!legacyData.hasLegacyData) {
+        return false;
+    }
+
+    const capsuleHasConfigurations = Object.keys(capsule.dataTableConfigurations).length > 0;
+    const capsuleHasMappings = Object.keys(capsule.liaisonMapping).length > 0;
+
+    if (!capsuleHasConfigurations && Object.keys(legacyData.dataTableConfigurations).length > 0) {
+        capsule.dataTableConfigurations = deepCloneDataTableControllerValue(legacyData.dataTableConfigurations);
+    }
+
+    if (!capsuleHasMappings && Object.keys(legacyData.liaisonMapping).length > 0) {
+        capsule.liaisonMapping = deepCloneDataTableControllerValue(legacyData.liaisonMapping);
+    }
+
+    capsule.updatedAt = new Date().toISOString();
+    writeDataTableControllerStorageState(state);
+    clearLegacyDataTableControllerStorage();
+    console.log('[DT Controller] Migration du stockage legacy vers la capsule org courante terminée.');
+    return true;
+}
+
+function persistCurrentDataTableControllerOrgCapsule() {
+    const state = readDataTableControllerStorageState();
+    const { capsule } = ensureDataTableControllerCurrentOrgCapsule(state);
+    capsule.dataTableConfigurations = buildStoredDataTableConfigurationsSnapshot();
+    capsule.liaisonMapping = buildStoredLiaisonMappingSnapshot();
+    capsule.updatedAt = new Date().toISOString();
+    return writeDataTableControllerStorageState(state);
+}
+
+function loadCurrentDataTableControllerOrgCapsule() {
+    const state = readDataTableControllerStorageState();
+    const { capsule } = ensureDataTableControllerCurrentOrgCapsule(state);
+    migrateLegacyDataTableControllerStorageIntoCurrentCapsule(state, capsule);
+    writeDataTableControllerStorageState(state);
+    applyStoredDataTableControllerCapsuleToRuntime(capsule);
+    return capsule;
+}
+
+function buildDataTableIndexByNormalizedName() {
+    const map = new Map();
+    getAvailableDataTablesCache().forEach(dataTable => {
+        if (!dataTable || typeof dataTable.name !== 'string') {
+            return;
+        }
+        const key = normalizeDataTableControllerStorageKeyPart(dataTable.name, '');
+        if (key && !map.has(key)) {
+            map.set(key, dataTable);
+        }
+    });
+    return map;
+}
+
+function buildDataTableControllerCapsuleLabel(capsule) {
+    if (!capsule || !capsule.org) {
+        return 'Organisation inconnue';
+    }
+
+    return capsule.org.orgName
+        || capsule.org.orgKey
+        || capsule.org.orgId
+        || 'Organisation inconnue';
+}
+
+function getStoredDatatableNameFromCapsule(capsule, datatableId) {
+    if (!capsule || !datatableId) {
+        return '';
+    }
+
+    if (capsule.dataTableConfigurations && capsule.dataTableConfigurations[datatableId]) {
+        return capsule.dataTableConfigurations[datatableId].datatableName || '';
+    }
+
+    if (capsule.liaisonMapping) {
+        const mappingEntry = Object.values(capsule.liaisonMapping).find(entry => entry && entry.datatableId === datatableId);
+        if (mappingEntry && mappingEntry.datatableName) {
+            return mappingEntry.datatableName;
+        }
+    }
+
+    return '';
+}
+
+function buildCopiedConfigurationForCurrentOrg(sourceConfiguration, sourceCapsule, targetDataTableIndex) {
+    const sourceNameKey = normalizeDataTableControllerStorageKeyPart(sourceConfiguration.datatableName, '');
+    const targetDataTable = sourceNameKey ? targetDataTableIndex.get(sourceNameKey) : null;
+
+    if (!targetDataTable) {
+        return {
+            success: false,
+            reason: 'DataTable absente sur l\'org cible'
+        };
+    }
+
+    const copiedConfiguration = deepCloneDataTableControllerValue(sourceConfiguration);
+    copiedConfiguration.datatableId = targetDataTable.id;
+    copiedConfiguration.datatableName = targetDataTable.name;
+
+    const sourceColumns = copiedConfiguration.columns && typeof copiedConfiguration.columns === 'object'
+        ? copiedConfiguration.columns
+        : {};
+
+    for (const columnName of Object.keys(sourceColumns)) {
+        const columnConfiguration = sourceColumns[columnName];
+        if (!columnConfiguration || columnConfiguration.type !== 'liaison') {
+            continue;
+        }
+
+        const sourceTargetName = columnConfiguration.liaisonTargetName
+            || getStoredDatatableNameFromCapsule(sourceCapsule, columnConfiguration.liaisonTarget);
+        const targetNameKey = normalizeDataTableControllerStorageKeyPart(sourceTargetName, '');
+        const targetLinkedDataTable = targetNameKey ? targetDataTableIndex.get(targetNameKey) : null;
+
+        if (!targetLinkedDataTable) {
+            return {
+                success: false,
+                reason: `Liaison "${sourceTargetName || columnConfiguration.liaisonTarget || columnName}" introuvable sur l'org cible`
+            };
+        }
+
+        columnConfiguration.liaisonTarget = targetLinkedDataTable.id;
+        columnConfiguration.liaisonTargetName = targetLinkedDataTable.name;
+    }
+
+    return {
+        success: true,
+        datatableId: targetDataTable.id,
+        datatableName: targetDataTable.name,
+        configuration: normalizeStoredDataTableConfiguration(
+            copiedConfiguration,
+            targetDataTable.id,
+            targetDataTable.name
+        )
+    };
+}
+
+function formatCopySummaryList(title, items, emptyLabel) {
+    let content = `${title} (${items.length})`;
+    if (!items.length) {
+        return `${content}\n- ${emptyLabel}`;
+    }
+
+    items.forEach(item => {
+        content += `\n- ${item}`;
+    });
+    return content;
+}
+
+function showDataTableControllerCopyResult(sourceLabel, copiedTables, failedTables, copiedMappings, failedMappings) {
+    const currentContext = buildCurrentDataTableControllerOrgContext();
+    const lines = [
+        'Copie terminée',
+        '',
+        `Source : ${sourceLabel}`,
+        `Cible : ${currentContext.orgName}`,
+        '',
+        formatCopySummaryList('Configurations copiées', copiedTables, 'aucune'),
+        '',
+        formatCopySummaryList('Configurations en échec', failedTables, 'aucune'),
+        '',
+        `Mappings copiés : ${copiedMappings}`,
+        formatCopySummaryList('Mappings en échec', failedMappings, 'aucun')
+    ];
+
+    alert(lines.join('\n'));
+}
+
+function refreshDataTableControllerCopySourceOptions() {
+    const select = document.getElementById('dtControllerCopySourceSelect');
+    const button = document.getElementById('dtControllerCopySourceBtn');
+    const help = document.getElementById('dtControllerCopySourceHelp');
+
+    if (!select || !button || !help) {
+        return;
+    }
+
+    const state = readDataTableControllerStorageState();
+    const { orgContext } = ensureDataTableControllerCurrentOrgCapsule(state);
+    const availableSources = Object.values(state.orgCapsules)
+        .filter(capsule => capsule && capsule.org && capsule.org.capsuleKey !== orgContext.capsuleKey)
+        .filter(capsule => Object.keys(capsule.dataTableConfigurations).length > 0 || Object.keys(capsule.liaisonMapping).length > 0)
+        .sort((left, right) => buildDataTableControllerCapsuleLabel(left).localeCompare(buildDataTableControllerCapsuleLabel(right)));
+
+    select.innerHTML = '';
+    if (!availableSources.length) {
+        select.innerHTML = '<option value="">Aucune autre org disponible</option>';
+        select.disabled = true;
+        button.disabled = true;
+        help.textContent = `Org courante : ${orgContext.orgName}. Connecte-toi à une autre org et sauvegarde une configuration pour la rendre copiable ici.`;
+        return;
+    }
+
+    select.disabled = false;
+    button.disabled = false;
+    select.appendChild(new Option('Sélectionner une org source...', '', true, false));
+
+    availableSources.forEach(capsule => {
+        const configCount = Object.keys(capsule.dataTableConfigurations).length;
+        const mappingCount = Object.keys(capsule.liaisonMapping).length;
+        const optionLabel = `${buildDataTableControllerCapsuleLabel(capsule)} (${configCount} DT / ${mappingCount} mappings)`;
+        select.appendChild(new Option(optionLabel, capsule.org.capsuleKey));
+    });
+
+    if (!select.value) {
+        select.selectedIndex = 0;
+    }
+    help.textContent = `Org courante : ${orgContext.orgName}. La copie rattache les DataTables par nom, puis met à jour les IDs de l'org cible.`;
+}
+
+function copyDataTableControllerDataFromSelectedOrg() {
+    const select = document.getElementById('dtControllerCopySourceSelect');
+    if (!select || !select.value) {
+        alert('Sélectionne d\'abord une org source à copier.');
+        return;
+    }
+
+    const state = readDataTableControllerStorageState();
+    const { orgContext, capsule: currentCapsule } = ensureDataTableControllerCurrentOrgCapsule(state);
+    const sourceCapsule = state.orgCapsules[select.value];
+
+    if (!sourceCapsule) {
+        alert('La capsule source sélectionnée est introuvable.');
+        refreshDataTableControllerCopySourceOptions();
+        return;
+    }
+
+    if (sourceCapsule.org && sourceCapsule.org.capsuleKey === orgContext.capsuleKey) {
+        alert('La copie depuis l\'org courante n\'est pas nécessaire.');
+        return;
+    }
+
+    const targetDataTableIndex = buildDataTableIndexByNormalizedName();
+    const nextConfigurations = deepCloneDataTableControllerValue(dataTableConfigurations);
+    const copiedTables = [];
+    const failedTables = [];
+    const failedMappings = [];
+    let copiedMappings = 0;
+
+    Object.keys(sourceCapsule.dataTableConfigurations).forEach(sourceDatatableId => {
+        const sourceConfiguration = sourceCapsule.dataTableConfigurations[sourceDatatableId];
+        const sourceDatatableName = sourceConfiguration && sourceConfiguration.datatableName
+            ? sourceConfiguration.datatableName
+            : sourceDatatableId;
+        const copyResult = buildCopiedConfigurationForCurrentOrg(sourceConfiguration, sourceCapsule, targetDataTableIndex);
+
+        if (!copyResult.success) {
+            failedTables.push(`${sourceDatatableName} : ${copyResult.reason}`);
+            return;
+        }
+
+        nextConfigurations[copyResult.datatableId] = copyResult.configuration;
+        copiedTables.push(copyResult.datatableName);
+    });
+
+    const nextMapping = { ...LIAISON_MAPPING };
+    Object.keys(sourceCapsule.liaisonMapping).forEach(mappingKey => {
+        const mappingEntry = sourceCapsule.liaisonMapping[mappingKey];
+        const sourceDatatableName = mappingEntry && mappingEntry.datatableName
+            ? mappingEntry.datatableName
+            : mappingEntry && mappingEntry.datatableId
+                ? getStoredDatatableNameFromCapsule(sourceCapsule, mappingEntry.datatableId)
+                : '';
+        const normalizedName = normalizeDataTableControllerStorageKeyPart(sourceDatatableName, '');
+        const targetDataTable = normalizedName ? targetDataTableIndex.get(normalizedName) : null;
+
+        if (!targetDataTable) {
+            failedMappings.push(`${mappingKey} -> ${sourceDatatableName || 'DataTable introuvable'}`);
+            return;
+        }
+
+        nextMapping[mappingKey] = targetDataTable.id;
+        copiedMappings += 1;
+    });
+
+    dataTableConfigurations = normalizeStoredDataTableConfigurationsMap(nextConfigurations);
+    Object.keys(LIAISON_MAPPING).forEach(key => {
+        delete LIAISON_MAPPING[key];
+    });
+    Object.keys(nextMapping).forEach(key => {
+        LIAISON_MAPPING[key] = nextMapping[key];
+    });
+
+    currentCapsule.dataTableConfigurations = buildStoredDataTableConfigurationsSnapshot();
+    currentCapsule.liaisonMapping = buildStoredLiaisonMappingSnapshot();
+    currentCapsule.updatedAt = new Date().toISOString();
+    writeDataTableControllerStorageState(state);
+
+    if (mappingDisplayed) {
+        tempLiaisonMapping = { ...LIAISON_MAPPING };
+        displayCurrentMapping();
+    }
+
+    displayDataTables();
+    updateCurrentConfigInfo();
+    if (typeof refreshAllAutoLinkBoxes === 'function') {
+        refreshAllAutoLinkBoxes();
+    }
+
+    showDataTableControllerCopyResult(
+        buildDataTableControllerCapsuleLabel(sourceCapsule),
+        copiedTables,
+        failedTables,
+        copiedMappings,
+        failedMappings
+    );
+}
+
 
 // Chargement d'une configuration existante - Version mise à jour
 function loadExistingConfiguration(datatableId, scopeRoot) {
@@ -94,6 +840,7 @@ function saveConfiguration(datatableId) {
 
     const configuration = {
         datatableId: resolvedDatatableId,
+        datatableName: getExistingDataTableNameById(resolvedDatatableId),
         columns: {}
     };
 
@@ -114,6 +861,7 @@ function saveConfiguration(datatableId) {
                 const liaisonTarget = scopeRoot.querySelector(`.liaison-target[data-column="${columnName}"]`);
                 if (liaisonTarget && liaisonTarget.value) {
                     configuration.columns[columnName].liaisonTarget = liaisonTarget.value;
+                    configuration.columns[columnName].liaisonTargetName = getExistingDataTableNameById(liaisonTarget.value);
                 }
             } else if (columnType === 'liaison_auto') {
                 const liaisonAutoColumn = scopeRoot.querySelector(`.liaison-auto-column[data-column="${columnName}"]`);
@@ -176,41 +924,31 @@ function saveConfiguration(datatableId) {
         return;
     }
     
-    // Sauvegarder dans les configurations et les cookies
-    dataTableConfigurations[resolvedDatatableId] = configuration;
+    // Sauvegarder dans les configurations et la capsule locale de l'org courante
+    dataTableConfigurations[resolvedDatatableId] = normalizeStoredDataTableConfiguration(
+        configuration,
+        resolvedDatatableId,
+        configuration.datatableName
+    );
     saveConfigurationsToCookie();
 
     if (typeof updateDataTableListItemState === 'function') {
         updateDataTableListItemState(resolvedDatatableId);
     }
+    updateCurrentConfigInfo();
 
     console.log('Configuration sauvegardee pour:', resolvedDatatableId);
 }
 
 
 
-// Gestion des cookies
+// Gestion du stockage par org
 function saveConfigurationsToCookie() {
-    const configString = JSON.stringify(dataTableConfigurations);
-    const expirationDate = new Date();
-    expirationDate.setTime(expirationDate.getTime() + (365 * 24 * 60 * 60 * 1000)); // 1 an
-    
-    document.cookie = `genesysDataTableConfigs=${configString}; expires=${expirationDate.toUTCString()}; path=/`;
+    persistCurrentDataTableControllerOrgCapsule();
 }
 
 function loadSavedConfigurations() {
-    const cookies = document.cookie.split(';');
-    for (let cookie of cookies) {
-        const [name, value] = cookie.split('=').map(c => c.trim());
-        if (name === 'genesysDataTableConfigs') {
-            try {
-                dataTableConfigurations = JSON.parse(decodeURIComponent(value));
-            } catch (e) {
-                console.error('Erreur lors du chargement des configurations:', e);
-            }
-            break;
-        }
-    }
+    loadCurrentDataTableControllerOrgCapsule();
 }
 
 /**
@@ -243,6 +981,7 @@ function updateCurrentConfigInfo() {
     // Récupérer la date de dernière sauvegarde depuis les cookies
     const lastSave = getLastSaveTime();
     document.getElementById('lastSaveTime').textContent = lastSave || 'Jamais';
+    refreshDataTableControllerCopySourceOptions();
 }
 
 /**
@@ -284,36 +1023,24 @@ function exportCompleteConfiguration() {
         
         // Ajouter les configurations des DataTables si demandées
         if (exportOptions.dataTableConfigs) {
+            const storedConfigurations = buildStoredDataTableConfigurationsSnapshot();
             exportData.dataTableConfigurations = {};
-            
-            Object.keys(dataTableConfigurations).forEach(datatableId => {
-                const config = dataTableConfigurations[datatableId];
-                const datatableName = getDataTableNameById(datatableId);
-                
+
+            Object.keys(storedConfigurations).forEach(datatableId => {
+                const config = storedConfigurations[datatableId];
                 exportData.dataTableConfigurations[datatableId] = {
-                    datatableName: datatableName,
+                    datatableName: config.datatableName || getDataTableNameById(datatableId),
                     configuration: config,
                     exportTimestamp: new Date().toISOString()
                 };
             });
-            
+
             console.log(`📊 ${Object.keys(exportData.dataTableConfigurations).length} configurations de DataTables exportées`);
         }
         
         // Ajouter le mapping des liaisons si demandé
         if (exportOptions.liaisonMapping) {
-            exportData.liaisonMapping = {};
-            
-            Object.keys(LIAISON_MAPPING).forEach(key => {
-                const datatableId = LIAISON_MAPPING[key];
-                const datatableName = getDataTableNameById(datatableId);
-                
-                exportData.liaisonMapping[key] = {
-                    datatableId: datatableId,
-                    datatableName: datatableName
-                };
-            });
-            
+            exportData.liaisonMapping = buildStoredLiaisonMappingSnapshot();
             console.log(`🔗 ${Object.keys(exportData.liaisonMapping).length} mappings de liaisons exportés`);
         }
         
@@ -404,7 +1131,7 @@ function importCompleteConfiguration(event) {
             
             // Sauvegarder la configuration actuelle en cas de rollback
             const backupConfig = {
-                dataTableConfigurations: { ...dataTableConfigurations },
+                dataTableConfigurations: deepCloneDataTableControllerValue(dataTableConfigurations),
                 liaisonMapping: { ...LIAISON_MAPPING }
             };
             
@@ -419,7 +1146,7 @@ function importCompleteConfiguration(event) {
             
             showImportProgress(80, 'Sauvegarde...');
             
-            // Sauvegarder dans les cookies
+            // Sauvegarder dans la capsule de l'org courante
             saveConfigurationsToCookie();
             saveLiaisonMappingToCookie();
             
@@ -526,7 +1253,14 @@ function applyImportedConfigurations(importedData) {
             const importedConfig = importedData.dataTableConfigurations[datatableId];
             
             if (importedConfig.configuration) {
-                dataTableConfigurations[datatableId] = importedConfig.configuration;
+                const normalizedConfiguration = normalizeStoredDataTableConfiguration(
+                    importedConfig.configuration,
+                    datatableId,
+                    importedConfig.datatableName || ''
+                );
+                if (normalizedConfiguration) {
+                    dataTableConfigurations[datatableId] = normalizedConfiguration;
+                }
                 importedConfigs++;
                 console.log(`📋 Configuration importée pour: ${importedConfig.datatableName || datatableId}`);
             }
@@ -537,11 +1271,12 @@ function applyImportedConfigurations(importedData) {
     if (importedData.liaisonMapping) {
         Object.keys(importedData.liaisonMapping).forEach(key => {
             const mapping = importedData.liaisonMapping[key];
-            
-            if (mapping.datatableId) {
-                LIAISON_MAPPING[key] = mapping.datatableId;
+
+            const normalizedMapping = normalizeStoredLiaisonMappingEntry(mapping);
+            if (normalizedMapping && normalizedMapping.datatableId) {
+                LIAISON_MAPPING[key] = normalizedMapping.datatableId;
                 importedMappings++;
-                console.log(`🔗 Mapping importé: ${key} -> ${mapping.datatableName || mapping.datatableId}`);
+                console.log(`🔗 Mapping importé: ${key} -> ${normalizedMapping.datatableName || normalizedMapping.datatableId}`);
             }
         });
     }
@@ -648,7 +1383,11 @@ function validateDataTableCompatibility(importedConfigs) {
  * Export sélectif par DataTable
  */
 function exportSpecificDataTable(datatableId) {
-    const config = dataTableConfigurations[datatableId];
+    const config = normalizeStoredDataTableConfiguration(
+        dataTableConfigurations[datatableId],
+        datatableId,
+        getDataTableNameById(datatableId)
+    );
     if (!config) {
         alert(i18nConfig('tab.datatables_controller.config.alert.no_config_for_datatable', 'No configuration found for this DataTable'));
         return;
@@ -864,8 +1603,9 @@ function saveMappingConfiguration() {
         LIAISON_MAPPING[key] = tempLiaisonMapping[key];
     });
     
-    // Sauvegarder dans les cookies
+    // Sauvegarder dans la capsule de l'org courante
     saveLiaisonMappingToCookie();
+    updateCurrentConfigInfo();
     if (typeof refreshAllAutoLinkBoxes === 'function') {
         console.log('[FLOW] Refresh boites Liaison Auto depuis Config Manager');
         refreshAllAutoLinkBoxes();
@@ -895,33 +1635,14 @@ function cancelMappingChanges() {
     }
 }
 
-// Fonctions de gestion des cookies pour le mapping
+// Fonctions de gestion du stockage par org pour le mapping
 function saveLiaisonMappingToCookie() {
-    const mappingString = JSON.stringify(LIAISON_MAPPING);
-    const expirationDate = new Date();
-    expirationDate.setTime(expirationDate.getTime() + (365 * 24 * 60 * 60 * 1000)); // 1 an
-    
-    document.cookie = `genesysLiaisonMapping=${mappingString}; expires=${expirationDate.toUTCString()}; path=/`;
+    persistCurrentDataTableControllerOrgCapsule();
 }
 
 function loadLiaisonMappingFromCookie() {
-    const cookies = document.cookie.split(';');
-    for (let cookie of cookies) {
-        const [name, value] = cookie.split('=').map(c => c.trim());
-        if (name === 'genesysLiaisonMapping') {
-            try {
-                const loadedMapping = JSON.parse(decodeURIComponent(value));
-                // Fusionner avec le mapping par défaut
-                Object.keys(loadedMapping).forEach(key => {
-                    LIAISON_MAPPING[key] = loadedMapping[key];
-                });
-                console.log('Mapping chargé depuis les cookies:', LIAISON_MAPPING);
-            } catch (e) {
-                console.error('Erreur lors du chargement du mapping depuis les cookies:', e);
-            }
-            break;
-        }
-    }
+    loadCurrentDataTableControllerOrgCapsule();
+    console.log('Mapping chargé depuis la capsule org:', LIAISON_MAPPING);
 }
 
 // Fonction pour exporter le mapping (bonus)
@@ -951,7 +1672,10 @@ function importMappingConfiguration(event) {
             const importedData = JSON.parse(e.target.result);
             if (importedData.mapping) {
                 Object.keys(importedData.mapping).forEach(key => {
-                    LIAISON_MAPPING[key] = importedData.mapping[key];
+                    const normalizedMapping = normalizeStoredLiaisonMappingEntry(importedData.mapping[key]);
+                    if (normalizedMapping && normalizedMapping.datatableId) {
+                        LIAISON_MAPPING[key] = normalizedMapping.datatableId;
+                    }
                 });
                 saveLiaisonMappingToCookie();
                 alert(i18nConfig('tab.datatables_controller.mapping.alert.import_success', 'Mapping imported successfully!'));
@@ -960,6 +1684,7 @@ function importMappingConfiguration(event) {
                     tempLiaisonMapping = { ...LIAISON_MAPPING };
                     displayCurrentMapping();
                 }
+                updateCurrentConfigInfo();
             }
         } catch (error) {
             alert(i18nConfig('tab.datatables_controller.mapping.alert.import_error', 'Error while importing: invalid file'));

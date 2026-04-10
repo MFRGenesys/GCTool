@@ -245,6 +245,18 @@
                                 <p><strong>DataTables configurées :</strong> <span id="configuredTablesCount">0</span></p>
                                 <p><strong>Mappings de liaisons :</strong> <span id="liaisonMappingsCount">0</span></p>
                                 <p><strong>Dernière sauvegarde :</strong> <span id="lastSaveTime">Jamais</span></p>
+                                <div class="form-group" style="margin-top: 15px;">
+                                    <label for="dtControllerCopySourceSelect"><strong>Copie des données depuis :</strong></label>
+                                    <div class="input-group">
+                                        <select id="dtControllerCopySourceSelect" class="form-control"></select>
+                                        <span class="input-group-btn">
+                                            <button type="button" id="dtControllerCopySourceBtn" class="btn btn-default" onclick="copyDataTableControllerDataFromSelectedOrg()">
+                                                <i class="fa fa-copy"></i> Copier vers l'org courante
+                                            </button>
+                                        </span>
+                                    </div>
+                                    <small id="dtControllerCopySourceHelp" class="text-muted">Aucune autre org en mémoire.</small>
+                                </div>
                             </div>
                         </div>
                     </div>

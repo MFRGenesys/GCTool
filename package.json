@@ -4,7 +4,8 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "release:minor": "node tools/bump-minor.js"
+    "release:minor": "node tools/bump-minor.js",
+    "server:mock": "node Server/mock-api-server.js"
   },
   "keywords": [],
   "author": "",
