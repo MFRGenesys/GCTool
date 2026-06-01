@@ -1,0 +1,401 @@
+<div class="box box-primary" id="apiTesterRoot">
+  <div class="box-header with-border">
+    <div class="api-tester-titlebar">
+      <h3 class="box-title">
+        <i class="fa fa-plug"></i> <span data-i18n="tab.api_tester.title">API Tester - Mock Data Actions</span>
+      </h3>
+      <button id="apiTesterHelpBtn" type="button" class="btn btn-default btn-sm" data-api-tester-open-overlay="apiTesterHelpOverlay">
+        <i class="fa fa-question-circle"></i> <span data-i18n="tab.api_tester.help_button">Aide</span>
+      </button>
+    </div>
+  </div>
+
+  <div class="box-body">
+    <div id="apiTesterFeasibilityAlert" class="alert alert-warning api-tester-feasibility-alert" style="margin-bottom: 12px;">
+      <strong data-i18n="tab.api_tester.feasibility_title">Validation de faisabilite</strong><br>
+      <span data-i18n="tab.api_tester.feasibility_body">Le principe est faisable si le mock API est publie sur une URL HTTPS accessible depuis l'exterieur. GitHub Pages ne peut pas heberger ce code serveur.</span>
+    </div>
+
+    <div class="row">
+      <div class="col-md-6">
+        <div id="apiTesterStatus" class="alert alert-info api-tester-status">
+          Module en cours de chargement...
+        </div>
+
+        <div class="panel panel-default">
+          <div class="panel-heading">
+            <strong data-i18n="tab.api_tester.server_mocks_title">Mocks disponibles sur le serveur</strong>
+          </div>
+          <div class="panel-body">
+            <div class="form-group" style="margin-bottom: 0;">
+              <label for="apiTesterServerMocksSelect" data-i18n="tab.api_tester.server_mocks_label">Liste des endpoints mockes</label>
+              <div class="api-tester-server-mocks-row">
+                <select id="apiTesterServerMocksSelect" class="form-control">
+                  <option value="" data-i18n="tab.api_tester.server_mocks_loading">Chargement...</option>
+                </select>
+                <button id="apiTesterRefreshMocksBtn" type="button" class="btn btn-default">
+                  <i class="fa fa-refresh"></i> <span data-i18n="tab.api_tester.actions.refresh_mocks">Actualiser</span>
+                </button>
+                <button id="apiTesterDeleteMockBtn" type="button" class="btn btn-danger">
+                  <i class="fa fa-trash"></i> <span data-i18n="tab.api_tester.actions.delete_mock">Supprimer</span>
+                </button>
+              </div>
+              <div class="help-block" data-i18n="tab.api_tester.server_mocks_help">
+                Selectionnez un endpoint pour recharger sa configuration dans le formulaire.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel panel-default">
+          <div class="panel-heading">
+            <strong>Configuration serveur</strong>
+          </div>
+          <div class="panel-body">
+            <div class="form-group">
+              <label for="apiTesterServerBaseUrl" data-i18n="tab.api_tester.server_base_url">Base URL du serveur mock</label>
+              <input id="apiTesterServerBaseUrl" type="text" class="form-control" value="https://gctoolapi.matt920free.synology.me" spellcheck="false" />
+            </div>
+
+            <div class="row">
+              <div class="col-sm-6">
+                <div class="form-group">
+                  <label for="apiTesterAdminEndpointPath" data-i18n="tab.api_tester.admin_endpoint">Endpoint admin de configuration</label>
+                  <input id="apiTesterAdminEndpointPath" type="text" class="form-control" value="/api/admin/mock-config" spellcheck="false" />
+                </div>
+              </div>
+              <div class="col-sm-6">
+                <div class="form-group">
+                  <label for="apiTesterPublicEndpointPath" data-i18n="tab.api_tester.public_endpoint">Endpoint public teste</label>
+                  <input id="apiTesterPublicEndpointPath" type="text" class="form-control" value="/api/test" spellcheck="false" />
+                </div>
+              </div>
+            </div>
+
+            <div class="row">
+              <div class="col-sm-6">
+                <div class="form-group">
+                  <label for="apiTesterHttpMethod" data-i18n="tab.api_tester.http_method">Methode exposee</label>
+                  <select id="apiTesterHttpMethod" class="form-control">
+                    <option value="GET">GET</option>
+                    <option value="POST">POST</option>
+                  </select>
+                </div>
+              </div>
+              <div class="col-sm-6">
+                <div class="form-group">
+                  <label for="apiTesterDataActionName" data-i18n="tab.api_tester.data_action_name">Nom Data Action cible</label>
+                  <input id="apiTesterDataActionName" type="text" class="form-control" value="GC_DATA_ACTION_TEST" spellcheck="false" />
+                </div>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="apiTesterScenarioName" data-i18n="tab.api_tester.scenario_name">Nom du scenario</label>
+              <input id="apiTesterScenarioName" type="text" class="form-control" value="Success simple" spellcheck="false" />
+            </div>
+
+            <div class="row">
+              <div class="col-sm-6">
+                <div class="form-group">
+                  <label for="apiTesterResponseStatus" data-i18n="tab.api_tester.response_status">Code HTTP retourne</label>
+                  <input id="apiTesterResponseStatus" type="number" class="form-control" value="200" min="100" max="599" />
+                </div>
+              </div>
+              <div class="col-sm-6">
+                <div class="form-group">
+                  <label for="apiTesterSimulatedLatency" data-i18n="tab.api_tester.latency">Latence simulee (ms)</label>
+                  <input id="apiTesterSimulatedLatency" type="number" class="form-control" value="0" min="0" step="50" />
+                </div>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="apiTesterNotes" data-i18n="tab.api_tester.notes">Notes de parametrage</label>
+              <textarea id="apiTesterNotes" class="form-control" rows="3" spellcheck="false"></textarea>
+            </div>
+
+            <div class="form-group">
+              <label for="apiTesterTestQueryString" data-i18n="tab.api_tester.test_query">Parametres GET de test</label>
+              <input id="apiTesterTestQueryString" type="text" class="form-control" value="customerId=CUST-001" spellcheck="false" />
+              <div class="help-block" data-i18n="tab.api_tester.test_query_help">
+                Exemple: customerId=CUST-001&flowName=DataActionValidation
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="apiTesterTestRequestBodyJson" data-i18n="tab.api_tester.test_body">Body JSON de test</label>
+              <textarea id="apiTesterTestRequestBodyJson" class="form-control api-tester-codearea" rows="8" spellcheck="false">{
+  "customer": {
+    "id": "CUST-001",
+    "segment": "STANDARD"
+  }
+}</textarea>
+              <div class="help-block" data-i18n="tab.api_tester.test_body_help">
+                Utilise pour tester les mocks POST et pour declarer un exemple de body.
+              </div>
+            </div>
+
+            <div class="api-tester-actions">
+              <button id="apiTesterLoadExampleBtn" type="button" class="btn btn-default">
+                <i class="fa fa-lightbulb-o"></i> <span data-i18n="tab.api_tester.actions.load_example">Charger exemple</span>
+              </button>
+              <button id="apiTesterSaveLocalBtn" type="button" class="btn btn-primary">
+                <i class="fa fa-save"></i> <span data-i18n="tab.api_tester.actions.save_local">Sauvegarder en local</span>
+              </button>
+              <button id="apiTesterImportSwaggerBtn" type="button" class="btn btn-default">
+                <i class="fa fa-file-code-o"></i> <span data-i18n="tab.api_tester.actions.import_swagger">Importer Swagger JSON</span>
+              </button>
+              <button id="apiTesterSendConfigBtn" type="button" class="btn btn-success">
+                <i class="fa fa-upload"></i> <span data-i18n="tab.api_tester.actions.send_server">Envoyer au serveur</span>
+              </button>
+              <button id="apiTesterLoadServerBtn" type="button" class="btn btn-info">
+                <i class="fa fa-download"></i> <span data-i18n="tab.api_tester.actions.load_server">Relire config serveur</span>
+              </button>
+              <button id="apiTesterTestEndpointBtn" type="button" class="btn btn-warning">
+                <i class="fa fa-play"></i> <span data-i18n="tab.api_tester.actions.test_endpoint">Tester endpoint</span>
+              </button>
+              <button id="apiTesterExportDataActionBtn" type="button" class="btn btn-default">
+                <i class="fa fa-download"></i> <span data-i18n="tab.api_tester.actions.export_data_action">Exporter JSON Data Action</span>
+              </button>
+            </div>
+            <input id="apiTesterSwaggerFileInput" type="file" accept=".json,application/json" class="api-tester-hidden-input" />
+          </div>
+        </div>
+        <div class="panel panel-default" style="margin-bottom: 0;">
+          <div class="panel-heading">
+            <strong data-i18n="tab.api_tester.output_title">Journal / resultat</strong>
+          </div>
+          <div class="panel-body">
+            <pre id="apiTesterOutput" class="api-tester-output" data-i18n="tab.api_tester.output_empty">Aucun resultat pour le moment.</pre>
+          </div>
+        </div>
+      </div>
+
+      
+      <div class="col-md-6">
+        <div class="panel panel-default">
+          <div class="panel-heading">
+            <strong data-i18n="tab.api_tester.response_body">JSON de reponse mocke</strong>
+          </div>
+          <div class="panel-body">
+            <textarea id="apiTesterResponseBodyJson" class="form-control api-tester-codearea" rows="10" spellcheck="false">{
+  "status": "Success",
+  "trackingId": {
+    "$regexGenerate": "^TRACK-[0-9]{6}$",
+    "$type": "string"
+  },
+  "seededEmail": {
+    "$fakerType": "email",
+    "$randomSeed": "${request.query.customerId}"
+  }
+}</textarea>
+            <div class="help-block" data-i18n="tab.api_tester.response_body_help">
+              Le JSON de reponse supporte aussi les generateurs dynamiques : $regexGenerate, $regexGenerateCount, $randomSeed et $fakerType.
+            </div>
+          </div>
+        </div>
+
+        <div class="panel panel-default">
+          <div class="panel-heading">
+            <div class="api-tester-panel-titlebar">
+              <strong data-i18n="tab.api_tester.test_data">Jeu de donnees de test</strong>
+              <button id="apiTesterDatasetHelpBtn" type="button" class="btn btn-default btn-xs" data-api-tester-open-overlay="apiTesterDatasetHelpOverlay">
+                <i class="fa fa-question-circle"></i> <span data-i18n="tab.api_tester.dataset_help_button">Aide format</span>
+              </button>
+            </div>
+          </div>
+          <div class="panel-body">
+            <textarea id="apiTesterTestDataJson" class="form-control api-tester-codearea" rows="20" spellcheck="false">{
+  "matchMode": "rules",
+  "cases": [
+    {
+      "name": "Client standard regex",
+      "when": {
+        "all": [
+          {
+            "source": "query",
+            "field": "customerId",
+            "operator": "regex",
+            "value": "^CUST-([0-9]{3})$"
+          }
+        ]
+      },
+      "responseStatus": 200,
+      "responseBody": {
+        "status": "Success",
+        "customerId": "${captures.query.customerId.1}",
+        "trackingId": {
+          "$regexGenerate": "^TRACK-[0-9]{6}$",
+          "$type": "string"
+        }
+      }
+    }
+  ]
+}</textarea>
+            <div class="help-block" data-i18n="tab.api_tester.dataset_help">
+              Utilisez cases[] avec when/all/any pour definir les reponses selon les query params ou le body, y compris avec regex et captures reutilisables.
+            </div>
+          </div>
+        </div>
+
+        <div class="panel panel-default">
+          <div class="panel-heading">
+            <strong data-i18n="tab.api_tester.preview_title">Apercu de configuration</strong>
+          </div>
+          <div class="panel-body">
+            <div class="api-tester-preview-row">
+              <div class="api-tester-preview-label" data-i18n="tab.api_tester.public_url">URL publique</div>
+              <code id="apiTesterPublicUrlPreview">http://localhost:7070/api/test</code>
+            </div>
+            <div class="api-tester-preview-row">
+              <div class="api-tester-preview-label" data-i18n="tab.api_tester.admin_url">URL admin</div>
+              <code id="apiTesterAdminUrlPreview">http://localhost:7070/api/admin/mock-config</code>
+            </div>
+            <div class="api-tester-preview-row">
+              <div class="api-tester-preview-label" data-i18n="tab.api_tester.curl_preview">Exemple curl</div>
+              <pre id="apiTesterCurlPreview" class="api-tester-preview-block"></pre>
+            </div>
+            <div class="api-tester-preview-row" style="margin-bottom: 0;">
+              <div class="api-tester-preview-label" data-i18n="tab.api_tester.response_preview">Apercu de la reponse</div>
+              <pre id="apiTesterResponsePreview" class="api-tester-preview-block"></pre>
+            </div>
+            <div class="api-tester-preview-row" style="margin-top: 12px; margin-bottom: 0;">
+              <div class="api-tester-preview-label" data-i18n="tab.api_tester.data_action_preview">Apercu JSON Data Action</div>
+              <pre id="apiTesterDataActionPreview" class="api-tester-preview-block"></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="apiTesterHelpOverlay" class="api-tester-overlay" aria-hidden="true">
+    <div class="api-tester-overlay-backdrop" data-api-tester-close-overlay="apiTesterHelpOverlay"></div>
+    <div class="api-tester-overlay-card" role="dialog" aria-modal="true" aria-labelledby="apiTesterHelpTitle">
+      <div class="api-tester-overlay-header">
+        <strong id="apiTesterHelpTitle" data-i18n="tab.api_tester.architecture_title">Architecture cible</strong>
+        <button id="apiTesterHelpCloseBtn" type="button" class="btn btn-default btn-sm" data-api-tester-close-overlay="apiTesterHelpOverlay">
+          <i class="fa fa-times"></i> <span data-i18n="tab.api_tester.actions.close_help">Fermer</span>
+        </button>
+      </div>
+      <div class="api-tester-overlay-body">
+        <ol class="api-tester-architecture-list">
+          <li data-i18n="tab.api_tester.architecture_step_1"> GCTool prepare une configuration de mock et l'envoie au serveur Node.</li>
+          <li data-i18n="tab.api_tester.architecture_step_2"> Le serveur expose un endpoint public de test consomme par la Data Action.</li>
+          <li data-i18n="tab.api_tester.architecture_step_3"> La Data Action Genesys Cloud doit pointer vers une URL HTTPS publique.</li>
+        </ol>
+        <div class="small text-muted" data-i18n="tab.api_tester.hint.github_pages">
+          Rappel: GitHub Pages ne permet pas dexecuter un backend dynamique.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="apiTesterDatasetHelpOverlay" class="api-tester-overlay" aria-hidden="true">
+    <div class="api-tester-overlay-backdrop" data-api-tester-close-overlay="apiTesterDatasetHelpOverlay"></div>
+    <div class="api-tester-overlay-card api-tester-overlay-card-wide" role="dialog" aria-modal="true" aria-labelledby="apiTesterDatasetHelpTitle">
+      <div class="api-tester-overlay-header">
+        <strong id="apiTesterDatasetHelpTitle" data-i18n="tab.api_tester.dataset_help_title">Format du dataset et regles supportees</strong>
+        <button type="button" class="btn btn-default btn-sm" data-api-tester-close-overlay="apiTesterDatasetHelpOverlay">
+          <i class="fa fa-times"></i> <span data-i18n="tab.api_tester.actions.close_help">Fermer</span>
+        </button>
+      </div>
+      <div class="api-tester-overlay-body">
+        <p data-i18n="tab.api_tester.dataset_help_intro">Le moteur supporte les regles sur query params et body JSON avec equals, contains, exists et regex, ainsi que les groupes all (AND) et any (OR). Les captures regex peuvent etre reutilisees dans la reponse.</p>
+        <pre class="api-tester-preview-block">{
+  "matchMode": "rules",
+  "cases": [
+    {
+      "name": "GET customer regex",
+      "when": {
+        "all": [
+          {
+            "source": "query",
+            "field": "customerId",
+            "operator": "regex",
+            "value": "^CUST-([0-9]{3})$"
+          },
+          {
+            "any": [
+              {
+                "source": "query",
+                "field": "segment",
+                "operator": "equals",
+                "value": "VIP"
+              },
+              {
+                "source": "query",
+                "field": "segment",
+                "operator": "contains",
+                "value": "PREMIUM"
+              }
+            ]
+          }
+        ]
+      },
+      "responseStatus": 200,
+      "responseBody": {
+        "status": "Success",
+        "customerSequence": "${captures.query.customerId.1}",
+        "trackingId": {
+          "$regexGenerate": "^TRACK-[0-9]{6}$",
+          "$type": "string"
+        },
+        "trackingBatch": {
+          "$regexGenerate": "^TRACK-[0-9]{4}$",
+          "$regexGenerateCount": 3,
+          "$type": "string"
+        },
+        "seededEmail": {
+          "$fakerType": "email",
+          "$randomSeed": "${request.query.customerId}"
+        }
+      }
+    },
+    {
+      "name": "POST customer body",
+      "when": {
+        "all": [
+          {
+            "source": "body",
+            "field": "customer.id",
+            "operator": "regex",
+            "value": "^(?<prefix>CUST)-([0-9]{4})$"
+          },
+          {
+            "source": "body",
+            "field": "customer.segment",
+            "operator": "contains",
+            "value": "VIP"
+          }
+        ]
+      },
+      "responseStatus": 201,
+      "responseBody": {
+        "status": "Created",
+        "prefix": "${captures.body.customer.id.groups.prefix}",
+        "customerId": "${captures.body.customer.id.2}",
+        "token": {
+          "$regexGenerate": "^TOK-[A-Z]{4}-[0-9]{4}$",
+          "$type": "string"
+        },
+        "contacts": {
+          "$fakerType": "email",
+          "$regexGenerateCount": 2
+        }
+      }
+    }
+  ],
+  "defaultResponse": {
+    "responseStatus": 404,
+    "responseBody": {
+      "status": "NoMatch"
+    }
+  }
+}</pre>
+        <div class="help-block" data-i18n="tab.api_tester.dataset_help_notes">Legacy: un objet match simple reste accepte et est interprete comme une serie de equals sur les query params. Les placeholders utiles sont ${captures.last.1}, ${captures.query.customerId.1}, ${captures.body.customer.id.groups.prefix} et les generateurs de reponse utilisent {$regexGenerate, $regexGenerateCount, $randomSeed, $fakerType, $type}. Faker type est un contrat local inspire des bibliotheques Faker, pas un standard Genesys/OpenAPI.</div>
+      </div>
+    </div>
+  </div>
+</div>

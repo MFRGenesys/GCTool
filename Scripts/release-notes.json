@@ -1,6 +1,25 @@
 {
   "releases": [
     {
+      "version": "v1.7.3",
+      "date": "2026-06-01",
+      "title": "API Tester ajout sur git",
+      "changes": [
+        "Ajout de l'api server sur git pour corriger 404"
+      ]
+    },    {
+      "version": "v1.7.2",
+      "date": "2026-04-13",
+      "title": "API Tester random generators",
+      "changes": [
+        "Ajout d'un aleatoire dynamique sur $regexGenerate pour ne plus retourner toujours la premiere valeur possible.",
+        "Ajout du support $randomSeed pour rendre une generation pseudo-aleatoire reproductible a partir d'une seed.",
+        "Ajout du support $regexGenerateCount pour produire plusieurs valeurs en une seule reponse.",
+        "Ajout du support $fakerType pour generer rapidement des donnees usuelles comme email, uuid, phone, nom, date ou phrase.",
+        "Mise a jour de l'aide, des exemples de dataset/reponse et de la documentation serveur."
+      ]
+    },
+    {
       "version": "v1.7.1",
       "date": "2026-04-10",
       "title": "API Tester multi mocks",
